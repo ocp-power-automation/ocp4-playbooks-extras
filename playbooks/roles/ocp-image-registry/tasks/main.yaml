@@ -1,0 +1,31 @@
+---
+- name: Provide registry-viewer role to the user
+  shell: |
+    oc -n default policy add-role-to-user registry-viewer {{ registry_username }}
+
+- name: Provide registry-editor role to the user
+  shell: |
+    oc -n default policy add-role-to-user registry-editor {{ registry_username }}
+
+- name: Expose the image registry
+  shell: |
+    oc patch configs.imageregistry.operator.openshift.io/cluster --patch '{"spec":{"defaultRoute":true}}' --type=merge
+
+- name: Get Docker registry route
+  shell: |
+     oc get route -n openshift-image-registry default-route -o jsonpath='{.spec.host}'
+  register: default_route
+
+- name: Create docker certificates
+  shell: |
+    mkdir -p /etc/docker/certs.d/{{ default_route.stdout }}
+    echo | openssl s_client -showcerts -servername {{ default_route.stdout }} -connect {{ default_route.stdout }}:443 2>/dev/null | openssl x509 -inform pem > /etc/docker/certs.d/{{ default_route.stdout }}/ca.crt
+
+- name: Login to the image registry using public route
+  shell: |
+    sudo {{ registry_container_engine }} login  -u {{ registry_username }} -p {{ registry_token }} {{ default_route.stdout }}
+  register: login_status
+  failed_when: >
+    (login_status.rc != 0) or
+    ("no such host" in login_status.stdout) or
+    ("invalid username/password" in login_status.stdout)

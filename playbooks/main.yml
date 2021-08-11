@@ -1,0 +1,19 @@
+---
+- import_playbook: ocp-cs.yml
+  when: cs_install
+
+- import_playbook: ocp-scale.yml
+  when: scale_test_enabled
+
+- import_playbook: ocp-registry.yml
+  when: expose_image_registry
+
+- import_playbook: ocp-alerts.yml
+  when: ocp_alerts
+
+- import_playbook: ocp-ovnkube-migration.yml
+  when: ocp_ovnkube_migration
+
+- import_playbook: ocp-e2e.yml
+  when: e2e_tests_enabled or e2e_upgrade_image != ""
+

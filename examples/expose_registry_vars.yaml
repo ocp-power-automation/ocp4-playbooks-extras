@@ -1,0 +1,6 @@
+---
+## exposing image registry vars
+expose_image_registry: false
+registry_container_engine: "podman"
+registry_username:
+registry_token:

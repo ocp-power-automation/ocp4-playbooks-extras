@@ -1,0 +1,124 @@
+---
+# tasks file for ocp4 e2e
+
+- name: Install packages
+  yum:
+    name:
+    - git
+    - "@Development tools"
+    state: latest
+
+- name: Set test and results directory path
+  set_fact:
+    test_dir: "{{ e2e_tests_dir }}/src/github.com/openshift"
+    results_dir: "{{ ansible_env.HOME }}/e2e_tests_results"
+    bin_path: "{{ e2e_tests_dir }}/src/github.com/openshift/origin/openshift-tests"
+    repository_command: "--from-repository quay.io/multi-arch/community-e2e-images"
+
+- name: Set openshift-tests binary path for releases-{4.3, 4.4, 4.5}
+  set_fact:
+    bin_path: "{{ test_dir }}/origin/_output/local/bin/linux/ppc64le/openshift-tests"
+  when: e2e_tests_git_branch == "release-4.3" or e2e_tests_git_branch == "release-4.4" or e2e_tests_git_branch == "release-4.5"
+
+- name: Set repository command -{4.3, 4.4, 4.5, 4.6}
+  set_fact:
+    repository_command: ""
+  when: e2e_tests_git_branch == "release-4.3" or e2e_tests_git_branch == "release-4.4" or e2e_tests_git_branch == "release-4.5" or e2e_tests_git_branch == "release-4.6"
+
+- name: Create test directory
+  file:
+    path: "{{ test_dir }}"
+    state: "{{ item }}"
+    mode: '0755'
+  with_items:
+  - absent
+  - directory
+
+- name: Remove existing directory
+  file:
+    path: "/usr/local/go"
+    state: absent
+
+- name: Download and untar golang
+  unarchive:
+    src: "{{ golang_tarball }}"
+    dest: "/usr/local/"
+    remote_src: yes
+
+- name: Clone e2e tests repo
+  git:
+    repo: "{{ e2e_tests_git }}"
+    dest: "{{ test_dir }}/origin"
+    version: "{{ e2e_tests_git_branch }}"
+
+- name: Run make target
+  make:
+    chdir: "{{ test_dir }}/origin"
+    target: WHAT=cmd/openshift-tests
+  environment: "{{ e2e_env }}"
+
+- name: Copy openshift-tests binary
+  copy:
+   src: "{{ bin_path }}"
+   remote_src: true
+   dest: "/usr/local/bin/"
+   mode: '0755'
+
+- name: Copy kube test repo list
+  template:
+    src: ../files/kube-test-repo-list
+    dest: /tmp/kube-test-repo-list
+    mode: '0755'
+
+- name: Download exclude e2e tests list file
+  when: e2e_tests_exclude_list_url != "" and github_token != ""
+  get_url:
+    url: "{{ e2e_tests_exclude_list_url }}"
+    dest: "{{ test_dir }}/origin/excluded_tests"
+    headers:
+      Authorization: "token {{ github_token }}"
+      Accept: application/vnd.github.v3.raw
+
+- name: Create exclude e2e tests list
+  when: e2e_tests_exclude_list_url == ""
+  file:
+    path: "{{ test_dir }}/origin/excluded_tests"
+    state: touch
+    mode: u=rw,g=r,o=r
+
+- name: Copy invert_excluded python script
+  template:
+    src: ../files/invert_excluded.py
+    dest: "{{ test_dir }}/origin/invert_excluded.py"
+    mode: '0755'
+
+- name: Create results directory
+  file:
+    path: "{{ results_dir }}"
+    state: "{{ item }}"
+    mode: '0755'
+  with_items:
+  - absent
+  - directory 
+
+- name: Prepare test suites and run e2e tests
+  shell: |
+    openshift-tests run openshift/conformance/parallel --dry-run | ./invert_excluded.py excluded_tests > test-suite.txt
+    openshift-tests run -f ./test-suite.txt {{ repository_command }} -o {{ results_dir }}/conformance-parallel-out.txt --junit-dir {{ results_dir }}/conformance-parallel > /dev/null
+    summary=$(cat {{ results_dir }}/conformance-parallel-out.txt | grep 'pass\|fail\|skip' | tail -1)
+    echo $summary |sed 's/error://' >> {{ results_dir }}/summary.txt
+  args:
+    chdir: "{{ test_dir }}/origin"
+  environment: "{{ e2e_env }}"
+  when: e2e_tests_enabled
+
+- name: e2e OCP upgrade
+  shell: |
+    openshift-tests run-upgrade all --to-image={{ e2e_upgrade_image }} -o {{ results_dir }}/conformance-parallel-upgrade-out.txt --junit-dir {{ results_dir }}/conformance-parallel-upgrade
+    summary=$(cat {{ results_dir }}/conformance-parallel-upgrade-out.txt | grep 'pass\|fail\|skip' | tail -1)
+    echo $summary |sed 's/error://' >> {{ results_dir }}/e2e-upgrade-summary.txt
+  args:
+    chdir: "{{ test_dir }}/origin"
+  environment: "{{ e2e_env }}"
+  when: e2e_upgrade_image != ""
+

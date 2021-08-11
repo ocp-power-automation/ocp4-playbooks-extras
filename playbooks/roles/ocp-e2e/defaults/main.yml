@@ -1,0 +1,10 @@
+---
+e2e_tests_enabled: false
+e2e_tests_dir: /tmp/openshift_ws
+e2e_tests_git: "https://github.com/openshift/origin"
+e2e_tests_git_branch: "release-4.4"
+e2e_tests_exclude_list_url: ""
+e2e_upgrade_image: ""
+golang_tarball: "https://dl.google.com/go/go1.12.17.linux-ppc64le.tar.gz"
+github_token: ""
+

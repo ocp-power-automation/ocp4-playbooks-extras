@@ -1,0 +1,38 @@
+---
+
+- name: "Copy alerts rule file"
+  copy:
+    src: "{{ file_src }}"
+    dest: "{{ file_dest }}"
+
+- name: "Run alerts rule file"
+  shell: oc apply -f "{{ file_dest }}"
+
+- name: "Wait for alerts to come up"
+  wait_for:
+    delay: 10
+
+- name: "Get PrometheusRule"
+  shell: 'oc get PrometheusRule -n openshift-monitoring --no-headers | grep -v "prometheus-k8s-rules\|telemetry"  | wc -l'
+  register: rule_count
+
+- name: "Display if PrometheusRule generated"
+  debug:
+    msg: "PrometheusRule is generated"
+  when: rule_count.stdout|int >= 1
+
+- name: "Get alerts route"
+  shell: 'oc get routes --all-namespaces | grep alert | tr -s " " | cut -d" " -f3'
+  register: route
+
+- name: "Print the routes"
+  debug:
+    msg: "{{ route.stdout }}"
+
+- name: "Fetch the fired alerts"
+  shell: 'curl -k -H "Authorization: Bearer $(oc sa  -n openshift-monitoring get-token prometheus-k8s)"  https://{{ route.stdout }}/api/v1/alerts | jq "." | grep alertname'
+  register: alerts_var
+
+- name: "Print the fired alerts"
+  debug:
+    msg: "{{ alerts_var.stdout_lines }}"

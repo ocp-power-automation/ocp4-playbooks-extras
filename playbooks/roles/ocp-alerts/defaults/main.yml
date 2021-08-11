@@ -1,0 +1,3 @@
+---
+file_src: ../files/alert_rule.yaml
+file_dest: /tmp/alert_rule.yaml

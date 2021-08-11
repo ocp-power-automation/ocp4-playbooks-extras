@@ -1,0 +1,12 @@
+---
+#ocp-scale vars
+scale_test_enabled: false
+scale_test_git: "https://github.com/RobertKrawitz/OpenShift4-tools.git"
+scale_test_git_branch: "master"
+scale_test_dir: /tmp/OpenShift4-tools_ws
+scale_num_of_deployments: 100 # Numner of pods to be created
+scale_num_of_objects: 1 # Number of pods to be created in single oc call
+scale_num_of_containers: 1 # Number of containers per pod
+scale_num_of_namespaces: 1 # Number of namespaces to be created
+scale_pod_type: "classic" # Type of pods, other types are pause, server, cpu, sysbench
+

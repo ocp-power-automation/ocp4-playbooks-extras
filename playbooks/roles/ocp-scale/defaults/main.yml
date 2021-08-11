@@ -1,0 +1,10 @@
+---
+scale_test_git: "https://github.com/RobertKrawitz/OpenShift4-tools.git"
+scale_test_git_branch: "master"
+scale_test_dir: /tmp/OpenShift4-tools_ws
+scale_num_of_deployments: 100
+scale_num_of_objects: 1
+scale_num_of_containers: 1
+scale_num_of_namespaces: 1
+scale_pod_type: "classic"
+

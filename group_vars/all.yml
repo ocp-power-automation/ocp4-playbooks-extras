@@ -1,0 +1,20 @@
+---
+
+## ocp-e2e required vars
+e2e_tests_enabled: false
+e2e_upgrade_image: ""
+
+## ocp-cs required vars
+cs_install: false
+
+## ocp-scale required vars
+scale_test_enabled: false
+
+## expose registry required vars
+expose_image_registry: false
+
+## ocp-alerts required vars
+ocp_alerts: false
+
+## ocp-ovnkube-migration required vars
+ocp_ovnkube_migration: false

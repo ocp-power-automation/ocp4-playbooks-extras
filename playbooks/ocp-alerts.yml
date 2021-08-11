@@ -1,0 +1,6 @@
+---
+- name: Run ocp alerts
+  hosts: bastion
+  roles:
+  - ocp-alerts
+

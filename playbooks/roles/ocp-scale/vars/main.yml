@@ -1,0 +1,7 @@
+---
+# vars file for ocp4 scale
+
+scale_env:
+   KUBECONFIG: "{{ ansible_env.HOME }}/.kube/config"
+   PATH:  "{{ ansible_env.PATH }}:{{ scale_test_dir }}/scale"
+

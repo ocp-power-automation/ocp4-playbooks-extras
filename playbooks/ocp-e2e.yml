@@ -1,0 +1,6 @@
+---
+- name: Run e2e test cases
+  hosts: bastion
+  roles:
+  - ocp-e2e
+

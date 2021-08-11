@@ -1,0 +1,5 @@
+---
+- name: Expose image registry
+  hosts: bastion
+  roles:
+  - ocp-image-registry

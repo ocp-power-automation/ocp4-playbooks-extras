@@ -1,0 +1,26 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  labels:
+    prometheus: k8s
+    role: alert-rules
+    app: prometheus-operator
+    release: prometheus-operator
+  name: free-memory-percentage
+  namespace: openshift-monitoring
+spec:
+  groups:
+  - name: free-memory
+    rules:
+    - alert: node_mem_free_Percentage
+      annotations:
+        description: Node memory is under pressure
+      expr: 100 - (100 * node_memory_MemFree_bytes / node_memory_MemTotal_bytes) < 50
+      for: 2m
+  - name: High-CPU-Usage
+    rules:
+    - alert: HighCPUUsage4test
+      annotations:
+        description: CPU usage is above the 0% threshold
+      expr: (100 - (avg by (instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)) > 0
+      for: 2m

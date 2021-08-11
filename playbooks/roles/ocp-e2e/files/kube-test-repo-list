@@ -1,0 +1,11 @@
+quayK8sCSI: quay.io/multiarch-k8s-e2e
+quayIncubator: quay.io/multiarch-k8s-e2e
+e2eRegistry: quay.io/multiarch-k8s-e2e
+gcRegistry: quay.io/multiarch-k8s-e2e
+k8sCSI: quay.io/multiarch-k8s-e2e
+promoterE2eRegistry: quay.io/multiarch-k8s-e2e
+sigStorageRegistry: quay.io/multiarch-k8s-e2e
+e2eVolumeRegistry: quay.io/multiarch-k8s-e2e
+dockerLibraryRegistry: quay.io/sjenning
+dockerGluster: quay.io/sjenning
+

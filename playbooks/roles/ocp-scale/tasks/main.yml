@@ -1,0 +1,37 @@
+---
+# tasks file for ocp4 scale
+
+- name: Install prerequisite packages
+  dnf:
+    name:
+    - git
+    - jq
+    state: latest
+
+- name: Create test directory
+  file:
+    path: "{{ scale_test_dir }}"
+    state: "{{ item }}"
+    mode: '0755'
+  with_items:
+  - absent
+  - directory
+
+- name: Clone scale test repo
+  git:
+    repo: "{{ scale_test_git }}"
+    dest: "{{ scale_test_dir }}/scale"
+    version: "{{ scale_test_git_branch }}"
+
+- name: mkdir ~/scale_test_results/
+  file:
+    path: ~/scale_test_results/
+    state: directory
+
+- name: Run scale tests
+  shell: |
+    ( time clusterbuster -T pod -d {{scale_num_of_deployments}} -b {{scale_num_of_objects}} -c {{scale_num_of_containers}} -N {{scale_num_of_namespaces}} -P {{scale_pod_type}} )  2>&1  | tee  ~/scale_test_results/time_taken
+  args:
+    chdir: "{{ scale_test_dir }}/scale"
+  environment: "{{ scale_env }}"
+

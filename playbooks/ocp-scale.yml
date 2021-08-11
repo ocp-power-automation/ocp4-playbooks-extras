@@ -1,0 +1,6 @@
+---
+- name: Run scale test cases
+  hosts: bastion
+  roles:
+  - ocp-scale
+
