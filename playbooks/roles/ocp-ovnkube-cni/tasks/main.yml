@@ -1,0 +1,51 @@
+---
+- name: Check network provider plugin
+  shell: oc get network.config/cluster -o jsonpath='{.status.networkType}{"\n"}'
+  register: network_provider
+- debug:
+    msg: "NetworkType is: {{ network_provider.stdout }} but expected is OVNkube"
+  failed_when: network_provider.rc != 0 or "OVNKubernetes" not in network_provider.stdout
+
+- name: OVNKube CNI 
+  include: "{{ cni }}"
+  loop:
+    - egress-firewall.yml
+    - egress-ip.yml
+    - networkpolicy.yml
+  when: ovnkube_cni_tests_enabled
+  loop_control:
+    loop_var: cni
+
+- name: Egress-firewall Validation
+  import_tasks: egress-firewall.yml
+  when: egressfirewall_tests_enabled
+
+- name: Egress-ip Validation
+  import_tasks: egress-ip.yml
+  when: egressip_tests_enabled
+
+- name: NetworkPolicy Validation
+  import_tasks: networkpolicy.yml
+  when: networkpolicy_tests_enabled
+
+- name: Display the result success
+  shell: cat /root/result/success.txt
+  register: output
+
+- debug:
+    msg: "{{ output.stdout_lines }}"
+
+- name: Display the result failed
+  shell: cat /root/result/failed.txt
+  register: output
+
+- debug:
+    msg: "{{ output.stdout_lines }}"
+
+- name: cleaning
+  file:
+    path: "/root/result/{{ item }}"
+    state: absent
+  with_items:
+    - success.txt
+    - failed.txt

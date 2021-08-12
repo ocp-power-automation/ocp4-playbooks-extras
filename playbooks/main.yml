@@ -17,3 +17,5 @@
 - import_playbook: ocp-e2e.yml
   when: e2e_tests_enabled or e2e_upgrade_image != ""
 
+- import_playbook: ocp-ovnkube-cni.yml
+  when: ocp_ovnkube_cni
