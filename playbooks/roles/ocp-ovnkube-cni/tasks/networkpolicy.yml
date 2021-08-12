@@ -1,0 +1,404 @@
+---
+- name: NetworkPolicy Create,View,Edit and delete Operations
+  block:
+    - name: Create namespace
+      openshift_raw:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: test-2
+
+    - name: Create network policy
+      openshift_raw:
+        state: present
+        definition:
+          kind: NetworkPolicy
+          apiVersion: networking.k8s.io/v1
+          metadata:
+            name: allow-27107 
+            namespace: test-2
+          spec:
+            podSelector: 
+              matchLabels:
+                app: mongodb
+            ingress:
+            - from:
+              - podSelector: 
+                 matchLabels:
+                   app: app
+              ports: 
+              - protocol: TCP
+                port: 27017
+      register: create_policy
+
+    - name: View NetworkPolicy
+      shell : oc get networkpolicy allow-27107 -n test-2
+      register: get_policies
+
+    - debug:
+        msg: "Network Policies: {{ get_policies.stdout_lines }}"
+
+    - name: Describe NetworkPolicy
+      shell: oc describe networkpolicy.networking.k8s.io/allow-27107 -n test-2
+      register: nw_policies_describe
+
+    - debug:
+        msg: "Network Policies: {{ nw_policies_describe.stdout_lines }}"
+
+    - name: Edit NerworkPolicy 
+      openshift_raw:
+        state: present
+        definition:
+          kind: NetworkPolicy
+          apiVersion: networking.k8s.io/v1
+          metadata:
+            name: allow-27107
+            namespace: test-2
+          spec:
+            podSelector:
+              matchLabels:
+                app: nginx
+            ingress:
+            - from:
+              - podSelector:
+                  matchLabels:
+                    app: app1
+              ports:
+              - protocol: TCP
+                port: 27017
+      register: edit_policy
+
+    - name: Describe NetworkPolicy
+      shell: oc describe networkpolicy.networking.k8s.io/allow-27107 -n test-2
+      register: nw_policies_describe
+
+    - debug:
+        msg: "Network Policies: {{ nw_policies_describe.stdout_lines }}"
+
+    - name: Delete NetworkPolicy
+      shell: oc delete networkpolicy allow-27107 -n test-2
+      register: delete_policy
+     
+    - name: Create Service run-pod
+      openshift_raw:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Service
+          metadata:
+            namespace: test-2
+            name: run-pod
+            labels: 
+              role: web
+          spec:
+            selector:
+              app: web
+            ports:
+              - port: 80
+                targetPort: 9376
+
+    - name: Create POD run-pod
+      openshift_raw:
+        state: present
+        definition:
+          kind: Pod
+          metadata:
+            namespace: test-2
+            name: run-pod
+            labels:
+              role: web
+          spec:
+            containers:
+              - name: run-pod
+                image: quay.io/varad_ahirwadkar/nginx-unprivileged
+                ports:
+                - containerPort: 80
+
+    - name: wait for pods to come up
+      shell: kubectl wait --all  --namespace=test-2 --for=condition=Ready pods --timeout=180s
+      register: pods_status_1
+  
+    - debug:
+        msg: "{{ pods_status_1 }}"
+
+    - name: Create network policy allow-all
+      openshift_raw:
+        state: present
+        definition:
+          kind: NetworkPolicy
+          apiVersion: networking.k8s.io/v1
+          metadata:
+            name: web-allow-all
+            namespace: test-2
+          spec:
+            podSelector:
+              matchLabels:
+                app: web
+            ingress:
+            - {}
+
+    - name: Create NeworkPolicy deny-all
+      openshift_raw:
+        state: present
+        definition:
+          kind: NetworkPolicy
+          apiVersion: networking.k8s.io/v1
+          metadata:
+            name: web-deny-all
+            namespace: test-2
+          spec:
+            podSelector:
+              matchLabels:
+                app: web
+            ingress: []
+
+    - name: View NetworkPolicy
+      shell : oc get networkpolicy -n test-2
+      register: nw_policies
+ 
+    - debug:
+        msg: "Network Policies: {{ nw_policies.stdout_lines }}"
+    
+    - name: Create A Deployment
+      openshift_raw:
+        state: present
+        definition:
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: nginx-deployment
+            namespace: test-2
+            labels:
+              role: webserver
+          spec:
+            replicas: 2
+            selector:
+              matchLabels:
+                role: webserver
+            template:
+              metadata:
+                labels:
+                  role: webserver
+              spec:
+                containers:
+                - name: frontend
+                  image: quay.io/varad_ahirwadkar/nginx-unprivileged
+                  ports:
+                  - containerPort: 80
+
+    - name: wait for pods to come up
+      shell: kubectl wait --all  --namespace=test-2 --for=condition=Ready pods --timeout=180s
+      register: pods_status_2
+   
+    - debug:
+        msg: "{{ pods_status_2 }}"
+
+    - name: Delete Resources
+      shell: |
+        oc delete pod run-pod -n test-2
+        oc delete service run-pod -n test-2
+        oc delete networkpolicy web-allow-all -n test-2
+        oc delete networkpolicy web-deny-all -n test-2 
+        oc delete deployment nginx-deployment -n test-2
+
+    - name: Create result directory
+      file:
+        path: /root/result
+        state: directory
+        mode: '0755'
+ 
+    - name: Create files for result
+      file:
+        path: "/root/result/{{ item }}"
+        state: touch
+      with_items:
+        - success.txt
+        - failed.txt
+
+    - lineinfile:
+        line: "NetworkPolicy Create/View/Update/Delete Success"
+        path: /root/result/success.txt
+        insertafter: EOF
+      when:
+        - create_policy.failed == false and get_policies.failed == false
+        - edit_policy.failed == false and delete_policy.failed == false
+        - pods_status_1.failed == false and pods_status_2.failed == false
+
+    - lineinfile:
+        line: "NetworkPolicy Create/View/Update/Delete Failed {{ item.error }}"
+        path: /root/result/failed.txt
+        insertafter: EOF
+      with_items:
+        - { name: '{{ create_policy }}', error: 'Policy Not Created' } 
+        - { name: '{{ get_policies }}', error: 'Policy Not View' }
+        - { name: '{{ edit_policy }}', error: 'Policy Not Edited' }
+        - { name: '{{ delete_policy }}', error: 'Policy Not Deleted' }
+        - { name: '{{ pods_status_1 }}', error: 'PODs are not running' }
+        - { name: '{{ pods_status_2 }}', error: 'PODs are not running' }
+      when: item.name.failed
+  ignore_errors: yes
+
+- name: Default NetworkPolicy Validation
+  block:
+    - name: Generate the default project template
+      shell: oc adm create-bootstrap-project-template -o yaml > "{{ role_path }}/files/template.yaml"
+
+    - name: Edit the default project template
+      blockinfile:
+        insertbefore: parameters
+        block: "{{ lookup('file', 'multitenant-1.txt') }}"
+        path: "{{ role_path }}/files/template.yaml"
+
+    - name: Delete template if exists
+      shell: oc  delete -f  "{{ role_path }}/files/template.yaml" -n openshift-config
+      ignore_errors: yes
+
+    - name: Create modified template
+      shell: oc  create -f  "{{ role_path }}/files/template.yaml" -n openshift-config
+      register: create_template
+
+    - debug:
+        msg: "{{ create_template.stdout }}"
+
+    - name: Get the project.config.openshift.io/cluster resource
+      shell: oc get project.config.openshift.io/cluster -o yaml > "{{ role_path }}/files/multitenant-config.yaml"
+
+    - name: Edit the project.config.openshift.io/cluster resource
+      lineinfile:
+        path: "{{ role_path }}/files/multitenant-config.yaml"
+        regexp: "spec: {}"
+        state: absent
+
+    - name: Edit the project configuration resource
+      blockinfile:
+          block: "{{ lookup('file', '{{ role_path }}/files/multitenant-config.txt') }}"
+          path: "{{ role_path }}/files/multitenant-config.yaml"
+
+    - name: Apply changes project configuration resource
+      shell: oc apply -f "{{ role_path }}/files/multitenant-config.yaml"
+      register: create_config
+
+    - name: Create a new Project
+      shell: oc new-project test-3
+
+    - name: Confirm that the network policy objects in the new project template exist in the new project
+      shell: oc get networkpolicy -n test-3
+      register: confim_op
+      failed_when: '"allow-from-same-namespace" not in confim_op.stdout'
+ 
+    - debug:
+        msg: "{{ confim_op.stdout_lines }}"
+
+    - name: Delete template
+      shell: oc  delete -f  "{{ role_path }}/files/template.yaml" -n openshift-config
+      ignore_errors: yes
+
+    - name: Generate the default project template
+      shell: |
+        oc adm create-bootstrap-project-template -o yaml > "{{ role_path }}/files/template.yaml"
+        oc  apply -f  "{{ role_path }}/files/template.yaml" -n openshift-config
+
+    - lineinfile:
+        line: "Default NetworkPolicy Success"
+        path: /root/result/success.txt
+        insertafter: EOF
+      when:
+        - create_template.failed == false and create_config.failed == false
+        - confim_op.failed == false
+
+    - lineinfile:
+        line: "Default NetworkPolicy Failed {{ item.error }}"
+        path: /root/result/failed.txt
+        insertafter: EOF
+      with_items:
+        - { name: "{{ create_template }}", error: "Template creation Failed" }
+        - { name: "{{ create_config }}", error: "New configuration not applied" }
+        - { name: "{{ confim_op }}", error: "Default Policy not added to new project"}
+      when: item.name.failed
+  ignore_errors: yes
+
+- name: Multitenant Validation
+  block:
+    - name: Create network policy allow-from-openshift-ingress
+      openshift_raw:
+        state: present
+        definition:
+          kind: NetworkPolicy
+          apiVersion: networking.k8s.io/v1
+          metadata:
+            name: allow-from-openshift-ingress
+            namespace: test
+          spec:
+            ingress:
+            - from:
+              - namespaceSelector:
+                  matchLabels:
+                    network.openshift.io/policy-group: ingress
+            podSelector: {}
+            policyTypes:
+            - Ingress
+      register: policy_1
+    - name: Create network policy allow-from-openshift-monitoring
+      openshift_raw:
+        state: present
+        definition:
+          apiVersion: networking.k8s.io/v1
+          kind: NetworkPolicy
+          metadata:
+            name: allow-from-openshift-monitoring
+            namespace: test
+          spec:
+            ingress:
+            - from:
+              - namespaceSelector:
+                  matchLabels:
+                    network.openshift.io/policy-group: monitoring
+            podSelector: {}
+            policyTypes:
+            - Ingress
+      register: policy_2
+
+    - name: Create network policy allow-same-namespace
+      openshift_raw:
+        state: present
+        definition:
+          apiVersion: networking.k8s.io/v1
+          kind: NetworkPolicy
+          metadata:
+            name: allow-same-namespace
+            namespace: test
+          spec:
+            podSelector:
+              ingress:
+              - from:
+                - podSelector: {}
+      register: policy_3
+
+    - name: Descibe NetworkPolicies
+      shell: oc describe networkpolicy -n test
+      register: output
+
+    - debug:
+        msg: "{{ output }}"
+
+    - lineinfile:
+        line: "Multitenant Success"
+        path: /root/result/success.txt
+        insertafter: EOF
+      when:    
+        - policy_1.failed == false
+        - policy_2.failed == false
+        - policy_3.failed == false
+
+    - lineinfile:
+        line: "Multitenant Faield {{ item.error }}"
+        path: /root/result/failed.txt
+        insertafter: EOF
+      with_items:
+        - { name: "{{ policy_1 }}", error: "Policy Not created" }
+        - { name: "{{ policy_2 }}", error: "Policy Not created" }
+        - { name: "{{ policy_3 }}", error: "Policy Not created" }
+      when: item.name.failed
+  ignore_errors: yes

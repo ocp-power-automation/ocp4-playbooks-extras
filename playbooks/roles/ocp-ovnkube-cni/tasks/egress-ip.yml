@@ -1,0 +1,175 @@
+---
+- name: EgressIP Validation
+  block:
+    - name: Run commands
+      shell: |
+        oc project test
+
+    - name: Get worker nodes 
+      shell: oc get nodes | grep worker | grep -oE ".*worker-[0-9]"
+      register: workers
+  
+    # assignes label to worker nodes which have to assign egressip
+    - name: Assignment of egress labels to nodes
+      k8s:
+        state: present
+        definition:
+          kind: Node
+          apiVersion: v1
+          metadata:
+            name: "{{ wrk_label }}"
+            labels:
+              k8s.ovn.org/egress-assignable: "" 
+      with_items: "{{  workers.stdout_lines }}"
+      loop_control:
+        loop_var: wrk_label
+
+    # get ip addresses of worker nodes 
+    - name: Pick the IP's 
+      shell: |
+        kubectl get nodes --selector="kubernetes.io/hostname={{ wrk_name }}" -o jsonpath={.items[*].status.addresses[?\(@.type==\"InternalIP\"\)].address}
+      with_items: "{{  workers.stdout_lines }}"
+      register: picked_ip
+      loop_control:
+        loop_var: wrk_name
+   
+    - set_fact:
+        worker_ips: []
+
+    - set_fact:
+        worker_ips: "{{ worker_ips + wrk_ip.stdout_lines }}"
+      with_items: "{{ picked_ip.results }}"
+      loop_control:
+        loop_var: wrk_ip
+
+    - debug:
+        msg: "Ip addresses of Worker nodes: {{ worker_ips }}"
+    
+    # updates the IP addresses because egress ips are different from older one
+    # and storing them into array    
+    - name: Update IPs
+      shell: |
+        x="{{ wrk_ips }}"
+        IFS=. read ip1 ip2 ip3 ip4 <<< "$x"
+        echo $(( ($ip1<<24) + ($ip2<<16) + ($ip3<<8) + $ip4 )) >counter
+        read ip <counter
+        echo $((++ip)) >counter
+        printf "%d.%d.%d.%d\n" $(( (ip>>24)&255 )) $(( (ip>>16)&255 )) $(( (ip>>8)&255 )) $((ip&255))
+      with_items: "{{ worker_ips }}"
+      loop_control:
+        loop_var: wrk_ips
+      register: updated_ip
+            
+    - set_fact: 
+        worker_ips1: "{{ worker_ips1 | default([]) + [new_ip.stdout] }}"
+      with_items: "{{ updated_ip.results }}"
+      loop_control:
+        loop_var: new_ip
+
+    - debug:
+        msg: "Updated IPs: {{ worker_ips1 }}"
+
+    # creating configuration for EgressIP resource with updated IPs
+    - name: Create EgressIP resource
+      template:
+        src: "{{ role_path }}/templates/egressips_worker.yaml.j2"
+        dest: "{{ role_path }}/templates/egressips_worker.yaml"
+      register: egressip_res
+
+    # creating egressip resource
+    - name: Deploy EgressIP  Resource
+      include_tasks: "{{ role_path }}/templates/egressips_worker.yaml"
+      when:
+        - egressip_res.failed == false
+
+    - name: Get EgressIp and display
+      shell: oc get egressip
+      register: egressIP_output
+  
+    - debug:
+        msg: "EgressIp assignment: {{  egressIP_output }}"
+
+    # getting worker node which has egressip assigned 
+    - name: Get node to restart
+      shell: oc get egressip | grep -oE "[a-z0-9-]*-worker-[0-9]"
+      register: worker_node
+    
+    - set_fact: node_egress="{{ worker_node.stdout }}"
+
+    # restarting the ergress ip node so another node will get assigned egressip
+    - name: "Restart node {{ node_egress }}"
+      shell: |
+        ssh -o StrictHostKeyChecking=no "core@{{ node_egress }}" sudo shutdown -r -t 3
+      register: node_restart
+      when: egressip_res.failed == false
+
+    - name: Confirm node is restarting
+      shell: |
+        oc get nodes "{{ node_egress }}"
+      register: nodes
+      until:
+        - '" NotReady "  in nodes.stdout'
+      retries: 3
+      delay: 120
+      when: node_restart.failed == false
+
+    - name: Get IP of egress node
+      shell: |
+        oc get egressip | awk 'NR==2 {print $2}'
+      register: node_ip
+
+    # check if assigned egressip is from updated IP array
+    - name: check IP
+      shell: |
+         {%  for element in worker_ips1 %}
+         {% if element == node_ip.stdout %}
+             echo "passsed"
+              break
+         {% endif %}
+         {% endfor %}
+      register: check_ip
+      failed_when: '"passsed" not in check_ip.stdout'
+      when: nodes.failed == false
+
+    - name: Show EgressIP
+      shell: oc get egressip
+      register: egressIP_output
+
+    - debug:
+        msg: "EgressIp assignment: {{  egressIP_output }}"
+
+    - name: Create result directory
+      file:
+        path: /root/result
+        state: directory
+        mode: '0755'
+ 
+    - name: Create files for result
+      file:
+        path: "/root/result/{{ item }}"
+        state: touch
+      with_items:
+        - success.txt
+        - failed.txt
+
+    - lineinfile:
+        line: "EgressIP Success"
+        path: /root/result/success.txt
+        insertafter: EOF
+      when:
+        - egressip_res.failed == false 
+        - node_restart.failed == false and nodes.failed == false
+        - check_ip.failed == false and egressIP_output.failed == false
+
+    - lineinfile:
+        line: "EgressIP Validation Failed {{ item.error }}"
+        path: /root/result/failed.txt
+        insertafter: EOF
+      with_items:
+        - { name: "{{ egressip_res }}", error: "Egress resource not created" }
+        - { name: "{{ node_restart }}", error: "Failed to restart Node" }
+        - { name: "{{ nodes }}", error: "Node not restarted" }
+        - { name: "{{ check_ip }}", error: "Failed" }
+        - { name: "{{ egressIP_output }}", error: "Failed to Update EgressNode" }
+      when: item.name.failed
+  ignore_errors: yes

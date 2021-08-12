@@ -1,0 +1,229 @@
+---
+- name: Create an OCP Project
+  openshift_raw:
+    api_version: project.openshift.io/v1
+    kind: Project
+    name: test
+    state: present
+
+- name: Run commands
+  shell: |
+    oc project test
+
+- name: Create Egress-firewall
+  block:
+    - name: Create Configuration for Egress firewall  
+      openshift_raw:
+        state: present
+        definition:
+          apiVersion: k8s.ovn.org/v1
+          kind: EgressFirewall
+          metadata:
+            name: default
+            namespace: test
+          spec:
+            egress:
+            - type: Deny
+              to:
+                cidrSelector: 0.0.0.0/0
+              ports:
+              - port: 80
+                protocol: TCP
+              - port: 443
+                protocol: TCP
+      register: create_ef
+   
+    - name: Describe egressfirewall default
+      shell: oc describe egressfirewall default
+      register: output
+      failed_when: '"default" not in output.stdout'
+
+    - debug:
+        msg: "the return value of description is {{ output.stdout }}"
+
+    - name: Delete egressfirewall default
+      shell: oc delete EgressFirewall default
+      register: delete_ef
+      when: output.failed == false
+
+    - name: Create result directory
+      file:
+        path: /root/result
+        state: directory
+        mode: '0755'
+ 
+    - name: Create files for result
+      file:
+        path: "/root/result/{{ item }}"
+        state: touch
+      with_items:
+        - success.txt
+        - failed.txt
+
+    - lineinfile:
+        line: "EgressFirewall Create Success"
+        path: /root/result/success.txt
+        insertafter: EOF
+      when: 
+        - create_ef.failed == false
+        - output.failed == false
+        - delete_ef.failed == false
+   
+    - lineinfile:
+        line: "EgressFirewall Create Failed {{ item.error }}"
+        path: /root/result/failed.txt
+        insertafter: EOF
+      with_items:
+        - { name: "{{ create_ef }}", error: "EgressFirewall not created" }
+        - { name: "{{ output }}", error: "EgressFirewall not created" }
+        - { name: "{{ delete_ef }}", error: "EgressFirewall not Deletd" }
+      when: item.name.failed
+  ignore_errors: yes 
+      
+- name: Update EgressFirewall
+  block:
+    - name: Create Second Configuration for Egress firewall
+      openshift_raw:
+        state: present
+        definition:
+          apiVersion: k8s.ovn.org/v1
+          kind: EgressFirewall
+          metadata:
+            name: default
+            namespace: test
+          spec:
+            egress:
+            - type: Deny
+              to:
+                cidrSelector: 8.8.8.8
+              ports:
+              - port: 80
+                protocol: TCP
+      register: create_ef
+ 
+    - name: Show egressfirewall 
+      shell: oc get egressfirewall
+      register: output
+      failed_when:
+        - '"default" not in output.stdout' 
+        - output.stderr != ''
+
+    - debug:
+        msg: "the return value of get egressfirewall is {{ output.stdout }}"
+
+    - name: Describe egressfirewall default
+      shell: oc describe egressfirewall default
+      register: description      
+      when:
+        - '"default" in output.stdout'
+        - output.stderr == ''
+
+    - debug:
+        msg: "the return value of description is {{ description.stdout }}"
+    
+    # get the copy of default egress firewall object 
+    - name: Get copy of EgressFirewall object
+      shell: oc get egressfirewall default -o yaml  > "{{ role_path }}/files/internet_egress_backup.yaml"
+      register: copy_ef
+      when:
+        - '"default" in output.stdout'
+        - output.stderr == ''
+
+    - name: Updates copy of EgressFirewall object
+      blockinfile:
+        insertafter: uid
+        block: "{{ lookup('file', 'egressfirewall_file.txt') }}"
+        path: "{{ role_path }}/files/internet_egress_backup.yaml"
+      register: update_copy
+      when: copy_ef.failed == false
+
+    - name: Replaces the EgressFirewall object
+      shell: oc replace -f "{{ role_path }}/files/internet_egress_backup.yaml"
+      register: replace_ef
+      when: update_copy.failed == false
+
+    - name: Describe egressfirewall default
+      shell: oc describe egressfirewall default
+      register: description_update
+      when: replace_ef.stderr == ''
+
+    - debug:
+        msg: "the return value of description is {{ description_update }}"
+
+    - lineinfile:
+        line: "EgressFirewall Update Success"
+        path: /root/result/success.txt
+        insertafter: EOF
+      when:
+        - create_ef.failed == false and output.failed == false
+        - description.failed == false and copy_ef.failed == false
+        - update_copy.failed == false and replace_ef.failed == false
+        - description_update.failed == false
+
+    - lineinfile:
+        line: "EgressFirewall Update Failed "
+        path: /root/result/failed.txt
+        insertafter: EOF
+      with_items:
+        - "{{ create_ef }}"
+        - "{{ output }}"
+        - "{{ description }}"
+        - "{{ copy_ef }}"
+        - "{{ update_copy }}"
+        - "{{ replace_ef }}"
+        - "{{ description_update }}"
+      when: item.failed
+  ignore_errors: yes    
+
+
+- name: Delete EgressFirewall
+  block:
+    - name: Create Third Configuration for Egress firewall
+      openshift_raw:
+        state: present
+        definition:
+          apiVersion: k8s.ovn.org/v1
+          kind: EgressFirewall
+          metadata:
+            name: default
+            namespace: test
+          spec:
+            egress:
+            - type: Deny
+              to:
+                cidrSelector: 10.131.0.0/23
+              ports:
+      register: create_ef
+
+    - name: Show egressfirewall
+      shell: oc get egressfirewall
+      register: output
+      when: create_ef.failed == false
+  
+    - debug:
+        msg: "the return value of get egressfirewall is {{ output.stdout }}"
+
+    - name: Delete egressfirewall default
+      shell: oc delete EgressFirewall default
+      register: delete_ef
+      when: create_ef.failed == false
+
+    - lineinfile:
+        line: "EgressFirewall Delete Success"
+        path: /root/result/success.txt
+        insertafter: EOF
+      when:
+        - create_ef.failed == false 
+        - output.failed == false
+        - delete_ef.failed == false
+
+    - lineinfile:
+        line: "EgressFirewall Delete Failed "
+        path: /root/result/failed.txt
+        insertafter: EOF
+      with_items:
+        - "{{ create_ef }}"
+        - "{{ output }}"
+        - "{{ delete_ef }}"
+      when: item.failed
+  ignore_errors: yes

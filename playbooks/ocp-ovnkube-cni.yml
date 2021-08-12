@@ -1,0 +1,5 @@
+---
+- name: OVNKube CNI
+  hosts: bastion
+  roles:
+    - role: ocp-ovnkube-cni 
