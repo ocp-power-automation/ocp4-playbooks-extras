@@ -68,3 +68,4 @@ License
 
 See LICENCE.txt
 
+Note:   This repository was cloned from https://github.ibm.com/redstack-power/ocp_ansible_validation
