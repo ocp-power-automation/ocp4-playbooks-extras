@@ -1,0 +1,19 @@
+---
+- name: Create EgressIP Configuration
+  openshift_raw:
+    state: present
+    definition:
+      apiVersion: k8s.ovn.org/v1
+      kind: EgressIP
+      metadata:
+        name: egress-group1
+      spec:
+        egressIPs:
+{% for ip in worker_ips1 %}
+        - {{ ip }}
+{% endfor %}
+        namespaceSelector:
+          matchLabels:
+            name: test
+
+       
