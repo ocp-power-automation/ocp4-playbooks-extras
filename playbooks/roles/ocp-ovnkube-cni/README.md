@@ -13,6 +13,7 @@ OVNKube CNI: OCP OVN-Kubernetes Container Network Interface(CNI) Validation
 #### To-do list:  
 
 - Multicast
+- Logging network policy events
 
 Requirements
 ------------
