@@ -44,14 +44,15 @@ ocp_alerts: false
 file_src: ../files/alert_rule.yaml
 file_dest: /tmp/alert_rule.yaml
 
-## ovnkube_migration vars
-ocp_ovnkube_migration: false
-file_src: ../files/nginx.yaml
-file_dest: /tmp/nginx.yaml
-
 ## ocp-ovnkube-cni required vars
 ocp_ovnkube_cni: false
 ovnkube_cni_tests_enabled: false
 egressfirewall_tests_enabled: false
 egressip_tests_enabled: false
 networkpolicy_tests_enabled: false
+
+## ocp-migration required vars
+ocp_migration: false
+ovnkube_to_sdn: false
+sdn_to_ovnkube: false
+
