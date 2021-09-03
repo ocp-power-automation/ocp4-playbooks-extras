@@ -1,0 +1,160 @@
+---
+- name: Check network provider plugin
+  shell: oc get network.config/cluster -o jsonpath='{.status.networkType}{"\n"}'
+  register: network_provider
+- debug:
+    msg: "NetworkType is : {{ network_provider.stdout }}"
+  failed_when: network_provider.rc != 0 or "OVNKubernetes" not in network_provider.stdout
+  
+
+ # check if Cluster Health is good
+- name: check all Cluster Operators are available
+  shell: oc get co | awk 'NR>1 {if($3=="False" ||  $4=="True" || $5=="True" ){print $1}}'
+  register: co
+  failed_when: co.stdout | length >  0
+
+- name: Check all nodes are Ready
+  shell: oc wait --all  --for=condition=Ready nodes 
+
+- name: check if machineconfigpool in updated state 
+  shell: |
+    oc get machineconfigpool -n openshift-machine-config-operator --no-headers | awk '{ print $3 $4 $5 }' | grep -w  -v TrueFalseFalse  |  wc -l
+  register: operand_count
+  failed_when: operand_count.stdout|int != 0
+
+# Stop all of the machine configuration pools managed by the Machine Config Operator (MCO)
+- name: Stop the master configuration pool
+  shell: |
+      oc patch MachineConfigPool master --type='merge' --patch \
+      '{ "spec": { "paused": true } }'
+
+- name: Stop the worker machine configuration poo
+  shell: |
+    oc patch MachineConfigPool worker --type='merge' --patch '{ "spec":{ "paused" :true } }'
+
+
+# To start the reverse migration, needs few commands to be executed
+- name: Set the migration field is null before setting it to a value
+  shell: |
+    oc patch Network.operator.openshift.io cluster --type='merge' --patch '{"spec": {"migration": null}}'
+
+- name: Patch the operator spec-migration to OpenShiftSDN
+  shell: |
+    oc patch Network.operator.openshift.io cluster --type='merge' --patch '{ "spec": { "migration": { "networkType": "OpenShiftSDN" } } }'
+
+- name: Patch the operator spec to OpenShiftSDN
+  shell: |
+    oc patch Network.config.openshift.io cluster --type='merge' --patch '{ "spec": { "networkType": "OpenShiftSDN" } }'
+
+
+# Wait Until MCP Update state is False
+- name: Check MCP
+  shell: oc get mcp | awk 'NR>1 {if($3=="True"){print $3}}'
+  register: mcp
+  until: mcp.stdout | length ==  0 
+  retries: 5
+  delay: 60
+
+
+# Wait until the Multus daemon set rollout completes
+- name: Wait until the Multus daemon set rollout completes
+  shell: oc -n openshift-multus rollout status daemonset/multus
+  register: pod_restart_status
+  until: pod_restart_status.stdout is search("successfully rolled out")
+  retries: 5
+  delay: 60
+
+# Reboot and check all nodes are Ready
+- name: Register ocp nodes hostname
+  shell: oc get nodes  -o jsonpath='{.items[*].status.addresses[?(@.type=="Hostname")].address}'
+  register: nodes
+
+- name: Reboot nodes to apply changes
+  shell: |
+    for hostname in {{ nodes.stdout }}; do
+      ssh -o StrictHostKeyChecking=no core@${hostname} sudo shutdown -r -t 3
+      sleep 2m
+      export nodestatus=$(oc get nodes | grep ${hostname} | grep -w Ready | wc -l)
+      count=0
+      while [[ ${nodestatus} -ne 1 ]]
+      do
+        sleep 20s
+        nodestatus=$(oc get nodes | grep ${hostname} | grep -w Ready | wc -l)
+        if [[ ${count} -eq 15 ]]
+        then
+         exit;
+        fi
+      done
+    done
+  args:
+    executable: /bin/bash
+
+- name: Check all nodes are Ready
+  shell: oc wait --all  --for=condition=Ready nodes --timeout=300s
+  
+
+# Start the master and worker configuration pool
+- name: Start the master configuration pool
+  shell: |
+    oc patch MachineConfigPool master --type='merge' --patch '{ "spec": { "paused": false } }'
+
+- name: Start the worker configuration pool
+  shell: |
+    oc patch MachineConfigPool worker --type='merge' --patch '{ "spec": { "paused": false } }'
+
+
+# Check MCP status
+- name: Check MCP
+  shell: |
+    sleep 20s
+    oc get machineconfigpool -n openshift-machine-config-operator --no-headers | awk '{ print $3 $4 $5 }' | grep -w  -v TrueFalseFalse  |  wc -l
+  register: mcp
+  until: mcp.stdout|int == 0
+  retries: 5
+  delay: 500
+  ignore_errors: yes
+
+- name: Fail the task if MCP not updated
+  fail:
+    msg: "MCP are in updating state more than expected time. \
+         Please Reboot all the nodes manually. And if the cluster is healthy after rebooting,\
+         please execute commands mentioned in reademe file for OVNKube ot OpenshiftSDN"
+  when: mcp.failed 
+
+# Check Nodes status
+- name: Check all nodes are Ready
+  shell: oc wait --all --for=condition=Ready nodes --timeout=20s
+
+# Check CO status
+- name: check if all CO are in AVAILABLE state
+  shell:  oc get co  | awk '{ print $3}' | grep -v AVAILABLE | grep False | wc -l
+  register: co_status
+  failed_when: 0 < co_status.stdout|int
+
+- name: check if CO are not in Progressing and Available state
+  shell:  oc get co  | awk '{ print $4}' | grep -v PROGRESSING | grep True | wc -l
+  register: co_progress_status
+- debug:
+    msg: "Some CO not in good state {{ check_ovn_pod_status.stdout_lines }}"
+  when: 0 < co_progress_status.stdout|int 
+
+# Check NetworkType
+- name: Check the network type
+  shell: oc get network.config/cluster -o jsonpath='{.status.networkType}{"\n"}'
+  register: network_type
+- debug:
+    msg: "NetworkType :{{ network_provider.stdout }}" 
+  failed_when: network_type.rc != 0 or "OpenShiftSDN" not in network_type.stdout
+
+
+# Complete the following steps only if the migration succeeds and your cluster is in a good state
+- name: To remove the migration configuration from the Cluster Network Operator configuration object
+  shell: |
+    oc patch Network.operator.openshift.io cluster --type='merge' --patch '{ "spec": { "migration": null } }'
+
+- name: To remove the OVN-Kubernetes configuration
+  shell: | 
+    oc patch Network.operator.openshift.io cluster --type='merge' --patch '{ "spec": { "defaultNetwork": { "ovnKubernetesConfig":null } } }'
+
+- name: To remove the OVN-Kubernetes network provider namespace
+  shell: oc delete namespace openshift-ovn-kubernetes

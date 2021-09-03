@@ -1,6 +1,0 @@
----
-- name: ocp Run OVNKube migration
-  hosts: bastion
-  roles:
-  - ocp-ovnkube-migration
-

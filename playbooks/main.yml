@@ -11,11 +11,12 @@
 - import_playbook: ocp-alerts.yml
   when: ocp_alerts
 
-- import_playbook: ocp-ovnkube-migration.yml
-  when: ocp_ovnkube_migration
-
 - import_playbook: ocp-e2e.yml
   when: e2e_tests_enabled or e2e_upgrade_image != ""
 
 - import_playbook: ocp-ovnkube-cni.yml
   when: ocp_ovnkube_cni
+
+- import_playbook: ocp-migration.yml
+  when: ocp_migration
+

@@ -1,0 +1,5 @@
+---
+- name: OCP migration and rollback of NetworkType
+  hosts: bastion
+  roles:
+  - ocp-migration
