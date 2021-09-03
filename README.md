@@ -8,12 +8,7 @@ This repository consists of additional ansible playbooks for the following:
 4. Expose OCP internal image registry
 5. Run alerts configuration
 6. Run OVNKube migration configuration
-
-
-To-do list:
-
-6. Deploy Cloud Paks
-
+7. Run OVN-Kubernetes CNI Validation 
 
 ## Assumptions:
 
