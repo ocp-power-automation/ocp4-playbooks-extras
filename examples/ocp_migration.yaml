@@ -1,0 +1,4 @@
+## ocp-migration required vars
+ocp_migration: false
+sdn_to_ovnkube: false
+ovnkube_to_sdn: false

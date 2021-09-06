@@ -7,7 +7,7 @@ This repository consists of additional ansible playbooks for the following:
 3. Run scale tests against an existing OCP4 cluster
 4. Expose OCP internal image registry
 5. Run alerts configuration
-6. Run OVNKube migration configuration
+6. Run migration and rollback of Container Network Interface (CNI) cluster network provider
 7. Run OVN-Kubernetes CNI Validation 
 
 ## Assumptions:
