@@ -56,3 +56,5 @@ ocp_migration: false
 ovnkube_to_sdn: false
 sdn_to_ovnkube: false
 
+## global-secret-update required vars
+global_secret_update: false
