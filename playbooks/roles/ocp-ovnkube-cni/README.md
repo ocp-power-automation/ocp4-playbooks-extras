@@ -44,6 +44,9 @@ To validate egressfirewall:
 ocp_ovnkube_cni: true
 egressfirewall_tests_enabled: true
 ```
+Note
+-----
+- Please re run the playbook if any testcase fails for the first time.
 
 Dependencies
 ------------
