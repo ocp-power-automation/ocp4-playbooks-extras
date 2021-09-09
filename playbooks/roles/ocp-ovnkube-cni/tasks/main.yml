@@ -3,7 +3,7 @@
   shell: oc get network.config/cluster -o jsonpath='{.status.networkType}{"\n"}'
   register: network_provider
 - debug:
-    msg: "NetworkType is: {{ network_provider.stdout }} but expected is OVNkube"
+    msg: "NetworkType is: {{ network_provider.stdout }} and expected is OVNkube"
   failed_when: network_provider.rc != 0 or "OVNKubernetes" not in network_provider.stdout
 
 - name: OVNKube CNI 
@@ -42,7 +42,7 @@
 - debug:
     msg: "{{ output.stdout_lines }}"
 
-- name: cleaning
+- name: Remove result files
   file:
     path: "/root/result/{{ item }}"
     state: absent
