@@ -243,41 +243,39 @@
 - name: Default NetworkPolicy Validation
   block:
     - name: Generate the default project template
-      shell: oc adm create-bootstrap-project-template -o yaml > "{{ role_path }}/files/template.yaml"
+      shell: |
+        oc project default
+        oc adm create-bootstrap-project-template -o yaml > "{{ role_path }}/files/template.yaml"
 
     - name: Edit the default project template
       blockinfile:
         insertbefore: parameters
-        block: "{{ lookup('file', 'multitenant-1.txt') }}"
+        block: "{{ lookup('file', 'default_policy.txt') }}"
         path: "{{ role_path }}/files/template.yaml"
 
-    - name: Delete template if exists
-      shell: oc  delete -f  "{{ role_path }}/files/template.yaml" -n openshift-config
-      ignore_errors: yes
-
     - name: Create modified template
-      shell: oc  create -f  "{{ role_path }}/files/template.yaml" -n openshift-config
+      shell: oc  apply -f  "{{ role_path }}/files/template.yaml" -n openshift-config
       register: create_template
 
     - debug:
         msg: "{{ create_template.stdout }}"
 
     - name: Get the project.config.openshift.io/cluster resource
-      shell: oc get project.config.openshift.io/cluster -o yaml > "{{ role_path }}/files/multitenant-config.yaml"
+      shell: oc get project.config.openshift.io/cluster -o yaml > "{{ role_path }}/files/default_policy_config.yaml"
 
     - name: Edit the project.config.openshift.io/cluster resource
       lineinfile:
-        path: "{{ role_path }}/files/multitenant-config.yaml"
+        path: "{{ role_path }}/files/default_policy_config.yaml"
         regexp: "spec: {}"
         state: absent
 
     - name: Edit the project configuration resource
       blockinfile:
-          block: "{{ lookup('file', '{{ role_path }}/files/multitenant-config.txt') }}"
-          path: "{{ role_path }}/files/multitenant-config.yaml"
+          block: "{{ lookup('file', '{{ role_path }}/files/default_policy_config.txt') }}"
+          path: "{{ role_path }}/files/default_policy_config.yaml"
 
     - name: Apply changes project configuration resource
-      shell: oc apply -f "{{ role_path }}/files/multitenant-config.yaml"
+      shell: oc apply -f "{{ role_path }}/files/default_policy_config.yaml"
       register: create_config
 
     - name: Create a new Project
@@ -294,6 +292,11 @@
     - name: Delete template
       shell: oc  delete -f  "{{ role_path }}/files/template.yaml" -n openshift-config
       ignore_errors: yes
+
+    - name: Delete namespace
+      shell: |
+        oc delete ns test-3
+        oc project default
 
     - name: Generate the default project template
       shell: |
@@ -321,6 +324,15 @@
 
 - name: Multitenant Validation
   block:
+    - name: Create namespace
+      openshift_raw:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: test
+        
     - name: Create network policy allow-from-openshift-ingress
       openshift_raw:
         state: present
@@ -340,6 +352,7 @@
             policyTypes:
             - Ingress
       register: policy_1
+
     - name: Create network policy allow-from-openshift-monitoring
       openshift_raw:
         state: present
