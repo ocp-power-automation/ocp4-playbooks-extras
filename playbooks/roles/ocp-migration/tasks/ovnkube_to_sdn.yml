@@ -126,24 +126,33 @@
   shell: oc wait --all --for=condition=Ready nodes --timeout=20s
 
 # Check CO status
-- name: check if all CO are in AVAILABLE state
-  shell:  oc get co  | awk '{ print $3}' | grep -v AVAILABLE | grep False | wc -l
-  register: co_status
-  failed_when: 0 < co_status.stdout|int
-
 - name: check if CO are not in Progressing and Available state
   shell:  oc get co  | awk '{ print $4}' | grep -v PROGRESSING | grep True | wc -l
   register: co_progress_status
-- debug:
-    msg: "Some CO not in good state {{ check_ovn_pod_status.stdout_lines }}"
-  when: 0 < co_progress_status.stdout|int 
+  until: co_progress_status.stdout|int == 0
+  retries: 5
+  delay: 30
+  ignore_errors: yes
+
+- name: check if all CO are in AVAILABLE state
+  shell:  oc get co  | awk '{ print $3}' | grep -v AVAILABLE | grep False | wc -l
+  register: co_status
+  until: co_status.stdout|int == 0
+  retries: 5
+  delay: 30
+  ignore_errors: yes
+
+- name: Fail when CO's are not in good status 
+  fail:
+    msg: "Cluster operators are not in good status after rollback"
+  when: 0 < co_progress_status.stdout|int or  0 < co_status.stdout|int
 
 # Check NetworkType
 - name: Check the network type
   shell: oc get network.config/cluster -o jsonpath='{.status.networkType}{"\n"}'
   register: network_type
 - debug:
-    msg: "NetworkType :{{ network_provider.stdout }}" 
+    msg: "NetworkType :{{ network_type.stdout }}" 
   failed_when: network_type.rc != 0 or "OpenShiftSDN" not in network_type.stdout
 
 
