@@ -1,0 +1,98 @@
+---
+# Change project to default
+- name: Change project to default
+  shell: oc project default
+
+# Check if secret podman-login is exist
+- name: Check if secret podman-login is exist in current namespace
+  shell: oc get secret podman-login | wc -l
+  register: login_secret
+
+- name: Fail if secret podman-login doesnot exist in current namespace
+  fail:
+    msg: "Secret podman-login doesnot exist in current namespace"
+  when: login_secret.stdout|int!=2
+
+# set disableAllDefaultSources to true
+- name: Setting disableAllDefaultSources to true
+  shell: oc patch operatorhub.config.openshift.io/cluster -p='{"spec":{"disableAllDefaultSources":true}}' --type=merge
+  register: output 
+  ignore_errors: yes
+
+- name: Fail if unable to set disableAllDefaultSources to true
+  fail:
+    msg: "Unable to set disableAllDefaultSources to true : {{  output.stderr }}"
+  when: output.failed
+
+# get pull seret and store it in root location
+- name: Getting PULL Secret
+  shell: |
+    oc get secret/pull-secret -n openshift-config -o json | jq -r '.data.".dockerconfigjson"' | base64 -d > /root/authfile
+  register: output
+  ignore_errors: yes
+
+- name: Fail if unable to pull secret/pull-secret 
+  fail:
+    msg: "Unable to pull secret/pull-secret : {{  output.stderr }}"
+  when: output.failed
+
+# Get username and password from secret
+- name: Get username from Secret
+  shell: |
+    oc get secret podman-login  -o jsonpath="{.data.username}"|base64 --decode
+  register: username
+  ignore_errors: yes
+
+- name: Fail when unable to get username from secret
+  fail:
+    msg: "Unable to get username from secret please check secret. {{ username.stderr }}"
+  when: username.failed
+
+- name:  Get password from Secret
+  shell: |
+    oc get secret podman-login  -o jsonpath="{.data.password}"|base64 --decode
+  register: password
+  ignore_errors: yes
+
+- name: Fail when unable to get password from secret
+  fail:
+    msg: "Unable to get password from secret please check secret. {{ password.stderr }}"
+  when: password.failed
+
+- name:  Get registry from Secret
+  shell: |
+    oc get secret podman-login  -o jsonpath="{.data.registry}"|base64 --decode
+  register: registry
+  ignore_errors: yes
+
+- name: Fail when unable to get registry from Secret
+  fail:
+    msg: "Unable to get registry from secret please check secret. {{ registry.stderr }}"
+  when: registry.failed
+
+
+
+# Podman login
+- name: Podman Login
+  shell: |
+    podman login --authfile /root/authfile --username {{ username.stdout | quote }}  --password {{ password.stdout | quote}} {{ registry.stdout }}
+  register: output
+  ignore_errors: yes
+
+- name: Fail if podman login failed
+  fail:
+    msg: "Podman login failed : {{  output.stderr }}"
+  when: output.failed
+
+# Setting pullsecret
+- name: Set data/pullsecret
+  shell: |
+    oc set data secret/pull-secret -n openshift-config --from-file=.dockerconfigjson=/root/authfile
+  register: output
+  ignore_errors: yes
+
+- name: Fail if Set data/pullsecret failed
+  fail:
+    msg: "Set data/pullsecret failed : {{  output.stderr }}"
+  when: output.failed
+

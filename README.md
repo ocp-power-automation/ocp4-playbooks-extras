@@ -9,6 +9,7 @@ This repository consists of additional ansible playbooks for the following:
 5. Run alerts configuration
 6. Run migration and rollback of Container Network Interface (CNI) cluster network provider
 7. Run OVN-Kubernetes CNI Validation 
+8. Run Global Secret Update
 
 ## Assumptions:
 

@@ -20,3 +20,5 @@
 - import_playbook: ocp-migration.yml
   when: ocp_migration
 
+- import_playbook: global-secret-update.yml
+  when: global_secret_update
