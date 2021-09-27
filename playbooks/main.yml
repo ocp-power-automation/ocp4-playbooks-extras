@@ -22,3 +22,6 @@
 
 - import_playbook: global-secret-update.yml
   when: global_secret_update
+
+- import_playbook: ocp-etcd-encryption-decryption.yml
+  when: ocp_etcd

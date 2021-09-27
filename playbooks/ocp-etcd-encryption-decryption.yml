@@ -1,0 +1,6 @@
+---
+-
+  name: OCP etcd Encryption and Decryption 
+  hosts: bastion
+  roles:
+    - role: ocp-etcd-encryption-decryption

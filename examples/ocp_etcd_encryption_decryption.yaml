@@ -1,0 +1,2 @@
+## ocp-etcd-encryption-decryption vars
+ocp_etcd: false
