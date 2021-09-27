@@ -10,7 +10,7 @@ This repository consists of additional ansible playbooks for the following:
 6. Run migration and rollback of Container Network Interface (CNI) cluster network provider
 7. Run OVN-Kubernetes CNI Validation 
 8. Run Global Secret Update
-
+9. Run etcd data encryption and decryption
 ## Assumptions:
 
  - A healthy OpenShift 4 cluster in running state.
