@@ -23,6 +23,9 @@
 - import_playbook: global-secret-update.yml
   when: global_secret_update
 
+- import_playbook: ocp-cluster-log-forwarding.yml
+  when: ocp_cluster_log_forwarding
+
 - import_playbook: ocp-etcd-encryption-decryption.yml
   when: ocp_etcd
 
