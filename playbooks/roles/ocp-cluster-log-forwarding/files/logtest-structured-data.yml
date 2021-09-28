@@ -1,0 +1,61 @@
+---
+apiVersion: v1
+items:
+- apiVersion: v1
+  data:
+    json.example: '{"message": "MERGE_JSON_LOG=true", "level": "debug","Layer1": "layer1
+      0", "layer2": {"name":"Layer2 1", "tips":"Decide by PRESERVE_JSON_LOG"}, "StringNumber":"10",
+      "Number": 10,"foo.bar":"Dot Item","{foobar}":"Brace Item","[foobar]":"Bracket
+      Item", "foo:bar":"Colon Item","foo bar":"Space Item" }'
+    ocp_logtest.cfg: --raw --file /var/lib/svt/json.example  --text-type input --rate
+      60.0
+  kind: ConfigMap
+  metadata:
+    annotations:
+      openshift.io/generated-by: OpenShiftNewApp
+    creationTimestamp: null
+    labels:
+      app: centos-logtest-template
+      app.kubernetes.io/component: centos-logtest-template
+      app.kubernetes.io/instance: centos-logtest-template
+    name: logtest-config
+- apiVersion: v1
+  kind: ReplicationController
+  metadata:
+    annotations:
+      openshift.io/generated-by: OpenShiftNewApp
+    creationTimestamp: null
+    labels:
+      app: centos-logtest-template
+      app.kubernetes.io/component: centos-logtest-template
+      app.kubernetes.io/instance: centos-logtest-template
+      run: centos-logtest
+      test: centos-logtest
+    name: centos-logtest
+  spec:
+    replicas: 1
+    template:
+      metadata:
+        creationTimestamp: null
+        generateName: centos-logtest-
+        labels:
+          run: centos-logtest
+          test: centos-logtest
+      spec:
+        containers:
+        - image: quay.io/pravin_dsilva/centos:logtest
+          imagePullPolicy: Always
+          name: centos-logtest
+          resources: {}
+          terminationMessagePath: /dev/termination-log
+          volumeMounts:
+          - mountPath: /var/lib/svt
+            name: config
+        volumes:
+        - configMap:
+            name: logtest-config
+          name: config
+  status:
+    replicas: 0
+kind: List
+metadata: {}

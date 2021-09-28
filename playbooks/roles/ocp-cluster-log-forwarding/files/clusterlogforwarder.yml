@@ -1,0 +1,149 @@
+
+---
+- name: Create an ClusterLogForwarder instance for external syslog-infra
+  openshift_raw:
+    state: present
+    definition:
+      apiVersion: logging.openshift.io/v1
+      kind: ClusterLogForwarder
+      metadata:
+        name: instance 
+        namespace: openshift-logging 
+      spec:
+        outputs:
+        - name: elasticsearch-insecure
+          type: elasticsearch
+          url: "{{ elasticsearch_url }}" 
+          outputDefaults:
+            elasticsearch:
+              structuredTypeKey: kubernetes.namespace_name
+              structuredTypeName: fall-in-index
+        - name: rsyslog-application
+          type: syslog 
+          syslog: 
+            appName: "{{ app_log_appname }}"
+            facility: user
+            rfc: RFC5424
+            msgID: mymsg
+            procID: myproc
+            severity: informational
+          url: "{{ syslog_url }}" 
+          secret: 
+              name: syslog-secret
+        - name: rsyslog-infra
+          type: syslog 
+          syslog: 
+            appName: "{{ infra_log_appname }}"
+            facility: user
+            rfc: RFC5424
+            msgID: mymsg
+            procID: myproc
+            severity: informational
+          url: "{{ syslog_url }}" 
+          secret: 
+              name: syslog-secret
+        - name: rsyslog-audit
+          type: syslog 
+          syslog: 
+            appName: "{{ audit_log_appname }}"
+            facility: user
+            rfc: RFC5424
+            msgID: mymsg
+            procID: myproc
+            severity: informational
+          url: "{{ syslog_url }}" 
+          secret: 
+              name: syslog-secret
+        - name: kafka-app-logs
+          type: kafka
+          url: "{{ kafka_url }}/{{ app_log_appname }}"
+        - name: kafka-infra-logs
+          type: kafka
+          url: "{{ kafka_url }}/{{ infra_log_appname }}"
+        - name: kafka-audit-logs
+          type: kafka
+          url: "{{ kafka_url }}/{{ audit_log_appname }}"
+        - name: fluentd-server-insecure
+          type: fluentdForward
+          url: "{{ fluentd_url }}"
+        pipelines:
+        - name: application-logs
+          inputRefs: 
+          - application
+          outputRefs: 
+          - rsyslog-application
+          - elasticsearch-insecure
+          - kafka-app-logs
+          - fluentd-server-insecure
+          - default
+          parse: json 
+          labels:
+            logs: "{{ app_log_appname }}"
+        - name: infrastructure-logs 
+          inputRefs:
+          - infrastructure
+          outputRefs:
+          - rsyslog-infra
+          - elasticsearch-insecure
+          - kafka-infra-logs
+          - fluentd-server-insecure
+          - default
+          parse: json 
+          labels:
+            logs: "{{ infra_log_appname }}"
+        - name: audit-logs 
+          inputRefs:
+          - audit
+          outputRefs:
+          - rsyslog-audit
+          - elasticsearch-insecure
+          - kafka-audit-logs
+          - fluentd-server-insecure
+          - default
+          parse: json 
+          labels: 
+            logs: "{{ audit_log_appname }}"
+  register: eclf_cr
+
+- name: Check the logging Pods are restarting if CR for CLF has changed
+  block:
+    # check pods are in restarting state
+    - name: Check the logging Pods are restarting
+      shell: oc get pods -n openshift-logging --no-headers | awk '{if ($3 == "Terminating" ) print $1}' | wc -l
+      register: pods
+      until: pods.stdout|int > 0
+      retries: 10
+      delay: 5
+      ignore_errors: yes
+
+    - name: Delete PODs if not restarted Automatic
+      shell: oc delete pod $(kubectl get pods -n openshift-logging| grep fluent | awk '{print $1}') -n openshift-logging
+      when: pods.failed
+  when: eclf_cr.changed
+  
+# check pods are in good state
+- name: Check the logging Pods are in good state
+  shell: oc get pods -n openshift-logging --no-headers | awk '{if ($3 != "Running" && $3 != "Completed" ) print $1}' | wc -l
+  register: pods
+  until: pods.stdout|int == 0
+  retries: 6
+  delay: 60
+  ignore_errors: yes
+  
+- name: Get Error state pods 
+  shell: oc get pod -n openshift-logging | grep Error| wc -l
+  register: err_pods
+
+- name: Delete all pods in error state
+  shell: oc delete pod $(kubectl get pods -n openshift-logging| grep Error | awk '{print $1}') -n openshift-logging
+  when: err_pods.stdout|int != 0
+
+# check pods are in good state
+- name: Check the logging Pods are in good state
+  shell: oc get pods -n openshift-logging --no-headers | awk '{if ($3 != "Running" && $3 != "Completed" ) print $1}' | wc -l
+  register: pods
+  until: pods.stdout|int == 0
+  retries: 15
+  delay: 120
+
+

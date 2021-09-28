@@ -1,0 +1,13 @@
+## ocp-cluster-log-forwarding required vars
+ocp_cluster_log_forwarding: false
+cluster_log_forwarder: false
+cluster_logging_channel: ""
+elastic_search_channel: ""
+elasticsearch_clf_cs: ""  # brew.registry.redhat.io/rh-osbs/iib:11111
+clusterlogging_clf_cs: "" #brew.registry.redhat.io/rh-osbs/iib:11111
+log_label: ""
+elasticsearch_url: ""
+syslog_url: ""
+kafka_url: ""
+fluentd_url: ""
+

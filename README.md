@@ -12,6 +12,7 @@ This repository consists of additional ansible playbooks for the following:
 8. Run Global Secret Update
 9. Run etcd data encryption and decryption
 10. Run IBM Block storage CSI (Raw block)
+11. Run OCP ClusterLogForwarding Installation
 
 ## Assumptions:
 
