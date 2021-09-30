@@ -1,0 +1,133 @@
+---
+# check if Cluster Health is good
+- name: Check all Cluster Operators are available
+  shell: oc get co | awk 'NR>1 {if($3=="False" ||  $4=="True" || $5=="True" ){print $1}}' | wc -l
+  register: co
+
+- name: Fail when Cluster Operators are not available
+  fail: 
+    msg: " {{ co.stdout }} Cluster Operators is/are not available."
+  when: co.stdout | int !=  0
+
+- name: Check all nodes are Ready
+  shell: oc wait --all --for=condition=Ready nodes --timeout=10s
+
+# Encryption
+# Modify the APIServer object
+- name: Modify the APIServer object for Encryption
+  shell: |
+     oc patch apiserver cluster --type='merge' --patch \
+     '{ "spec": { "encryption": { "type": "aescbc" } } }'
+
+# Tasks file for verification of encryption
+- name: Verify that etcd encryption was successful
+  shell: oc get openshiftapiserver -o=jsonpath='{range .items[0].status.conditions[?(@.type=="Encrypted")]}{.reason}{"\n"}{.message}{"\n"}'
+  register: describe_etcd_encryption
+  until: describe_etcd_encryption.stdout is search("EncryptionCompleted")
+  retries: 10
+  delay: 300
+  ignore_errors: yes
+
+- debug:
+     msg: "{{ describe_etcd_encryption.stdout }}"
+
+- name: Fail when etcd encryption was not successful
+  fail: 
+    msg: "Encryption has not completed"
+  when: describe_etcd_encryption.failed
+
+# Review the Encrypted status condition for the Kubernetes API server to verify that its resources were successfully decrypted
+- name: Encrypted status condition for the Kubernetes API server
+  shell: oc get kubeapiserver -o=jsonpath='{range .items[0].status.conditions[?(@.type=="Encrypted")]}{.reason}{"\n"}{.message}{"\n"}'
+  register: encrypted_status_K8s_APIServer
+  until: encrypted_status_K8s_APIServer.stdout is search("EncryptionCompleted")
+  retries: 10
+  delay: 300
+  ignore_errors: yes
+  
+- debug:
+    msg: "{{ encrypted_status_K8s_APIServer.stdout }}"
+  
+- name: Fail when Encrypted status of Kubernetes API server was not successful
+  fail:
+    msg: "Encryption has not completed"
+  when: encrypted_status_K8s_APIServer.failed
+
+# Review the Encrypted status condition for the OpenShift OAuth API server to verify that its resources were successfully encrypted.
+- name: Encrypted status condition for the OpenShift OAuth API server
+  shell: oc get authentication.operator.openshift.io -o=jsonpath='{range .items[0].status.conditions[?(@.type=="Encrypted")]}{.reason}{"\n"}{.message}{"\n"}'
+  register: encrypted_status_OAuth_APIServer
+  until: encrypted_status_OAuth_APIServer.stdout is search("EncryptionCompleted")
+  retries: 10
+  delay: 300
+  ignore_errors: yes
+
+- debug:
+    msg: "{{ encrypted_status_OAuth_APIServer.stdout }}"
+
+- name: Fail when Encrypted status for the OpenShift OAuth API server was not successful
+  fail:
+    msg: "Encryption has not completed"
+  when: encrypted_status_OAuth_APIServer.failed
+
+
+# Decryption
+# Modify the APIServer object for Decryption
+- name: Modify the APIServer object for Decryption
+  shell: |
+     oc patch apiserver cluster --type='merge' --patch \
+     '{ "spec": { "encryption": { "type": "identity" } } }'
+
+# Task file for verification of decryption
+- name: Verify that etcd decryption was successful
+  shell: oc get openshiftapiserver -o=jsonpath='{range .items[0].status.conditions[?(@.type=="Encrypted")]}{.reason}{"\n"}{.message}{"\n"}'
+  register: describe_etcd_decryption
+  until: describe_etcd_decryption.stdout is search("DecryptionCompleted")
+  retries: 10
+  delay: 300
+  ignore_errors: yes
+
+- debug: 
+    msg: "{{ describe_etcd_decryption.stdout }}"
+
+- name: Fail when etcd decryption was not successful
+  fail:
+    msg: "Encryption is Successfull but Decryption has not completed"
+  when: describe_etcd_decryption.failed
+
+# Review the Encrypted status condition for the Kubernetes API server to verify that its resources were successfully decrypted
+- name: Decrypted status condition for the Kubernetes API server
+  shell: oc get kubeapiserver -o=jsonpath='{range .items[0].status.conditions[?(@.type=="Encrypted")]}{.reason}{"\n"}{.message}{"\n"}'
+  register: decryption_status_K8s_APIServer
+  until: decryption_status_K8s_APIServer.stdout is search("DecryptionCompleted")
+  retries: 10
+  delay: 300
+  ignore_errors: yes
+
+- debug: 
+    msg: "{{ decryption_status_K8s_APIServer.stdout }}"
+
+- name: Fail when etcd decryption of bernetes API server was not successful
+  fail:
+    msg: "Encryption is Successfull but Decryption has not completed"
+  when: decryption_status_K8s_APIServer.failed
+
+# Review the Decrypted status condition for the OpenShift OAuth API server to verify that its resources were successfully decrypted.
+- name: Decryption status condition for the OpenShift OAuth API server
+  shell: oc get authentication.operator.openshift.io -o=jsonpath='{range .items[0].status.conditions[?(@.type=="Encrypted")]}{.reason}{"\n"}{.message}{"\n"}'
+  register: decryption_status_OAuth_APIServer
+  until: decryption_status_OAuth_APIServer.stdout is search("DecryptionCompleted")
+  retries: 10
+  delay: 300
+  ignore_errors: yes
+
+- debug: 
+    msg: "{{ decryption_status_OAuth_APIServer.stdout }}"
+
+- name: Fail when etcd decryption for the OpenShift OAuth API server was not successful
+  fail:
+    msg: "Encryption is Successfull but Decryption has not completed"
+  when: decryption_status_OAuth_APIServer.failed
+
+- debug:
+     msg: "ETCD Encryption and Decryption is Successfull"

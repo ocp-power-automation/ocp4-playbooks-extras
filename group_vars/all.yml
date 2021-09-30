@@ -30,3 +30,6 @@ sdn_to_ovnkube: false
 
 ## global-secret-update required vars
 global_secret_update: false
+
+## ocp-etcd-encryption-decryption vars
+ocp_etcd: false
