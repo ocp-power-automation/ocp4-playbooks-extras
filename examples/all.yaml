@@ -56,6 +56,15 @@ ocp_migration: false
 ovnkube_to_sdn: false
 sdn_to_ovnkube: false
 
+##ibm-block-csi var
+ocp_ibm_block_csi: false
+management_address: ""
+username: ""
+password: ""
+iSCSI_setup_dir: ~/setup-files/iSCSI_setup_dir
+file_src_99_ibm_attach: ../files/99-ibm-attach.yaml
+file_dest_99_ibm_attach: /tmp/99-ibm-attach.yaml
+
 ## global-secret-update required vars
 global_secret_update: false
 
