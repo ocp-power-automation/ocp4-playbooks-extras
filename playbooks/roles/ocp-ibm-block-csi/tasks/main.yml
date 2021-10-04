@@ -1,0 +1,241 @@
+---
+- debug:
+    msg: "Management address, username and password are mandatory to run"
+  failed_when: password == "" or management_address == "" or username == ""
+
+- name: get url for csi block storage 
+  get_url:
+    url: "https://raw.githubusercontent.com/IBM/ibm-block-csi-operator/master/deploy/installer/generated/ibm-block-csi-operator.yaml"
+    dest: "./ibm-block-csi-operator.yaml"
+    mode: 0755
+
+- name: To check the downloaded ibm block csi oprator .
+  shell: 'ls -la'
+  register: check_minifest_file
+- debug:
+    msg: "check_minifest : {{ check_minifest_file.stdout }}"
+  failed_when: check_minifest_file.rc != 0 or "ibm-block-csi-operator.yaml" not in  check_minifest_file.stdout
+ 
+- name: Install the operator in namespace
+  shell: | 
+          kubectl -n default apply -f ibm-block-csi-operator.yaml
+
+- name: To verify the operator is running or not
+  shell: kubectl get pod -l app.kubernetes.io/name=ibm-block-csi-operator -n default | awk '{ print $3}' | grep -v Status | grep Running | wc -l
+  register: operator_status
+- debug:
+    msg: "Operator_status: {{ operator_status.stdout }}"
+  failed_when: operator_status.stdout|int != 1
+
+- name: Install the IBM block storage CSI driver by creating an IBMBlockCSI custom resource
+  get_url:
+   url: https://raw.githubusercontent.com/IBM/ibm-block-csi-operator/v1.6.0/deploy/crds/csi.ibm.com_v1_ibmblockcsi_cr.yaml
+   dest: ./csi.ibm.com_v1_ibmblockcsi_cr.yaml
+   mode: 0755
+
+- name: To check the downloaded ibm block storage class .
+  shell: 'ls -la'
+  register: check_storage
+- debug:
+    msg: "check_minifest : {{ check_storage.stdout }}"
+  failed_when: check_storage.rc != 0 or "csi.ibm.com_v1_ibmblockcsi_cr.yaml" not in  check_storage.stdout
+
+- name: Apply  the csi.ibm.com_v1_ibmblockcsi_cr.yaml
+  shell: 'kubectl -n default apply -f csi.ibm.com_v1_ibmblockcsi_cr.yaml'
+
+- name: To verify the driver is running or not
+  shell: kubectl get pod -l app.kubernetes.io/name=ibm-block-csi-operator -n default | awk '{ print $3}' | grep -v Status | grep Running | wc -l
+  register: driver_status
+- debug:
+    msg: "Driver_status: {{ driver_status.stdout }}"
+  failed_when: driver_status.stdout|int == 0 
+
+- name: Create setup directory
+  file:
+    path: "{{ iSCSI_setup_dir }}"
+    state: "{{ item }}"
+    mode: '0755'
+  with_items:
+  - absent
+  - directory
+
+- name: Generate config yaml files
+  template:
+    src: "../templates/{{ item }}.yaml"
+    dest: "{{ iSCSI_setup_dir }}/{{ item }}.yaml"
+  with_items:
+  - demo-secret
+  - demo-pvc-raw-block
+  - demo-pvc-file-system
+  - demo-statefulset-file-system
+   template:
+    src: "../files/demo-storageclass.yaml"
+    dest: "{{ iSCSI_setup_dir }}/{{ item }}.yaml"
+
+- name: Create a k8s namespace
+  k8s:
+    name: default
+    api_version: v1
+    kind: Namespace
+    state: present
+
+- name: Changing to default namespace
+  shell: "oc project default"
+
+- name: Create secret
+  k8s:
+    state: present
+    src: "{{ iSCSI_setup_dir }}/demo-secret.yaml"
+
+- name: Create storage class 
+  k8s:
+    state: present
+    src: "{{ iSCSI_setup_dir }}/demo-storageclass.yaml"
+    
+- name: Create pvc 
+  k8s:
+    state: present
+    src: "{{ iSCSI_setup_dir }}/demo-pvc-raw-block.yaml"
+  
+- name: To get pvc status
+  shell:  oc get pvc | awk '{ print $2}' | grep -v STATUS | grep -w  -v Bound | wc -l
+  register: pvc_status
+- debug:
+     msg: "pvc is created: {{ pvc_status.stdout }}"
+  failed_when: pvc_status.stdout|int != 1
+
+- name: Install the prerequisite if you want to attach the raw block PVC to a custom pod
+  shell: |
+          yum -y install iscsi-initiator-utils
+
+- name: Install the xfsprogs
+  shell: |
+          yum -y install xfsprogs
+
+- name: Copy the the Machine configration file
+  copy:
+    src: "{{ file_src_99_ibm_attach }}"
+    dest: "{{ file_dest_99_ibm_attach }}"
+
+
+- name:  Apply the Machine configration
+  shell: oc apply -f "{{ file_dest_99_ibm_attach }}"
+
+- name: Wait for apply the Machine configration
+  wait_for:
+    delay: 5
+
+- name: check for the machine configration
+  shell: oc get machineconfig | grep 99-ibm
+  register: machineconfig_status
+- debug:
+    msg: "Machine configration status: {{ machineconfig_status.stdout }} "
+
+- name: create pvc with file system 
+  k8s:
+    state: present
+    src: "{{ iSCSI_setup_dir }}/demo-pvc-file-system.yaml"
+
+- name:  To create stateful state
+  k8s:
+    state: present
+    src: "{{ iSCSI_setup_dir }}/demo-statefulset-file-system.yaml"
+
+- name: Verify on which node the pod demo-statefulset-file-system-0 is running
+  shell: oc get pod demo-statefulset-file-system-0 -o wide | sed '1d'| awk '{ print $7 }'
+  register: worker_node
+- debug:
+    msg: "ip of worker: {{ worker_node.stdout }}" 
+
+- name: To enable multipathd on worker node
+  shell: ssh -o StrictHostKeyChecking=no core@worker-0 sudo systemctl enable multipathd
+
+- name: To start multipathd on worker node
+  shell: ssh -o StrictHostKeyChecking=no core@worker-0 sudo systemctl start multipathd
+
+- name: To check multipathd on worker node
+  shell: sudo systemctl status multipathd
+
+- name: To enable multipath configration 
+  shell: /sbin/mpathconf --enable
+
+- name: Now exit from worker
+  shell: exit
+
+- name: Create pvc with file system
+  k8s:
+    state: present
+    src: "{{ iSCSI_setup_dir }}/demo-pvc-file-system.yaml"
+
+- name:  To create stateful state
+  k8s:
+    state: present
+    src: "{{ iSCSI_setup_dir }}/demo-statefulset-file-system.yaml"
+
+- name: Wait for demo-stateful-file-system
+  wait_for:
+    delay: 3
+    
+- name: check the status of newly created pod 
+  shell: oc get pods | grep demo-statefulset-file-system-0   
+  register: new_pod_status
+- debug:
+    msg: "{{ new_pod_status.stdout }}"
+   
+- name:  Write data to the persistent volume of the pod 
+  shell: oc exec demo-statefulset-file-system-0 -- touch /data/demo-test-file
+
+- name:  To check data at persistent volume.
+  shell: oc exec demo-statefulset-file-system-0 -- ls /data
+  register: demo_data
+- debug:
+   msg: "{{ demo_data.stdout }}"
+
+- name: Delete StatefulSet and then recreate, in order to validate data (/data/demo-test-file) remains in the persistent volume.
+  shell: oc delete statefulset/demo-statefulset-file-system
+  register: status_statefulset
+- debug:
+   msg: "{{ status_statefulset.stdout }}"
+
+- name:  Login to worker node 
+  shell: ssh -o StrictHostKeyChecking=no core@worker-0 sudo systemctl status multipathd
+ 
+- name: List the physical devices of the multipath mpathz and its mountpoint on the host(This is the /data inside the stateful pod)
+  shell: lsblk /dev/sdb /dev/sdc
+
+  #- name:  View the PV mounted on this host or not 
+  #shell: df | egrep pvc
+
+- name: Exit from worker
+  shell: exit
+
+- name: Recreate the StatefulSet 
+  k8s:
+    state: present
+    src: "{{ iSCSI_setup_dir }}/demo-statefulset-file-system.yaml"
+
+- name: Wait for demo-stateful-file-system
+  wait_for:
+    delay: 5 
+
+- name: Check the status of newly created pod
+  shell: oc get pods | grep demo-statefulset-file-system-0
+  register: new_pod_status
+- debug:
+    msg: "{{ new_pod_status.stdout }}"
+
+- name: Verify that /data/demo-test-file exists
+  shell: kubectl exec demo-statefulset-file-system-0 -- ls /data
+  register: data_on_volume
+- debug: 
+    msg: "{{ data_on_volume.stdout }}"
+  failed_when: data_on_volume == ""
+
+- name: Check if all co are in AVAILABLE state and check no any co are in PROGRESSING  state and DEGRADED state
+  shell:  oc get co -n default --no-headers | awk '{ print $3 $4 $5 }' | grep -w  -v TrueFalseFalse  |  wc -l
+  register: co_status
+- debug:
+    msg: "co are in good state"
+  failed_when: 0 != co_status.stdout|int
+
+

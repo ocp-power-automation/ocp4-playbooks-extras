@@ -1,0 +1,9 @@
+#ibm-block csi  vars
+ibm_block_csi_vars: true
+management_address: ""
+username: ""   
+password: ""
+file_src_99_ibm_attach: ../files/99-ibm-attach.yaml
+file_dest_99_ibm_attach: /tmp/99-ibm-attach.yaml
+
+
