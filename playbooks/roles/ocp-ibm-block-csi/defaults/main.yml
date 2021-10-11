@@ -1,0 +1,5 @@
+---
+iSCSI_setup_dir: ~/setup-files/iSCSI_setup_dir
+
+file_src_99-ibm-attach: ../files/99-ibm-attach.yaml
+file_dest_99-ibm-attach: /tmp/99-ibm-attach.yaml

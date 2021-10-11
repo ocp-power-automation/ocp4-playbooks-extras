@@ -25,3 +25,6 @@
 
 - import_playbook: ocp-etcd-encryption-decryption.yml
   when: ocp_etcd
+
+- import_playbook: ocp-ibm-block-csi.yml
+  when: ocp_ibm_block_csi

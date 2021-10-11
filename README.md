@@ -11,6 +11,8 @@ This repository consists of additional ansible playbooks for the following:
 7. Run OVN-Kubernetes CNI Validation 
 8. Run Global Secret Update
 9. Run etcd data encryption and decryption
+10. Run IBM Block storage CSI (Raw block)
+
 ## Assumptions:
 
  - A healthy OpenShift 4 cluster in running state.
