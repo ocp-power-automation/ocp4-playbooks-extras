@@ -1,0 +1,6 @@
+## ocp-nfd-operator required vars
+ocp_nfd: false
+update_channel: ""
+nfd_instance_image_version: ""
+nfd_catalogsource: "" # quay.io/openshift-release-dev/ocp-release-nightly:iib-int-index-art-operators-4.9
+

@@ -1,0 +1,324 @@
+---
+
+ # check if Cluster Health is good
+- name: check all Cluster Operators are available
+  shell: oc get co | awk 'NR>1 {if($3=="False" ||  $4=="True" || $5=="True" ){print $1}}'
+  register: co
+  failed_when: co.stdout | length >  0
+
+- name: Check all nodes are Ready
+  shell: oc wait --all  --for=condition=Ready nodes 
+
+# Uses user defined ImageContentSourcePolicy and CatalogSource
+- name: Create ImageContentSourcePolicy and CatalogSource
+  block: 
+  - name: Create CatalogSource
+    template:
+      src: "{{ role_path }}/templates/CatalogSource.yaml.j2"
+      dest: "{{ role_path }}/files/CatalogSource.yml"
+
+  - name: Run ImageSource
+    shell: oc apply -f "{{ role_path }}/files/ImageContentSourcePolicy.yml"
+     
+  - name: Run CatalogSource
+    shell: oc apply -f "{{ role_path }}/files/CatalogSource.yml"
+ 
+  - name: Check ImageSource and CatalogSource added
+    shell:  oc get CatalogSource -n openshift-marketplace | grep "nfd-catalogsource" |wc -l
+    register: output
+
+  - name: Fail if CatalogSource not added
+    fail:
+      msg: "CatalogSource not added !"
+    when: output.stdout|int != 1
+ 
+  - name: set fact variable for Subscription
+    set_fact:
+      nfd_op_source: "nfd-catalogsource"
+  when: nfd_catalogsource != '' and nfd_catalogsource != None
+
+
+# Uses default ImageContentSourcePolicy and CatalogSource
+- name: Use Default Sources
+  block: 
+  - name: Check ImageContentSourcePolicy exists
+    shell: oc get ImageContentSourcePolicy | grep brew-registry | wc -l
+    register: icsp
+
+  - name: Check CatalogSource exists
+    shell:  oc get CatalogSource -n openshift-marketplace | grep "nfd-catalogsource" |wc -l
+    register: output
+
+  - name: Delete ImageContentSourcePolicy if exist
+    shell: oc delete ImageContentSourcePolicy brew-registry
+    when: icsp.stdout|int == 1
+
+  - name: Delete CatalogSource if exists
+    shell: oc delete CatalogSource nfd-catalogsource -n openshift-marketplace
+    when: output.stdout|int == 1
+
+  - name: Set disableAllDefaultSources to false
+    shell: |
+      oc patch operatorhub.config.openshift.io/cluster -p='{"spec":{"disableAllDefaultSources":false}}' --type=merge
+
+  - name: set fact variable for Subscription
+    set_fact:
+      nfd_op_source: "redhat-operators"
+  when: nfd_catalogsource == "" or nfd_catalogsource == None
+
+
+# Creating a namespace for NFD Operator Installation
+- name: Create a namespace for the NFD Operator
+  openshift_raw:
+     state: present
+     definition:
+       apiVersion: v1
+       kind: Namespace
+       metadata:
+         name: openshift-nfd
+
+
+# Installing NFD Operator
+- name: Install the NFD Operator in the namespace
+  openshift_raw:
+     state: present
+     definition:
+       apiVersion: operators.coreos.com/v1
+       kind: OperatorGroup
+       metadata:
+         generateName: openshift-nfd-
+         name: openshift-nfd
+         namespace: openshift-nfd
+       spec:
+         targetNamespaces:
+         - openshift-nfd
+
+- name: Wait till nfd packagemanifest is ready
+  shell: oc get packagemanifest  -n openshift-marketplace| grep nfd | wc -l 
+  register: nfd
+  until: nfd.stdout|int >= 1
+  retries: 10
+  delay: 120
+
+# Fetching the default update channel value which will be used for Subscription
+- name: Get the channel value 
+  shell: oc get packagemanifest nfd -n openshift-marketplace -o jsonpath='{.status.defaultChannel}'
+  register: output
+  when: update_channel == None or update_channel == ""
+
+- set_fact: 
+    channel: "{{ output.stdout }}"
+  when: update_channel == None or update_channel == ""
+
+- set_fact: 
+    channel: "{{ update_channel|string }}"
+  when: update_channel != None and update_channel != ""
+
+# Creating subscription for NFD Operator 
+- name: Create the Subscription CR
+  openshift_raw:
+     state: present
+     definition:
+       apiVersion: operators.coreos.com/v1alpha1
+       kind: Subscription
+       metadata:
+         name: nfd
+         namespace: openshift-nfd
+       spec:
+         channel: "{{ channel }}"
+         installPlanApproval: Automatic
+         name: nfd
+         source: "{{ nfd_op_source }}"
+         sourceNamespace: openshift-marketplace
+
+
+# Verification of ClusterServiceVersion Installation
+- name: Verify ClusterServiceVersion
+  shell: oc get csv -n openshift-nfd | grep 'nfd.*Succeeded' | wc -l
+  register: csv
+  until: csv.stdout|int == 1
+  retries: 10
+  delay: 120
+
+# To verify that the Operator deployment is successful
+- name: Verify that the Operator deployment is successful
+  shell: oc get pods -n openshift-nfd | grep nfd-controller-manager.*Running.* | wc -l
+  register: pod
+  until: pod.stdout|int == 1
+  retries: 10
+  delay: 120
+
+
+# Get the cluster version for pulling the NFD Image wit same version
+- name: Get the cluster version
+  shell: oc version | awk 'NR==1{print $3}' | cut -d'.' -f1-2
+  register: cluster_version
+  when: nfd_instance_image_version == None or nfd_instance_image_version == ""
+
+- set_fact:
+    nfd_instance_image: "{{ nfd_instance_image_version }}"
+  when: nfd_instance_image_version != None and nfd_instance_image_version != ""
+
+- set_fact:
+    nfd_instance_image: "{{ cluster_version.stdout }}"
+  when: nfd_instance_image_version == None or nfd_instance_image_version == ""
+
+  # Create the NodeFeatureDiscovery CR
+- name: Create the  NodeFeatureDiscovery Custom Resource 
+  openshift_raw:
+    state: present
+    definition:
+      apiVersion: nfd.openshift.io/v1
+      kind: NodeFeatureDiscovery
+      metadata:
+        name: nfd-instance
+        namespace: openshift-nfd
+      spec:
+        customConfig:
+          configData: |
+            #    - name: "more.kernel.features"
+            #      matchOn:
+            #      - loadedKMod: ["example_kmod3"]
+            #    - name: "more.features.by.nodename"
+            #      value: customValue
+            #      matchOn:
+            #      - nodename: ["special-.*-node-.*"]
+        operand:
+          image: >-
+            registry.redhat.io/openshift4/ose-node-feature-discovery:v{{ nfd_instance_image }}
+          imagePullPolicy: Always
+          namespace: openshift-nfd
+          servicePort: 12000
+        workerConfig:
+          configData: |
+            core:
+            #  labelWhiteList:
+            #  noPublish: false
+              sleepInterval: 60s
+            #  sources: [all]
+            #  klog:
+            #    addDirHeader: false
+            #    alsologtostderr: false
+            #    logBacktraceAt:
+            #    logtostderr: true
+            #    skipHeaders: false
+            #    stderrthreshold: 2
+            #    v: 0
+            #    vmodule:
+            ##   NOTE: the following options are not dynamically run-time 
+            ##          Configurable and require a nfd-worker restart to take effect
+            ##          after being changed
+            #    logDir:
+            #    logFile:
+            #    logFileMaxSize: 1800
+            #    skipLogHeaders: false
+            sources:
+            #  cpu:
+            #    cpuid:
+            ##     NOTE: whitelist has priority over blacklist
+            #      attributeBlacklist:
+            #        - "BMI1"
+            #        - "BMI2"
+            #        - "CLMUL"
+            #        - "CMOV"
+            #        - "CX16"
+            #        - "ERMS"
+            #        - "F16C"
+            #        - "HTT"
+            #        - "LZCNT"
+            #        - "MMX"
+            #        - "MMXEXT"
+            #        - "NX"
+            #        - "POPCNT"
+            #        - "RDRAND"
+            #        - "RDSEED"
+            #        - "RDTSCP"
+            #        - "SGX"
+            #        - "SSE"
+            #        - "SSE2"
+            #        - "SSE3"
+            #        - "SSE4.1"
+            #        - "SSE4.2"
+            #        - "SSSE3"
+            #      attributeWhitelist:
+            #  kernel:
+            #    kconfigFile: "/path/to/kconfig"
+            #    configOpts:
+            #      - "NO_HZ"
+            #      - "X86"
+            #      - "DMI"
+              pci:
+                deviceClassWhitelist:
+                  - "0200"
+                  - "03"
+                  - "12"
+                deviceLabelFields:
+            #      - "class"
+                  - "vendor"
+            #      - "device"
+            #      - "subsystem_vendor"
+            #      - "subsystem_device"
+            #  usb:
+            #    deviceClassWhitelist:
+            #      - "0e"
+            #      - "ef"
+            #      - "fe"
+            #      - "ff"
+            #    deviceLabelFields:
+            #      - "class"
+            #      - "vendor"
+            #      - "device"
+            #  custom:
+            #    - name: "my.kernel.feature"
+            #      matchOn:
+            #        - loadedKMod: ["example_kmod1", "example_kmod2"]
+            #    - name: "my.pci.feature"
+            #      matchOn:
+            #        - pciId:
+            #            class: ["0200"]
+            #            vendor: ["15b3"]
+            #            device: ["1014", "1017"]
+            #        - pciId :
+            #            vendor: ["8086"]
+            #            device: ["1000", "1100"]
+            #    - name: "my.usb.feature"
+            #      matchOn:
+            #        - usbId:
+            #          class: ["ff"]
+            #          vendor: ["03e7"]
+            #          device: ["2485"]
+            #        - usbId:
+            #          class: ["fe"]
+            #          vendor: ["1a6e"]
+            #          device: ["089a"]
+            #    - name: "my.combined.feature"
+            #      matchOn:
+            #        - pciId:
+            #            vendor: ["15b3"]
+            #            device: ["1014", "1017"]
+            #          loadedKMod : ["vendor_kmod1", "vendor_kmod2"]
+
+
+- name : Verify NodeFeatureDiscovery instance is created
+  shell:  oc get NodeFeatureDiscovery -n openshift-nfd | wc -l
+  register: nfd_cr
+  until: nfd_cr.stdout|int == 2
+  retries: 10
+  delay: 120 
+
+- name: Get number of pods 
+  shell: oc get pods -n openshift-nfd | wc -l
+  register: pods_count
+  until: pods_count.stdout|int > 6
+  retries: 10
+  delay: 60
+
+# To verify that the Operator deployment is successful
+- name: Verify the instance is created and all pods are running
+  shell: oc get pods -n openshift-nfd --no-headers | awk '{print $3}'| grep -v Running | wc -l
+  register: not_running_pods
+  until: not_running_pods.stdout|int == 0
+  retries: 10
+  delay: 120
+
+
