@@ -6,7 +6,7 @@ This is a role which is created for global secret update. This can be used in di
 ### It performs following operations:  
 - Set `disableAllDefaultSources` to true
 - Get pull secret and store it in root location as /root/authfile
-- Get `username` , `password` and `registry` from ocp secret named as `podman-login`
+- Get `username` , `password` and `registry` from ocp secret named as `podman-secret`
 - Podman login and then set pull secret
 
 Note:
@@ -18,14 +18,14 @@ Requirements
 ------------
 
  - Running OCP 4.x cluster is needed.
- - Create one OCP secret with name `podman-login`  in the default namespace and has following keys:
+ - Create one OCP secret with name `podman-secret`  in the default namespace and has following keys:
 `username` ,`password`  and `registry`   
 eg.
 ```
 apiVersion: v1
 kind: Secret
 metadata:
-  name: podman-login
+  name: podman-secret
 type: kubernetes.io/basic-auth
 stringData:
   username: admin
