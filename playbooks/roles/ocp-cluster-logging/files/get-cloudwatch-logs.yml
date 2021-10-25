@@ -1,0 +1,40 @@
+# Install boto3
+- name: Install boto3 
+  pip:
+    name: boto3
+
+# Check if the secret for AWS is exists
+- name: Check if the secret "{{ cw_secret }}" exists in the openshift-logging namespace
+  shell: oc get secret "{{ cw_secret }}" -n openshift-logging 
+  register: aws_secret
+  ignore_errors: yes 
+
+- block:
+    # Get aws_access_key and aws_secret_key from secret
+    - name: Get AWS access key ID from secret
+      shell: |
+        oc get secret "{{ cw_secret }}" -n openshift-logging  -o jsonpath="{.data.aws_access_key_id}"|base64 --decode
+      register: aws_access_key
+      ignore_errors: yes
+
+    - name:  Get AWS secret key from "{{ cw_secret }}"
+      shell: |
+        oc get secret "{{ cw_secret }}" -n openshift-logging  -o jsonpath="{.data.aws_secret_access_key}"|base64 --decode
+      register: aws_secret_key
+      ignore_errors: yes
+
+    # Get log group prefix
+    - name: Get log group prefix
+      shell: oc get Infrastructure/cluster -ojson | jq .status.infrastructureName
+      register: cw_log_gp
+      ignore_errors: yes
+      
+    # Fetches the logs from AWS CloudWatch and clean up
+    - name: Get logs from AWS CloudWatch
+      command: python3 get-cloudwatch-logs.py {{ aws_access_key.stdout }} {{ aws_secret_key.stdout }} {{ cw_log_gp.stdout }} {{ aws_cw_region }} {{cl_log_dir}}
+      args:
+        chdir: "{{ role_path }}/files"
+      async: 120
+      poll: 10
+      ignore_errors: yes
+  when: aws_secret.failed == false
