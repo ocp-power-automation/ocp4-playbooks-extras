@@ -72,17 +72,23 @@ global_secret_update: false
 ocp_etcd: false
 
 ## ocp-cluster-log-forwarding required vars
-ocp_cluster_log_forwarding: false
+ocp_cluster_logging: false
 cluster_log_forwarder: false
 cluster_logging_channel: ""
 elastic_search_channel: ""
-elasticsearch_clf_cs: "" # brew.registry.redhat.io/rh-osbs/iib:111110
+elasticsearch_clf_cs: ""  # brew.registry.redhat.io/rh-osbs/iib:111110
 clusterlogging_clf_cs: "" # brew.registry.redhat.io/rh-osbs/iib:11111
 log_label: ""
 elasticsearch_url: ""
 syslog_url: ""
-kafka_url: ""
 fluentd_url: ""
+kafka_url: ""
+kafka_path: "" # Location of kafka on external vm ex. /root/kafka/kafka_2.13-2.7.0/bin 
+loki_url: ""
+cloudwatch_secret: ""
+aws_region: ""
+log_dir_path: "/root/clf_logs"
+clf_clean_up: false
 
 ## ocp-nfd-operator required vars
 ocp_nfd: false

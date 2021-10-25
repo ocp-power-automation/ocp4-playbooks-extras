@@ -1,0 +1,101 @@
+# Check if the ClusterLogging CR is exists
+- name: Check if the ClusterLogging instance exists
+  shell: oc get ClusterLogging -n openshift-logging | wc -l
+  register: check_cl
+
+# Create a OpenShift logging instance
+- name: Create an instance for logging operator
+  openshift_raw:
+    state: present
+    definition:
+      apiVersion: "logging.openshift.io/v1"
+      kind: "ClusterLogging"
+      metadata:
+        name: "instance"
+        namespace: "openshift-logging"
+      spec:
+        managementState: "Managed"
+        logStore:
+          type: "elasticsearch"
+          retentionPolicy:
+            application:
+              maxAge: 1d
+            infra:
+              maxAge: 7d
+            audit:
+              maxAge: 7d
+          elasticsearch:
+            nodeCount: 3
+            storage:
+              size: 200G
+            resources:
+              requests:
+                memory: "8Gi"
+            proxy:
+              resources:
+                limits:
+                  memory: 256Mi
+                requests:
+                  memory: 256Mi
+            redundancyPolicy: "SingleRedundancy"
+        visualization:
+          type: "kibana"
+          kibana:
+            replicas: 1
+        curation:
+          type: "curator"
+          curator:
+            schedule: "30 3 * * *"
+        collection:
+          logs:
+            type: "fluentd"
+            fluentd: {}
+  register: cl_cr
+
+# Check if deployment is successfull
+- name: Check the deployment
+  shell: oc get deployment -n openshift-logging | awk '{print $1}' | wc -l
+  register: deployments
+  until: deployments.stdout|int > 4
+  retries: 10
+  delay: 120
+
+- name: Check logging pods are restarting if CR for ClusterLogging has changed
+  block:
+    # Check pods are in restarting state
+    - name: Check the logging Pods are restarting
+      shell: oc get pods -n openshift-logging --no-headers | awk '{if ($3 == "Terminating" ) print $1}' | wc -l
+      register: pods
+      until: pods.stdout|int > 0
+      retries: 10
+      delay: 5
+      ignore_errors: yes
+
+    - name: Delete pods if not restarted automatic
+      shell: oc delete pod $(oc get pods -n openshift-logging| grep 'fluent\|collector' | awk '{print $1}') -n openshift-logging
+      when: pods.failed
+
+    # Check pods are in good state
+    - name: Check the logging pods are in good state
+      shell: oc get pods -n openshift-logging --no-headers | awk '{if ($3 != "Running" && $3 != "Completed" ) print $1}' | wc -l
+      register: pods
+      until: pods.stdout|int == 0
+      retries: 10
+      delay: 90
+      ignore_errors: yes
+  when: cl_cr.changed and check_cl.stdout|int != 0
+  
+- name: Get error state pods 
+  shell: oc get pod -n openshift-logging | grep Error| wc -l
+  register: err_pods
+
+- name: Delete all pods in error state
+  shell: oc delete pod $(oc get pods -n openshift-logging| grep Error | awk '{print $1}') -n openshift-logging
+  when: err_pods.stdout|int != 0
+
+- name: Check the logging pods are in good state
+  shell: oc get pods -n openshift-logging --no-headers | awk '{if ($3 != "Running" && $3 != "Completed" ) print $1}' | wc -l
+  register: pods
+  until: pods.stdout|int == 0
+  retries: 20
+  delay: 120

@@ -1,6 +1,4 @@
-
----
-- name: Create an ClusterLogForwarder instance for external syslog-infra
+- name: Create an ClusterLogForwarder instance
   openshift_raw:
     state: present
     definition:
@@ -11,99 +9,163 @@
         namespace: openshift-logging 
       spec:
         outputs:
+{% if elasticsearch_server_url is defined %}
         - name: elasticsearch-insecure
           type: elasticsearch
-          url: "{{ elasticsearch_url }}" 
+          url: "{{ elasticsearch_server_url }}" 
           outputDefaults:
             elasticsearch:
               structuredTypeKey: kubernetes.namespace_name
               structuredTypeName: fall-in-index
+{% endif %}
+{% if syslog_server_url is defined %}
         - name: rsyslog-application
           type: syslog 
           syslog: 
-            appName: "{{ app_log_appname }}"
+            appName: "app-logs"
             facility: user
             rfc: RFC5424
             msgID: mymsg
             procID: myproc
             severity: informational
-          url: "{{ syslog_url }}" 
+          url: "{{ syslog_server_url }}" 
           secret: 
               name: syslog-secret
         - name: rsyslog-infra
           type: syslog 
           syslog: 
-            appName: "{{ infra_log_appname }}"
+            appName: "infra-logs"
             facility: user
             rfc: RFC5424
             msgID: mymsg
             procID: myproc
             severity: informational
-          url: "{{ syslog_url }}" 
+          url: "{{ syslog_server_url }}" 
           secret: 
               name: syslog-secret
         - name: rsyslog-audit
           type: syslog 
           syslog: 
-            appName: "{{ audit_log_appname }}"
+            appName: "audit-logs"
             facility: user
             rfc: RFC5424
             msgID: mymsg
             procID: myproc
             severity: informational
-          url: "{{ syslog_url }}" 
+          url: "{{ syslog_server_url }}" 
           secret: 
               name: syslog-secret
+{% endif %}
+{% if kafka_server_url is defined %}
         - name: kafka-app-logs
           type: kafka
-          url: "{{ kafka_url }}/{{ app_log_appname }}"
+          url: "{{ kafka_server_url }}/{{ app_log_label }}"
         - name: kafka-infra-logs
           type: kafka
-          url: "{{ kafka_url }}/{{ infra_log_appname }}"
+          url: "{{ kafka_server_url }}/{{ infra_log_label }}"
         - name: kafka-audit-logs
           type: kafka
-          url: "{{ kafka_url }}/{{ audit_log_appname }}"
+          url: "{{ kafka_server_url }}/{{ audit_log_label }}"
+{% endif %}
+{% if fluentd_server_url is defined %}
         - name: fluentd-server-insecure
           type: fluentdForward
-          url: "{{ fluentd_url }}"
+          url: "{{ fluentd_server_url }}"
+{% endif %}
+{% if loki_server_url is defined %}
+        - name: loki-server
+          type: "loki"
+          url: "{{ loki_server_url }}"
+{% endif %}
+{% if cw_secret is defined %}
+        - name: cloudwatch
+          type: cloudwatch
+          cloudwatch:
+            groupBy: logType
+            region: "{{ aws_cw_region }}"
+          secret:
+            name: "{{ cw_secret }}"
+{% endif %}
         pipelines:
         - name: application-logs
           inputRefs: 
           - application
-          outputRefs: 
-          - rsyslog-application
+          outputRefs:
+{% if elasticsearch_server_url is defined %}
           - elasticsearch-insecure
+{% endif %}
+{% if syslog_server_url is defined %}
+          - rsyslog-application
+{% endif %}
+{% if kafka_server_url is defined %}
           - kafka-app-logs
+{% endif %}
+{% if fluentd_server_url is defined %}
           - fluentd-server-insecure
+{% endif %}
+{% if loki_server_url is defined %}
+          - loki-server
+{% endif %}
+{% if cw_secret is defined %}
+          - cloudwatch
+{% endif %}
           - default
           parse: json 
           labels:
-            logs: "{{ app_log_appname }}"
+            logs: "{{ app_log_label }}"
         - name: infrastructure-logs 
           inputRefs:
           - infrastructure
           outputRefs:
-          - rsyslog-infra
+{% if elasticsearch_server_url is defined %}
           - elasticsearch-insecure
+{% endif %}
+{% if syslog_server_url is defined %}
+          - rsyslog-infra
+{% endif %}
+{% if kafka_server_url is defined %}
           - kafka-infra-logs
+{% endif %}
+{% if fluentd_server_url is defined %}
           - fluentd-server-insecure
+{% endif %}
+{% if loki_server_url is defined %}
+          - loki-server
+{% endif %}
+{% if cw_secret is defined %}
+          - cloudwatch
+{% endif %}
           - default
           parse: json 
           labels:
-            logs: "{{ infra_log_appname }}"
+            logs: "{{ infra_log_label }}"
         - name: audit-logs 
           inputRefs:
           - audit
           outputRefs:
-          - rsyslog-audit
+{% if elasticsearch_server_url is defined %}
           - elasticsearch-insecure
+{% endif %}
+{% if syslog_server_url is defined %}
+          - rsyslog-audit
+{% endif %}
+{% if kafka_server_url is defined %}
           - kafka-audit-logs
+{% endif %}
+{% if fluentd_server_url is defined %}
           - fluentd-server-insecure
+{% endif %}
+{% if loki_server_url is defined %}
+          - loki-server
+{% endif %}
+{% if cw_secret is defined %}
+          - cloudwatch
+{% endif %}
           - default
           parse: json 
           labels: 
-            logs: "{{ audit_log_appname }}"
-  register: eclf_cr
+            logs: "{{ audit_log_label }}"
+  register: clf_cr
 
 - name: Check the logging Pods are restarting if CR for CLF has changed
   block:
@@ -112,38 +174,11 @@
       shell: oc get pods -n openshift-logging --no-headers | awk '{if ($3 == "Terminating" ) print $1}' | wc -l
       register: pods
       until: pods.stdout|int > 0
-      retries: 10
+      retries: 20
       delay: 5
       ignore_errors: yes
 
     - name: Delete PODs if not restarted Automatic
-      shell: oc delete pod $(kubectl get pods -n openshift-logging| grep fluent | awk '{print $1}') -n openshift-logging
+      shell: oc delete pod $(kubectl get pods -n openshift-logging| grep 'fluent\|collector' | awk '{print $1}') -n openshift-logging
       when: pods.failed
-  when: eclf_cr.changed
-  
-# check pods are in good state
-- name: Check the logging Pods are in good state
-  shell: oc get pods -n openshift-logging --no-headers | awk '{if ($3 != "Running" && $3 != "Completed" ) print $1}' | wc -l
-  register: pods
-  until: pods.stdout|int == 0
-  retries: 6
-  delay: 60
-  ignore_errors: yes
-  
-- name: Get Error state pods 
-  shell: oc get pod -n openshift-logging | grep Error| wc -l
-  register: err_pods
-
-- name: Delete all pods in error state
-  shell: oc delete pod $(kubectl get pods -n openshift-logging| grep Error | awk '{print $1}') -n openshift-logging
-  when: err_pods.stdout|int != 0
-
-# check pods are in good state
-- name: Check the logging Pods are in good state
-  shell: oc get pods -n openshift-logging --no-headers | awk '{if ($3 != "Running" && $3 != "Completed" ) print $1}' | wc -l
-  register: pods
-  until: pods.stdout|int == 0
-  retries: 15
-  delay: 120
-
-
+  when: clf_cr.changed
