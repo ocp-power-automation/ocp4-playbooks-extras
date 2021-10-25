@@ -68,9 +68,11 @@
   - demo-pvc-raw-block
   - demo-pvc-file-system
   - demo-statefulset-file-system
-   template:
+   
+- name: Generate config yaml files
+  template:
     src: "../files/demo-storageclass.yaml"
-    dest: "{{ iSCSI_setup_dir }}/{{ item }}.yaml"
+    dest: "{{ iSCSI_setup_dir }}/demo-storageclass.yaml"
 
 - name: Create a k8s namespace
   k8s:
