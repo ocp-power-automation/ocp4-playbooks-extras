@@ -15,6 +15,7 @@ This repository consists of additional ansible playbooks for the following:
 11. Run OCP ClusterLogForwarding Installation
 12. Go Lang Installation
 13. Run OCP Node Feature Discovery Operator Installation
+14. Run SBO installation and running smoke acceptance tests
 
 ## Assumptions:
 
