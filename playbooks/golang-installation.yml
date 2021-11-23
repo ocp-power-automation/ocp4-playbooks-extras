@@ -1,0 +1,6 @@
+---
+- name: Installatioin of GO Lang
+  hosts: bastion
+  roles:
+    - role: golang-installation
+

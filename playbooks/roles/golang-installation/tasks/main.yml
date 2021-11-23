@@ -1,0 +1,36 @@
+# Setting up installation path variable
+- name: Set user defined golang installation path
+  set_fact:
+    golang_path: "{{ golang_installation_path }}"
+  when: golang_installation_path != None and golang_installation_path != ""
+
+- name: Set default golang installation path
+  set_fact:
+    golang_path: "/usr/local/"
+  when: golang_installation_path == None or golang_installation_path == ""
+
+# Removing older go lang
+- name: Remove existing go lang directory if exists
+  file:
+    path: "{{ golang_path }}/go"
+    state: absent
+
+# Setting up URL variable for golang tarball
+- name: Set user defined golang tarball
+  set_fact:
+    go_tarball: "{{ golang_tarball_url }}"
+  when: golang_tarball_url != None and golang_tarball_url != ""
+
+- name: Set default golang tarball
+  set_fact:
+    go_tarball: "https://golang.org/dl/go1.16.10.linux-ppc64le.tar.gz"
+  when: golang_tarball_url == None or golang_tarball_url == ""
+
+# Downloading and extracting go lang tarball to specified directory
+- name: Download and untar golang
+  unarchive:
+    src: "{{ go_tarball }}"
+    dest: "{{ golang_path }}"
+    remote_src: yes
+
+
