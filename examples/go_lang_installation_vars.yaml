@@ -1,0 +1,4 @@
+# Go Language Installation
+golang_installation: false
+golang_tarball_url: "https://golang.org/dl/go1.16.10.linux-ppc64le.tar.gz"
+golang_installation_path: "/usr/local/"
