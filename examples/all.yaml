@@ -70,6 +70,7 @@ global_secret_update: false
 
 ## ocp-etcd-encryption-decryption vars
 ocp_etcd: false
+
 ## ocp-cluster-log-forwarding required vars
 ocp_cluster_log_forwarding: false
 cluster_log_forwarder: false
@@ -83,3 +84,7 @@ syslog_url: ""
 kafka_url: ""
 fluentd_url: ""
 
+# Go Language Installation
+golang_installation: false
+golang_tarball_url: "https://golang.org/dl/go1.16.10.linux-ppc64le.tar.gz"
+golang_installation_path: "/usr/local/"
