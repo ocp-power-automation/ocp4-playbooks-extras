@@ -3,14 +3,14 @@
 - name: Change project to default
   shell: oc project default
 
-# Check if secret podman-login is exist
-- name: Check if secret podman-login is exist in current namespace
-  shell: oc get secret podman-login | wc -l
+# Check if secret podman-secret is exist
+- name: Check if secret podman-secret is exist in current namespace
+  shell: oc get secret podman-secret | wc -l
   register: login_secret
 
-- name: Fail if secret podman-login doesnot exist in current namespace
+- name: Fail if secret podman-secret doesnot exist in current namespace
   fail:
-    msg: "Secret podman-login doesnot exist in current namespace"
+    msg: "Secret podman-secret doesnot exist in current namespace"
   when: login_secret.stdout|int!=2
 
 # set disableAllDefaultSources to true
@@ -39,43 +39,41 @@
 # Get username and password from secret
 - name: Get username from Secret
   shell: |
-    oc get secret podman-login  -o jsonpath="{.data.username}"|base64 --decode
-  register: username
+    oc get secret podman-secret  -o jsonpath="{.data.username}"|base64 --decode
+  register: podman_username
   ignore_errors: yes
 
 - name: Fail when unable to get username from secret
   fail:
-    msg: "Unable to get username from secret please check secret. {{ username.stderr }}"
-  when: username.failed
+    msg: "Unable to get username from secret please check secret. {{ podman_username.stderr }}"
+  when: podman_username.failed or podman_username == "" or podman_username == None
 
 - name:  Get password from Secret
   shell: |
-    oc get secret podman-login  -o jsonpath="{.data.password}"|base64 --decode
-  register: password
+    oc get secret podman-secret  -o jsonpath="{.data.password}"|base64 --decode
+  register: podman_password
   ignore_errors: yes
 
 - name: Fail when unable to get password from secret
   fail:
-    msg: "Unable to get password from secret please check secret. {{ password.stderr }}"
-  when: password.failed
+    msg: "Unable to get password from secret please check secret. {{ podman_password.stderr }}"
+  when: podman_password.failed or podman_password == "" or podman_password == None
 
 - name:  Get registry from Secret
   shell: |
-    oc get secret podman-login  -o jsonpath="{.data.registry}"|base64 --decode
-  register: registry
+    oc get secret podman-secret  -o jsonpath="{.data.registry}"|base64 --decode
+  register: podman_registry
   ignore_errors: yes
 
 - name: Fail when unable to get registry from Secret
   fail:
-    msg: "Unable to get registry from secret please check secret. {{ registry.stderr }}"
-  when: registry.failed
-
-
+    msg: "Unable to get registry from secret please check secret. {{ podman_registry.stderr }}"
+  when: podman_registry.failed or podman_registry == "" or podman_registry == None
 
 # Podman login
 - name: Podman Login
   shell: |
-    podman login --authfile /root/authfile --username {{ username.stdout | quote }}  --password {{ password.stdout | quote}} {{ registry.stdout }}
+    podman login --authfile /root/authfile --username {{ podman_username.stdout | quote }}  --password {{ podman_password.stdout | quote}} {{ podman_registry.stdout }}
   register: output
   ignore_errors: yes
 
