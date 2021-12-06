@@ -1,0 +1,13 @@
+---
+- name: Installation of the Node Feature Discovery Operator
+  hosts: bastion
+  tasks:
+  - name: Include the global-secret-update role
+    include_role:
+        name: global-secret-update
+    when: nfd_catalogsource != "" and nfd_catalogsource != None
+
+- name: Include the Node Feature Discovery Operator role
+  hosts: bastion
+  roles:
+  - ocp-nfd-operator

@@ -14,6 +14,7 @@ This repository consists of additional ansible playbooks for the following:
 10. Run IBM Block storage CSI (Raw block)
 11. Run OCP ClusterLogForwarding Installation
 12. Go Lang Installation
+13. Run OCP Node Feature Discovery Operator Installation
 
 ## Assumptions:
 

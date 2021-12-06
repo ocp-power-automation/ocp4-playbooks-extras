@@ -84,6 +84,12 @@ syslog_url: ""
 kafka_url: ""
 fluentd_url: ""
 
+## ocp-nfd-operator required vars
+ocp_nfd: false
+update_channel: ""
+nfd_instance_image_version: ""
+nfd_catalogsource: "" # quay.io/openshift-release-dev/ocp-release-nightly:iib-int-index-art-operators-4.9
+
 # Go Language Installation
 golang_installation: false
 golang_tarball_url: "https://golang.org/dl/go1.16.10.linux-ppc64le.tar.gz"

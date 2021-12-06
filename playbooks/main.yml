@@ -32,6 +32,9 @@
 - import_playbook: ocp-ibm-block-csi.yml
   when: ocp_ibm_block_csi
 
+- import_playbook: ocp-nfd-operator.yml
+  when: ocp_nfd
+
 - import_playbook: golang-installation.yml
   when: golang_installation
   
