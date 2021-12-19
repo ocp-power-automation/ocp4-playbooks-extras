@@ -94,3 +94,10 @@ nfd_catalogsource: "" # quay.io/openshift-release-dev/ocp-release-nightly:iib-in
 golang_installation: false
 golang_tarball_url: "https://golang.org/dl/go1.16.10.linux-ppc64le.tar.gz"
 golang_installation_path: "/usr/local/"
+
+# ocp-sbo-operator required vars
+ocp_sbo: false
+golang_tarball_sbo: https://golang.org/dl/go1.16.10.linux-ppc64le.tar.gz
+acceptance_tests: false
+
+

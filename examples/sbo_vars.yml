@@ -1,0 +1,5 @@
+# ocp-sbo-operator required vars
+ocp_sbo: false
+golang_tarball_sbo: https://golang.org/dl/go1.16.10.linux-ppc64le.tar.gz
+acceptance_tests: false
+

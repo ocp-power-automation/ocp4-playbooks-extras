@@ -1,0 +1,109 @@
+- name: Install packages
+  yum:
+    name:
+    - git
+    - "@Development tools"
+    state: latest
+
+# check if Cluster Health is good
+- name: check all Cluster Operators are available
+  shell: oc get co | awk 'NR>1 {if($3=="False" ||  $4=="True" || $5=="True" ){print $1}}'
+  register: co
+  failed_when: co.stdout | length >  0
+
+- name: Check all nodes are Ready
+  shell: oc wait --all  --for=condition=Ready nodes 
+
+
+# Enable the default catalogSource
+- name: Enable default CatalogSource
+  shell: |
+     oc patch operatorhub.config.openshift.io/cluster -p='{"spec":{"disableAllDefaultSources":false}}' --type=merge
+
+#create Subscription for the Service Binding Operator
+- name: subscription for service-binding operator
+  openshift_raw:
+      state: present
+      definition:
+        apiVersion: operators.coreos.com/v1alpha1
+        kind: Subscription
+        metadata:
+          name: rh-service-binding-operator
+          namespace: openshift-operators
+        spec:
+          channel: stable
+          name: rh-service-binding-operator
+          source: redhat-operators  
+          sourceNamespace: openshift-marketplace
+
+# tasks file for roles/operator-gp
+- name: Create operator group for Service Binding Operator
+  openshift_raw:
+    state: present
+    definition:
+      apiVersion: operators.coreos.com/v1
+      kind: OperatorGroup
+      metadata:
+        name: global-operators
+        namespace: openshift-operators
+      spec: {}
+
+# Verify the Operator installation.
+- name: Verify the Operator installation
+  shell:  oc get csv -n openshift-operators --no-headers | awk '{ if (($1 ~ /^service-binding/) && $NF=="Succeeded") print $1 }'| wc -l
+  register: operators
+  until: operators.stdout|int == 1
+  retries: 15
+  delay: 120
+
+# Clone repository of Service Binding Operator
+- name: Remove existing directory for Service Binding Operator Tests
+  file:
+    path: "/root/service-binding-operator"
+    state: absent
+
+- name: Clone repository of Service Binding Operator
+  git:
+    repo: 'https://github.com/redhat-developer/service-binding-operator.git'
+    dest: /root/service-binding-operator
+
+
+# Setting up URL variable for golang tarball
+- name: Set user defined golang tarball
+  set_fact:
+    golang_tarball_link: "{{ golang_tarball_sbo }}"
+  when: golang_tarball_sbo != None and golang_tarball_sbo != ""
+
+- name: Set default golang tarball
+  set_fact:
+    golang_tarball_link: "https://golang.org/dl/go1.16.10.linux-ppc64le.tar.gz"
+  when: golang_tarball_sbo == None or golang_tarball_sbo == ""
+  
+# Install Go Lang
+- name: Include Role for installation of Go lang
+  include_role:
+    name: golang-installation
+  vars:
+    go_tarball: "{{ golang_tarball_link }}"
+    golang_path: "/usr/local/"
+    
+# Run acceptance tests for Service Binding Operator
+- name: Run acceptance tests for Service Binding Operator and store results
+  block:
+    - name: Run acceptance tests for Service Binding Operator
+      shell: |
+        cd /root/service-binding-operator
+        TEST_ACCEPTANCE_START_SBO=remote make test-acceptance
+      environment: "{{ sbo_env }}"
+      register: output
+      ignore_errors: yes
+
+    - debug: 
+        msg: "Status : {{ output.stdout }}"
+
+    - local_action: copy content={{ output.stdout}} dest=/root/service-binding-operator/results.txt
+  when: acceptance_tests
+
+
+
+
