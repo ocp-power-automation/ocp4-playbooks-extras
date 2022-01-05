@@ -72,3 +72,7 @@ ocp_sbo: false
 golang_tarball_sbo: https://golang.org/dl/go1.16.10.linux-ppc64le.tar.gz
 acceptance_tests: false
 
+# htpasswd-identity-provider required vars
+htpasswd_identity_provider: false
+htp_username: ""
+htp_password: ""

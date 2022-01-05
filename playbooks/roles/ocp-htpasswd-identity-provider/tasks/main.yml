@@ -1,0 +1,81 @@
+---
+# Fail the task if username and password is empty
+- fail:
+    msg: "Please ensure that variables htp_username and htp_password are not empty"
+  when: >
+        (htp_username == "" or htp_username == None) or
+        (htp_password == "" or htp_password == None)
+
+- name: Create directory for HTPasswd file
+  ansible.builtin.file:
+    path: "/root/htpassd_idp"
+    state: directory
+    mode: '0755'
+
+# Generate new file users.htpasswd if does not exists otherwise update existing file
+- block:
+  - name: Check that the file users.htpasswd exists
+    stat:
+      path: /root/htpassd_idp/users.htpasswd
+    register: stat_result
+
+  - name: Generate a flat file htpasswd that contains the user names and passwords for the cluster
+    shell: htpasswd  -B -b -c /root/htpassd_idp/users.htpasswd {{ htp_username }} {{ htp_password }}
+    when: not stat_result.stat.exists
+
+  - name: Update a flat file htpasswd that contains the user names and passwords for the cluster
+    shell: htpasswd  -B -b /root/htpassd_idp/users.htpasswd {{ htp_username }} {{ htp_password }}
+    when: stat_result.stat.exists
+
+# Create or update htpass-secret 
+- name: Generate the new secret if does not exists otherwise update existing secret
+  openshift_raw:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: htpass-secret
+        namespace: openshift-config
+      type: Opaque
+      data:
+        htpasswd: "{{ lookup('file', '~/htpassd_idp/users.htpasswd') | b64encode }}"
+
+# Creating HTPasswd CR
+- name: Create CR for HTPasswd identity provider
+  openshift_raw:
+    state: present
+    definition:
+      apiVersion: config.openshift.io/v1
+      kind: OAuth
+      metadata:
+        name: cluster
+      spec:
+        identityProviders:
+        - name: my_htpasswd_provider
+          mappingMethod: claim
+          type: HTPasswd
+          htpasswd:
+            fileData:
+              name: htpass-secret
+
+# Validating user login
+- name: Validate login to cluster as {{ htp_username }} 
+  shell: oc login -u {{ htp_username }} -p {{ htp_password }}
+  retries: 20
+  delay: 10
+  register: result
+  until: result.rc == 0
+  ignore_errors: yes
+
+- name: Fail when unable to login with user {{ htp_username }}
+  fail:
+    msg: "Login with {{ htp_username }} failed!"
+  when: result.rc != 0
+
+# Login as admin to grant cluster-reader permission to users
+- name: Login to cluster as admin
+  shell: oc login -u system:admin
+
+- name: Grant read permission to {{ htp_username }}
+  shell: oc adm policy add-cluster-role-to-user cluster-reader {{ htp_username }}
