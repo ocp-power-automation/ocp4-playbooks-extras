@@ -41,3 +41,5 @@
 - import_playbook: ocp-service-binding-operator.yaml
   when: ocp_sbo 
   
+- import_playbook: ocp-htpasswd-identity-provider.yml
+  when: htpasswd_identity_provider
