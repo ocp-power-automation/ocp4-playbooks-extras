@@ -1,0 +1,78 @@
+---
+- name: Create a StatefulSet object of statefulset-postgresql 
+  k8s:
+    state: present
+    definition:
+      apiVersion: apps/v1
+      kind: StatefulSet
+      metadata:
+        name: statefulset-postgresql
+        namespace: default
+        annotations:
+          service.binding/POSTGRESQL_USER: path={.spec.template.spec.containers[0].env[1].value}
+          service.binding/POSTGRESQL_PASSWORD: path={.spec.template.spec.containers[0].env[0].value}
+          service.binding/POSTGRESQL_DATABASE: path={.spec.template.spec.containers[0].env[2].value}
+          service.binding/POSTGRES_USER: path={.spec.template.spec.containers[0].env[1].value}
+          service.binding/POSTGRES_PASSWORD: path={.spec.template.spec.containers[0].env[0].value}
+          service.binding/POSTGRES_DB: path={.spec.template.spec.containers[0].env[2].value}
+      spec: "{{ spec|from_yaml }}"
+  vars:
+    spec: |
+      serviceName: postgresql-db-service
+      selector:
+        matchLabels:
+          app: postgresql-db
+      replicas: {{hpa_min_replicas}}
+      template:
+        metadata:
+          labels:
+            app: postgresql-db
+        spec:
+          containers:
+            - name: postgresql-db
+              image: registry.redhat.io/rhscl/postgresql-13-rhel7
+              resources: 
+                limits:
+                  cpu: 200m
+                  memory: 256Mi
+                requests:
+                  cpu: 100m
+                  memory: 100Mi
+              command:
+              - /bin/sh
+              - -c
+              - "dd if=/dev/zero of=/dev/null"
+              - "while true; do true; done"
+              volumeMounts:
+                - name: postgresql-db-disk
+                  mountPath: /data
+              env:
+                - name: POSTGRESQL_PASSWORD
+                  value: secret
+                - name: POSTGRESQL_USER
+                  value: luke
+                - name: POSTGRESQL_DATABASE
+                  value: my_data
+                - name: PGDATA
+                  value: /data/pgdata
+      volumeClaimTemplates:
+        - metadata:
+            name: postgresql-db-disk
+          spec:
+            accessModes: ["ReadWriteOnce"]
+            resources:
+              requests:
+                storage: 1Gi
+
+- name: Validate statefulset-postgresql deployment
+  shell: oc get pods -n default | grep statefulset-postgresql | grep Running | wc -l
+  register: pods_count
+  until: pods_count.stdout|int > 0
+  retries: 10
+  delay: 60
+  ignore_errors: yes
+
+- name: Fail if deployment of statefulset-postgresql has failed
+  fail:
+    msg: "statefulset-postgresql deploy failed."
+  when: pods_count.stdout|int == 0

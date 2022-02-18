@@ -1,0 +1,51 @@
+---
+- name: Create a ReplicationController object with nginx image
+  k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: ReplicationController
+      metadata:
+        name: replicationcontroller-nginx
+        namespace: default
+      spec:
+        replicas: 1  
+        selector:    
+          name: frontend
+        template:    
+          metadata:
+            labels:  
+              name: frontend 
+          spec:
+            containers:
+            - image: quay.io/vahirwad/nginx-unprivileged
+              name: nginx-rc-app
+              resources: 
+                limits:
+                  cpu: 200m
+                  memory: 256Mi
+                requests:
+                  cpu: 100m
+                  memory: 100Mi
+              command:
+              - /bin/sh
+              - -c
+              - "dd if=/dev/zero of=/dev/null"
+              - "while true; do true; done"
+              ports:
+              - containerPort: 80
+                protocol: TCP
+            restartPolicy: Always
+
+- name: Validate replicationcontroller-nginx deployment
+  shell: oc get pods -n default | grep replicationcontroller-nginx | grep Running | wc -l
+  register: pods_count
+  until: pods_count.stdout|int > 0
+  retries: 10
+  delay: 60
+  ignore_errors: yes
+
+- name: Fail if deployment of replicationcontroller-nginx has failed
+  fail:
+    msg: "replicationcontroller-nginx deploy failed."
+  when: pods_count.stdout|int == 0

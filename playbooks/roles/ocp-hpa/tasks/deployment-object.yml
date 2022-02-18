@@ -1,0 +1,52 @@
+---
+- name: Create a Deployment object with nginx image
+  k8s:
+    state: present
+    definition:
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: deployment-nginx
+        namespace: default
+        labels:
+          app: nginx
+      spec:
+        replicas: 1
+        selector:
+          matchLabels:
+            app: nginx
+        template:
+          metadata:
+            labels:
+              app: nginx
+          spec:
+            containers:
+            - name: nginx
+              image: quay.io/vahirwad/nginx-unprivileged
+              resources: 
+                limits:
+                  cpu: 200m
+                  memory: 256Mi
+                requests:
+                  cpu: 100m
+                  memory: 100Mi
+              command:
+              - /bin/sh
+              - -c
+              - "dd if=/dev/zero of=/dev/null"
+              - "while true; do true; done"
+              ports:
+              - containerPort: 80
+
+- name: Validate deployment-nginx deployment
+  shell: oc get pods -n default | grep deployment-nginx | grep Running | wc -l
+  register: pods_count
+  until: pods_count.stdout|int > 0
+  retries: 10
+  delay: 60
+  ignore_errors: yes
+
+- name: Fail if deployment of deployment-nginx has failed
+  fail:
+    msg: "deployment-nginx deploy failed."
+  when: pods_count.failed
