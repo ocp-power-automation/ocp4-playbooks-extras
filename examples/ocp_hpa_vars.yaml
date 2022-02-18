@@ -1,0 +1,11 @@
+# horizontal pod autoscaler required vars
+ocp_hpa: false
+hpa_memory_utilization: false
+hpa_cpu_utilization: false
+hpa_memory_cpu_utilization: false
+target_type: "" # AverageValue or Utilization
+average_memory: ""
+average_cpu: ""
+hpa_min_replicas: ""
+hpa_max_replicas: ""
+object_kind: "" # Deployment, StatefulSet, ReplicaSet, ReplicationController, DeploymentConfig

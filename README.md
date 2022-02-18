@@ -18,6 +18,7 @@ This repository consists of additional ansible playbooks for the following:
 14. Run SBO installation and running smoke acceptance tests
 15. Configure HTPasswd Identity Provider
 16. Set custom catalog source
+17. Run Horizontal Pod Autoscaler installation and verification
 
 ## Assumptions:
 

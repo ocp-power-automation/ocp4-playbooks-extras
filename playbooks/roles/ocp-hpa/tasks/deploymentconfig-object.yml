@@ -1,0 +1,70 @@
+---
+- name: Create a DeploymentConfig object with nginx image
+  k8s:
+    state: present
+    definition:
+      apiVersion: apps.openshift.io/v1
+      kind: DeploymentConfig
+      metadata:
+        name: deploymentconfig-nginx
+        namespace: default
+      spec:
+        replicas: 1
+        revisionHistoryLimit: 10
+        selector:
+          deployment-config.name: deploymentconfig-nginx
+        strategy:
+          activeDeadlineSeconds: 21600
+          resources: {}
+          rollingParams:
+            intervalSeconds: 1
+            maxSurge: 25%
+            maxUnavailable: 25%
+            timeoutSeconds: 600
+            updatePeriodSeconds: 1
+          type: Rolling
+        template:
+          metadata:
+            creationTimestamp: null
+            labels:
+              deployment-config.name: deploymentconfig-nginx
+          spec:
+            containers:
+            - image: quay.io/vahirwad/nginx-unprivileged
+              imagePullPolicy: Always
+              name: default-container
+              resources: 
+                limits:
+                  cpu: 200m
+                  memory: 256Mi
+                requests:
+                  cpu: 100m
+                  memory: 100Mi
+              command:
+              - /bin/sh
+              - -c
+              - "dd if=/dev/zero of=/dev/null"
+              - "while true; do true; done"
+              terminationMessagePath: /dev/termination-log
+              terminationMessagePolicy: File
+            dnsPolicy: ClusterFirst
+            restartPolicy: Always
+            schedulerName: default-scheduler
+            securityContext: {}
+            terminationGracePeriodSeconds: 30
+        test: false
+        triggers:
+        - type: ConfigChange
+
+- name: Validate deploymentconfig-nginx deployment
+  shell: oc get pods -n default | grep deploymentconfig-nginx | grep Running | wc -l
+  register: pods_count
+  until: pods_count.stdout|int > 0
+  retries: 10
+  delay: 60
+  ignore_errors: yes
+
+- name: Fail if deployment of deploymentconfig-nginx has failed
+  fail:
+    msg: "deploymentconfig-nginx deploy failed."
+  when: pods_count.stdout|int == 0

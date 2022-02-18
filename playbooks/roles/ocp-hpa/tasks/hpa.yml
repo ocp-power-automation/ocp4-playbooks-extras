@@ -1,0 +1,115 @@
+---
+- block:
+  # Deploy workload object
+  - include_tasks: "{{ role_path }}/tasks/{{ objects_kind | lower }}-object.yml"
+
+  # Validating the horizontal pod autoscaler for memory utilization
+  - name: Validating the horizontal pod autoscaler for memory utilization
+    block:
+      # Creating HPA
+      - include_tasks: "{{ role_path }}/tasks/hpa-memory.yml"
+        vars:
+          app_name: "{{ hpa_app_name }}"
+          objects_apiversion: "{{ object_apiversion }}"
+          workload_object: "{{ objects_kind }}"
+
+      - name: Pause for 1 minutes to scale pods
+        pause:
+          minutes: 1
+      
+      # Validate if the replica count is increasing
+      - include_tasks: "{{ role_path }}/tasks/validate-hpa.yml"
+        vars:
+          resource_name: "memory"
+          app_name: "{{ hpa_app_name }}"
+          min_replicas: "{{ hpa_min_replicas | default(1, true) }}"
+
+    always:
+      - name: Delete the memory-autoscale HPA
+        k8s:
+          kind: HorizontalPodAutoscaler
+          name: memory-autoscale
+          namespace: default
+          state: absent
+    when: hpa_memory_utilization
+    
+  # Validating the horizontal pod autoscaler for cpu utilization
+  - name: Validating the horizontal pod autoscaler for cpu utilization
+    block:
+      # Creating HPA
+      - include_tasks: "{{ role_path }}/tasks/hpa-cpu.yml"
+        vars:
+          app_name: "{{ hpa_app_name }}"
+          objects_apiversion: "{{ object_apiversion }}"
+          workload_object: "{{ objects_kind }}"
+
+      - name: Pause for 1 minutes to scale pods
+        pause:
+          minutes: 1
+        
+      # Validate if the replica count is increasing
+      - include_tasks: "{{ role_path }}/tasks/validate-hpa.yml"
+        vars:
+          resource_name: "cpu"
+          app_name: "{{ hpa_app_name}}"
+          min_replicas: "{{ hpa_min_replicas | default(1, true) }}"
+
+    always:
+      - name: Delete the cpu-autoscale HPA
+        k8s:
+          kind: HorizontalPodAutoscaler
+          name: cpu-autoscale
+          namespace: default
+          state: absent
+    when: hpa_cpu_utilization
+
+  # Validating the horizontal pod autoscaler for memory and cpu utilization
+  - name: Validating the horizontal pod autoscaler for memory and cpu utilization
+    block:
+      # Creating HPA
+      - include_tasks: "{{ role_path }}/tasks/hpa-memory-cpu.yml"
+        vars:
+          app_name: "{{ hpa_app_name }}"
+          objects_apiversion: "{{ object_apiversion }}"
+          workload_object: "{{ objects_kind }}"
+
+      - name: Pause for 1 minutes to scale pods
+        pause:
+          minutes: 1
+      
+      # Validate if the replica count is increasing
+      - include_tasks: "{{ role_path }}/tasks/validate-hpa.yml"
+        vars:
+          resource_name: "memory-cpu"
+          app_name: "{{ hpa_app_name }}"
+          min_replicas: "{{ hpa_min_replicas | default(1, true) }}"
+
+    always:
+      - name: Delete the memory-cpu-autoscale HPA
+        k8s:
+          kind: HorizontalPodAutoscaler
+          name: memory-cpu-autoscale
+          namespace: default
+          state: absent
+    when: hpa_memory_cpu_utilization
+
+  always:
+  # Reducing the replicas to zero explicitly because some delete API's do not delete the pods 
+  - name: Reduce the replica count to zero for the {{ objects_kind }} object
+    k8s:
+      definition:
+        apiVersion: "{{ object_apiversion }}"
+        kind: "{{ objects_kind }}"
+        metadata:
+          name: "{{ hpa_app_name }}"
+          namespace: default
+        spec:
+          replicas: 0
+
+  - name: Delete the {{ objects_kind }} object 
+    k8s:
+      api_version: "{{ object_apiversion }}"
+      kind: "{{ objects_kind }}"
+      name: "{{ hpa_app_name }}"
+      namespace: default
+      state: absent

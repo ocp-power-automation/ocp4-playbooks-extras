@@ -1,0 +1,5 @@
+---
+- name: Run horizontal pod autoscaler
+  hosts: bastion
+  roles:
+  - ocp-hpa
