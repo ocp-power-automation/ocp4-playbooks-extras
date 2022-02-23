@@ -1,0 +1,236 @@
+---
+- name: Check channel variables
+  fail:
+    msg: Please check Channel variables for ClusterLogging and ElasticSearch Operators.
+  when: >
+        (cluster_logging_channel == "" or elastic_search_channel == "") or
+        (cluster_logging_channel == None or elastic_search_channel == None) 
+
+# Set log_labels
+- set_fact:
+      log_labels: "{{ log_label | default('test-clf', true) }}"
+
+# Set log directory
+- set_fact:
+      cl_log_dir: "{{ log_dir_path | default('/root/clf_logs', true) }}"
+
+- include_tasks: "{{ role_path }}/files/validate-urls.yml"
+  when: cluster_log_forwarder
+
+# Custom ImageContentSourcePolicy and CatalogSource
+- name: Create ImageContentSourcePolicy and CatalogSource
+  block: 
+  - name: Create CatalogSource
+    template:
+      src: "{{ role_path }}/templates/CatalogSource.yaml.j2"
+      dest: "{{ role_path }}/files/CatalogSource.yml"
+
+  - name: Run ImageContentSourcePolicy
+    shell: oc apply -f "{{ role_path }}/files/ImageContentSourcePolicy.yml"
+     
+  - name: Run CatalogSource
+    shell: oc apply -f "{{ role_path }}/files/CatalogSource.yml"
+ 
+  - name: Check ImageContentSourcePolicy and CatalogSource added
+    shell:  oc get CatalogSource -n openshift-marketplace | grep "cluster-logging\|elasticsearch" |wc -l
+    register: output
+
+  - name: Fail if CatalogSource not added
+    fail:
+      msg: "CatalogSource not added !"
+    when: output.stdout|int != 2
+ 
+  - name: Set fact variable for Subscription
+    set_fact:
+      elasticsearch_op_source: "elasticsearch"
+      cluster_logging_op_source: "cluster-logging"
+  when: 
+    - elasticsearch_clf_cs != '' and clusterlogging_clf_cs != '' 
+    - elasticsearch_clf_cs != None and clusterlogging_clf_cs != None
+
+# Default CatalogSource
+- name: Use default sources
+  block: 
+  - name: Check if the ImageContentSourcePolicy exists
+    shell: oc get ImageContentSourcePolicy | grep brew-registry | wc -l
+    register: icsp
+
+  - name: Check if the CatalogSource exists
+    shell:  oc get CatalogSource -n openshift-marketplace | grep "cluster-logging\|elasticsearch" |wc -l
+    register: output
+
+  - name: Delete ImageContentSourcePolicy if it exists
+    shell: oc delete ImageContentSourcePolicy brew-registry
+    when: icsp.stdout|int == 1
+
+  - name: Delete CatalogSource if it exists
+    shell: oc delete CatalogSource elasticsearch cluster-logging -n openshift-marketplace
+    when: output.stdout|int == 2
+
+  - name: Set disableAllDefaultSources to false
+    shell: |
+      oc patch operatorhub.config.openshift.io/cluster -p='{"spec":{"disableAllDefaultSources":false}}' --type=merge
+
+  - name: Set fact variable for subscription
+    set_fact:
+      elasticsearch_op_source: "redhat-operators"
+      cluster_logging_op_source: "redhat-operators"
+  when: >
+        (elasticsearch_clf_cs == "" or clusterlogging_clf_cs == None) or
+        (clusterlogging_clf_cs == "" or elasticsearch_clf_cs == None) 
+     
+# Check if default storage class has exists
+- name: Check if default storage class has exists
+  shell:  oc get sc | awk '/(default)/{ print $1 }' | wc -l
+  register: storage_class
+  failed_when: storage_class.stdout|int == 0
+  ignore_errors: yes
+
+- name: Fail if default storage class not exist
+  fail:
+    msg: "Default storage class does not exist. Please create one"
+  when: storage_class.failed
+
+# Creating namespaces 
+- name: Create namespace for elasticsearch and cluster logging
+  openshift_raw:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: "{{ item }}"
+      annotations:
+        openshift.io/node-selector: ""
+      labels:
+        openshift.io/cluster-monitoring: "true"
+  loop:
+    - openshift-operators-redhat
+    - openshift-logging
+
+# Create operator group objects for OpenShift Elasticsearch Operator and Red Hat OpenShift Logging Operator
+- name: Create operator group for Elasticsearch
+  openshift_raw:
+    state: present
+    definition:
+      apiVersion: operators.coreos.com/v1
+      kind: OperatorGroup
+      metadata:
+        name: openshift-operators-redhat
+        namespace: openshift-operators-redhat
+      spec: {}
+
+- name: Create operator group for cluster logging
+  openshift_raw:
+    state: present
+    definition:
+      apiVersion: operators.coreos.com/v1
+      kind: OperatorGroup
+      metadata:
+        name: cluster-logging
+        namespace: openshift-logging
+      spec:
+        targetNamespaces:
+        - openshift-logging
+
+# Create a Subscription object OpenShift Elasticsearch Operator and Red Hat OpenShift Logging Operator.
+- name: Subscription for cluster-logging operator
+  openshift_raw:
+    state: present
+    definition:
+      apiVersion: operators.coreos.com/v1alpha1
+      kind: Subscription
+      metadata:
+        name: "{{ item.name }}"
+        namespace: "{{ item.namespace }}"
+      spec:
+        channel: "{{ item.channel }}"
+        name: "{{ item.name }}"
+        installPlanApproval: "Automatic"
+        source: "{{ item.cs_src }}"
+        sourceNamespace: openshift-marketplace
+  loop:
+  - { name: 'cluster-logging', namespace: 'openshift-logging', channel: "{{cluster_logging_channel}}" , cs_src: "{{cluster_logging_op_source}}" }
+  - { name: 'elasticsearch-operator', namespace: 'openshift-operators-redhat', channel: "{{elastic_search_channel}}", cs_src: "{{elasticsearch_op_source}}" }
+
+# Verify the operator installation.
+- name: Verify the operator installation
+  shell:  oc get csv -n openshift-logging --no-headers | awk '{ if (($1 ~ /^cluster-logging/ || $1 ~ /^elasticsearch-operator/) && $NF=="Succeeded") print $1 }'| wc -l
+  register: operators
+  until: operators.stdout|int == 2
+  retries: 15
+  delay: 120
+  ignore_errors: yes
+
+- name: Fail the task when operator installation failed
+  fail:
+    msg: "Operator not installed successfully"
+  when: operators.failed
+
+- name: Create ClusterLogging instance 
+  include_tasks: "{{ role_path }}/files/clusterlogging.yml"
+
+# Testcase-1 deployment of nginx pod in default namespace
+- name: Create a nginx pod in default namespace for test
+  openshift_raw:
+    state: present
+    definition:
+      kind: Pod
+      metadata:
+        namespace: default
+        name: nginx-pod-default
+        labels:
+          role: web
+      spec:
+        containers:
+          - name: nginx-pod-default
+            image: quay.io/varad_ahirwadkar/nginx-unprivileged
+            ports:
+            - containerPort: 80
+
+- name: Wait for nginx-pod-default pods to come up
+  shell: kubectl wait --all  --namespace=default --for=condition=Ready pods nginx-pod-default --timeout=180s
+
+#Create namespace for structured data generating app centos-logtest
+- name: Create namespace
+  openshift_raw:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: test-logging
+
+# Deployment 
+- name: Deploy app centos-logtest that generates structured data
+  shell: |
+    oc apply -f "{{ role_path }}/files/logtest-structured-data.yml" -n test-logging
+
+# Waiting for pods to come up
+- name: Wait for centos-logtest- pods to come up
+  shell: kubectl wait --all  --namespace=test-logging --for=condition=Ready pods --timeout=180s
+
+# Clone and deploy acmeair-mainservice-java app in acme-air namespace
+- name: Clone acmeair-mainservice-java repo
+  git:
+    repo: https://github.com/ocp-power-demos/acmeair-mainservice-java.git
+    dest: /root/acmeair-mainservice-java/
+
+- name: Deployment of acmeair-mainservice-java pods
+  shell: |
+    oc project default
+    sh /root/acmeair-mainservice-java/scripts/deployToOpenshift.sh
+    kubectl wait --all  --namespace=acme-air --for=condition=Ready pods --timeout=300s
+
+- name: Pause for 1 minutes to get new logs 
+  pause:
+    minutes: 1
+
+# Create CLF instance 
+- name: Create an ClusterLogForwarder instance 
+  include_tasks: "{{ role_path }}/files/clusterlogforwarder.yml"
+  vars:
+    app_log_label: "{{ log_labels }}-application"
+    infra_log_label: "{{ log_labels }}-infrastructure"
+    audit_log_label: "{{ log_labels }}-audit"
+  when: cluster_log_forwarder

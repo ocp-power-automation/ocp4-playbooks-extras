@@ -1,0 +1,87 @@
+---
+- name: Delete log files and directories if they exist
+  file:
+    state: absent
+    path: /root/clf_logs/
+
+- name: Delete ansible playbook log file
+  file:
+    state: absent
+    path: /root/ocp_ansible_validation_log.txt
+
+- name: Delete ImageContentSourcePolicy and CatalogSource if they exist
+  block: 
+  - name: Check if the ImageContentSourcePolicy exists
+    shell: oc get ImageContentSourcePolicy | grep brew-registry | wc -l
+    register: icsp_cnt
+
+  - name: Check if the CatalogSource exists
+    shell:  oc get CatalogSource -n openshift-marketplace | grep "cluster-logging\|elasticsearch" |wc -l
+    register: catalog_src_cnt
+
+  - name: Delete ImageContentSourcePolicy if it exists
+    shell: oc delete ImageContentSourcePolicy brew-registry
+    when: icsp_cnt.stdout|int == 1
+
+  - name: Delete CatalogSource if it exists
+    shell: oc delete CatalogSource elasticsearch cluster-logging -n openshift-marketplace
+    when: catalog_src_cnt.stdout|int == 2
+
+  - name: Set disableAllDefaultSources to false
+    shell: |
+      oc patch operatorhub.config.openshift.io/cluster -p='{"spec":{"disableAllDefaultSources":false}}' --type=merge
+
+# Check ClusterLogForwarder instance and delete if it exist
+- name: Check if the ClutserLogForwarder instance exist
+  shell: oc get ClusterLogForwarder -n openshift-logging | wc -l
+  register: check_clf
+
+- name: Delete ClutserLogForwarder instance if it exists
+  shell: oc delete ClusterLogForwarder instance -n openshift-logging
+  when: check_clf.stdout|int != 0
+
+# Check ClusterLogging instance and delete if it exists
+- name: Check if the ClusterLogging instance exists
+  shell: oc get ClusterLogging -n openshift-logging | wc -l
+  register: check_cl
+
+- name: Delete ClusterLogging instance if it exists
+  shell: oc delete ClusterLogging instance -n openshift-logging
+  when: check_cl.stdout|int != 0
+
+# Check and delete Elasticsearch subscription if it exists
+- name: Check if the Elasticsearch subscription exists
+  shell: oc get subscription -n openshift-operators-redhat | grep elasticsearch-operator | wc -l
+  register: elastic_search_sub
+
+- name: Delete Elasticsearch subscription if it exists
+  shell: oc delete subscription elasticsearch-operator -n openshift-operators-redhat
+  when: elastic_search_sub.stdout|int != 0
+
+# Check and delete Elasticsearch operator if it exists
+- name: Check if the Elasticsearch operator exists
+  shell: oc get csv -n openshift-logging | grep elasticsearch | awk 'NR==1{print $1}'
+  register: elastic_search_csv
+
+- name: Delete Elasticsearch operator if it exists
+  shell: oc delete clusterserviceversion {{ elastic_search_csv.stdout }} -n openshift-operators-redhat
+  when: elastic_search_csv.stdout|length > 0 
+
+# Check and delete ClusterLogging subscription if it exists
+- name: Check if the ClusterLogging subscription exists
+  shell: oc get subscription -n openshift-logging | grep cluster-logging | wc -l
+  register: cluster_logging_subs
+
+- name: Delete ClusterLogging subscription if it exists
+  shell: oc delete subscription cluster-logging -n openshift-logging
+  when: cluster_logging_subs.stdout|int != 0
+
+# Check and delete ClusterLogging operator if it exists
+- name: Check if the ClusterLogging operator exists
+  shell:  oc get csv  -n openshift-logging | grep cluster-logging | awk 'NR==1{print $1}'
+  register: cluster_logging_csv
+
+- name: Delete ClusterLogging operator if it exists
+  shell: oc delete clusterserviceversion {{ cluster_logging_csv.stdout }} -n openshift-logging 
+  when: cluster_logging_csv.stdout|length > 0
+

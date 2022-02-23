@@ -1,0 +1,190 @@
+---
+# Create index patterns for Kibana if it does not exist
+- name: Create index patterns for Kibana if it does not exist
+  shell: |
+     export ip="$(grep -oE '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}' <<< "{{elasticsearch_server_url}}")"
+     index_pattern=$(curl -X GET "http://${ip}:5601/api/saved_objects/_find?type=index-pattern&search_fields=title&search={{ item }}*" -H 'kbn-xsrf: true' | jq '.saved_objects[].attributes.title')
+     if [ "$index_pattern" = "" ] ;
+     then
+         curl -f -XPOST -H "Content-Type: application/json" -H "kbn-xsrf: true" \
+         "http://${ip}:5601/api/saved_objects/index-pattern/{{ item }}*?overwrite=true" \
+         -d"{\"attributes\":{\"title\":\"{{ item }}*\",\"timeFieldName\":\"@timestamp\"}}"
+     fi
+  loop:
+    - app
+    - audit
+    - infra
+  when: elasticsearch_server_url is defined
+  ignore_errors: yes
+
+# Generating the ClusterLogForwarder custom resource yaml file with specified external third-party systems
+- name: Generating ClusterLogForwarder file
+  template:
+    src: "{{ role_path }}/templates/clf-instance.yml.j2"
+    dest: "{{ role_path }}/files/clf-instance.yml"
+
+# Creating ClusterLogForwarder custom resource
+- include_tasks: "{{ role_path }}/files/clf-instance.yml"
+
+# Check if the pods are in good state
+- name: Check the logging pods are in good state
+  shell: oc get pods -n openshift-logging --no-headers | awk '{if ($3 != "Running" && $3 != "Completed" ) print $1}' | wc -l
+  register: pods
+  until: pods.stdout|int == 0
+  retries: 6
+  delay: 60
+  ignore_errors: yes
+  
+- name: Get error state pods 
+  shell: oc get pod -n openshift-logging | grep Error| wc -l
+  register: err_pods
+
+- name: Delete all pods in error state
+  shell: oc delete pod $(oc get pods -n openshift-logging| grep Error | awk '{print $1}') -n openshift-logging
+  when: err_pods.stdout|int != 0
+
+# Check pods are in good state
+- name: Check the logging pods are in good state
+  shell: oc get pods -n openshift-logging --no-headers | awk '{if ($3 != "Running" && $3 != "Completed" ) print $1}' | wc -l
+  register: pods
+  until: pods.stdout|int == 0
+  retries: 15
+  delay: 120
+
+- name: Create a directory to store logs if it does not exist
+  ansible.builtin.file:
+    path: "{{cl_log_dir}}/{{item}}"
+    state: directory
+    mode: '0755'
+  loop:
+    - "syslog"
+    - "kafka"
+    - "fluentd"
+    - "elasticsearch"
+    - "loki"
+    - "cloudwatch"
+
+- name: Fetch the logs from external instances 
+  block:
+    # Fetch the logs from Kafka
+    - name: Get logs from kafka server
+      shell: |
+        ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@{{kafka_host}} '{{kafka_path}}/kafka-console-consumer.sh --bootstrap-server {{kafka_host}}:9092 --topic {{log_labels}}-audit --max-messages 10' > "{{cl_log_dir}}"/kafka/audit.txt
+        ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@{{kafka_host}} '{{kafka_path}}/kafka-console-consumer.sh --bootstrap-server {{kafka_host}}:9092 --topic {{log_labels}}-infrastructure --max-messages 10' > "{{cl_log_dir}}"/kafka/infrastructure.txt
+        ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@{{kafka_host}} '{{kafka_path}}/kafka-console-consumer.sh --bootstrap-server {{kafka_host}}:9092 --topic {{log_labels}}-application --max-messages 10' > "{{cl_log_dir}}"/kafka/application.txt
+      async: 30
+      poll: 5
+      ignore_errors: yes
+      when: kafka_server_url is defined
+      
+    # Fetch logs from Syslog server
+    - name: Fetch the logs on external Syslog instance
+      shell: |
+        ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@{{syslog_host}} 'awk "NR >= 100"  /var/log/messages | grep "{{log_labels}}-audit" |shuf -n 10' > "{{cl_log_dir}}"/syslog/audit.txt
+        ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@{{syslog_host}} 'awk "NR >= 100"  /var/log/messages | grep "{{log_labels}}-infrastructure" |shuf -n 10' > "{{cl_log_dir}}"/syslog/infrastructure.txt
+        ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@{{syslog_host}} 'awk "NR >= 100"  /var/log/messages | grep "{{log_labels}}-application" |shuf -n 10' > "{{cl_log_dir}}"/syslog/application.txt
+      async: 60
+      poll: 5
+      args:
+        executable: /bin/bash
+      ignore_errors: yes
+      when: syslog_server_url is defined
+    
+    # Fetch logs from Elasticsearch
+    - name: Fetch Logs from Elasticsearch
+      shell: |
+        curl -XGET "{{elasticsearch_server_url}}/infra*/_search" -H 'Content-Type: application/json' -d '{    "query": { "bool": {  "must": [  {   "match":{"openshift.labels.logs":"{{ log_labels }}-infrastructure"}  }  ]  }  }  }' > "{{cl_log_dir}}"/elasticsearch/infrastructure.txt
+        curl -XGET "{{elasticsearch_server_url}}/audit*/_search" -H 'Content-Type: application/json' -d '{    "query": { "bool": {  "must": [  {   "match":{"openshift.labels.logs":"{{ log_labels }}-audit"}  }  ]  }  }  }' > "{{cl_log_dir}}"/elasticsearch/audit.txt
+        curl -XGET "{{elasticsearch_server_url}}/app*/_search" -H 'Content-Type: application/json' -d '{    "query": { "bool": {  "must": [  {   "match":{"openshift.labels.logs":"{{ log_labels }}-application"}  }  ]  }  }  }' > "{{cl_log_dir}}"/elasticsearch/application.txt
+      when: elasticsearch_server_url is defined
+      ignore_errors: yes
+
+    # Fetch logs from Loki
+    - name: Fetch logs from Loki
+      shell: |
+        curl -G -s  "{{loki_server_url}}/api/prom/query"  --data-urlencode 'query={log_type="infrastructure"}' > "{{cl_log_dir}}"/loki/infrastructure.txt
+        curl -G -s  "{{loki_server_url}}/api/prom/query"  --data-urlencode 'query={log_type="audit"}' > "{{cl_log_dir}}"/loki/audit.txt
+        curl -G -s  "{{loki_server_url}}/api/prom/query"  --data-urlencode 'query={log_type="application"}' > "{{cl_log_dir}}"/loki/application.txt
+      when: loki_server_url is defined
+      ignore_errors: yes
+
+    # Deleting CLF Custom Resource instance because Fluentd and CloudWatch stores the logs on their system
+    - name: Delete ClusterLogForwarder
+      shell: oc delete ClusterLogForwarder instance -n openshift-logging
+
+    - name: Check the logging pods are restarting
+      shell: oc get pods -n openshift-logging --no-headers | awk '{if ($3 == "Terminating" ) print $1}' | wc -l
+      register: pods
+      until: pods.stdout|int > 0
+      retries: 20
+      delay: 5
+      ignore_errors: yes
+
+    - name: Delete pods if not restarted automatic
+      shell: oc delete pod $(oc get pods -n openshift-logging| grep 'fluent\|collector' | awk '{print $1}') -n openshift-logging
+      when: pods.failed
+
+    # Check pods are in good state
+    - name: Check the logging pods are in good state
+      shell: oc get pods -n openshift-logging --no-headers | awk '{if ($3 != "Running" && $3 != "Completed" ) print $1}' | wc -l
+      register: pods
+      until: pods.stdout|int == 0
+      retries: 10
+      delay: 90
+      ignore_errors: yes
+
+    # Fetch logs from Fluentd and clean up
+    - name: Fetch container ID from Fluentd
+      shell: |
+        ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@{{fluent_host}} podman container list | awk '{if($3=="fluentd") print $1 }'
+      register: container_id
+      async: 20
+      poll: 5
+      ignore_errors: yes
+      when: fluentd_server_url is defined
+
+    - name: Fetch logs from Fluentd
+      shell: |
+        ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@{{fluent_host}} 'docker exec -it {{ container_id.stdout }}  cat fluentd/log/data.log | grep "{{ log_labels }}-audit" | shuf -n 10' > "{{cl_log_dir}}"/fluentd/audit.txt
+        ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@{{fluent_host}} 'docker exec -it {{ container_id.stdout }}  cat fluentd/log/data.log | grep "{{ log_labels }}-infrastructure" |shuf -n 10' > "{{cl_log_dir}}"/fluentd/infrastructure.txt
+        ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@{{fluent_host}} 'docker exec -it {{ container_id.stdout }}  cat fluentd/log/data.log | grep "{{ log_labels }}-application" |shuf -n 10' > "{{cl_log_dir}}"/fluentd/application.txt
+        sleep 10s
+        ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@{{fluent_host}} "podman exec  {{container_id.stdout}}  rm -rf /fluentd/log/ rm -rf /fluentd/logs/"
+      async: 60
+      poll: 5
+      ignore_errors: yes
+      when: fluentd_server_url is defined
+
+    # Fetch logs from CloudWatch and cleans the logs at AWS CloudWatch
+    - name: Fetch logs from AWS CloudWatch 
+      include_tasks: "{{role_path}}/files/get-cloudwatch-logs.yml"
+      ignore_errors: yes
+      when: cw_secret is defined
+
+    - name: Syslog clean up
+      shell: |
+        ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@{{syslog_host}} 'echo 0 > /var/log/messages'
+      ignore_errors: yes
+      when: syslog_server_url is defined
+
+    - name: Kafka clean up
+      shell: |
+        ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@{{kafka_host}} '{{kafka_path}}/kafka-topics.sh --delete --topic {{ log_labels }}-.*  --zookeeper localhost:2181'
+        ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@{{kafka_host}} 'systemctl stop kafka'
+        ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@{{kafka_host}} 'systemctl stop zookeeper'
+        sleep 5s
+        ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@{{kafka_host}} 'rm -rf /tmp/kafka-logs/'
+        ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@{{kafka_host}} 'rm -rf /tmp/zookeeper/'
+        sleep 10s
+        ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@{{kafka_host}} 'systemctl restart zookeeper'
+        ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@{{kafka_host}} 'systemctl restart kafka'
+      ignore_errors: yes
+      when: kafka_server_url is defined
+        
+    - name: Elasticsearch clean up
+      shell: |
+        curl -X POST "{{elasticsearch_server_url}}/audit*/_delete_by_query?pretty" -H 'Content-Type: application/json' -d '{ "query": { "match": { "openshift.labels.logs":"{{ log_labels }}-audit" } }}'
+        curl -X POST "{{elasticsearch_server_url}}/app*/_delete_by_query?pretty" -H 'Content-Type: application/json' -d '{ "query": { "match": { "openshift.labels.logs":"{{ log_labels }}-application" } }}'
+        curl -X POST "{{elasticsearch_server_url}}/infra*/_delete_by_query?pretty" -H 'Content-Type: application/json' -d '{ "query": { "match": { "openshift.labels.logs":"{{ log_labels }}-infrastructure" } }}'
+      ignore_errors: yes
+      when: elasticsearch_server_url is defined
