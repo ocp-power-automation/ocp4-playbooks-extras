@@ -75,8 +75,11 @@ golang_installation_path: "/usr/local/"
 
 # ocp-sbo-operator required vars
 ocp_sbo: false
-golang_tarball_sbo: https://golang.org/dl/go1.16.10.linux-ppc64le.tar.gz
+sbo_catalogsource_image: ""
+sbo_update_channel: ""
 acceptance_tests: false
+golang_tarball_sbo: https://dl.google.com/go/go1.17.6.linux-ppc64le.tar.gz
+sbo_cleanup: false
 
 # htpasswd-identity-provider required vars
 htpasswd_identity_provider: false
