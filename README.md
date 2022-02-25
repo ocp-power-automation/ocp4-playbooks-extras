@@ -17,6 +17,7 @@ This repository consists of additional ansible playbooks for the following:
 13. Run OCP Node Feature Discovery Operator Installation
 14. Run SBO installation and running smoke acceptance tests
 15. Configure HTPasswd Identity Provider
+16. Set custom catalog source
 
 ## Assumptions:
 
