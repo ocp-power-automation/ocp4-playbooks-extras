@@ -43,3 +43,6 @@
   
 - import_playbook: ocp-htpasswd-identity-provider.yml
   when: htpasswd_identity_provider
+
+- import_playbook: set-custom-catalogsource.yml
+  when: set_custom_catalogsource
