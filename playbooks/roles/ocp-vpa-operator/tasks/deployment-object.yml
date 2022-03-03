@@ -1,0 +1,54 @@
+---
+- name: Create a Deployment workload object
+  k8s:
+    state: present
+    definition:
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: deployment-nginx
+        namespace: default
+      spec:
+        selector:
+          matchLabels:
+            app: deployment-nginx
+        replicas: "{{ pod_replicas }}"
+        template:
+          metadata:
+            labels:
+              app: deployment-nginx
+          spec:
+            containers:
+              - name: deployment-nginx
+                image: quay.io/vahirwad/nginx-unprivileged
+                resources:
+                  requests:
+                    cpu: 100m
+                    memory: 50Mi
+                command: ["/bin/sh"]
+                args:
+                  - "-c"
+                  - "while true; do timeout 0.5s yes >/dev/null; sleep 0.5s; done"
+              - name: deployment-nginx-exempt
+                image: quay.io/vahirwad/nginx-unprivileged
+                resources:
+                  requests:
+                    cpu: 100m
+                    memory: 50Mi
+                command: ["/bin/sh"]
+                args:
+                  - "-c"
+                  - "while true; do timeout 0.5s yes >/dev/null; sleep 0.5s; done"
+
+- name: Validate if the deployment is successful
+  shell: oc get pods -n default | grep deployment-nginx | grep Running | wc -l
+  register: pods_count
+  until: pods_count.stdout|int > 0
+  retries: 20
+  delay: 30
+  ignore_errors: yes
+
+- name: Fail if deployment of deployment-nginx has failed
+  fail:
+    msg: "deployment-nginx deploy failed."
+  when: pods_count.stdout|int == 0

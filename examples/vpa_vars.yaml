@@ -1,0 +1,12 @@
+# ocp-vpa required vars
+ocp_vpa: false
+vpa_update_channel: ""
+vpa_catalogsource_image: ""
+vpa_update_mode_auto: false
+vpa_update_mode_initial: false
+vpa_update_mode_off: false
+vpa_minimum_replicas_test: false
+vpa_object_kind: "" # Deployment, StatefulSet, ReplicaSet, ReplicationController, DeploymentConfig
+vpa_directory: ""
+vpa_e2e: false
+vpa_cleanup: false
