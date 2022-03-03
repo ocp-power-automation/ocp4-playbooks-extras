@@ -1,0 +1,65 @@
+---
+- name: Create a ReplicaSet object with nginx image 
+  k8s:
+    state: present
+    definition:
+      apiVersion: apps/v1
+      kind: ReplicaSet
+      metadata:
+        name: replicaset-nginx
+        namespace: default
+        labels:
+          app: replicaset-nginx
+      spec:
+        replicas: "{{ pod_replicas }}"
+        selector: 
+          matchLabels: 
+            app: replicaset-nginx
+          matchExpressions: 
+            - {key: app, operator: In, values: [replicaset-nginx]}
+        template:
+          metadata:
+            labels:
+              app: replicaset-nginx
+          spec:
+            containers:
+            - name: replicaset-nginx
+              image: quay.io/vahirwad/nginx-unprivileged
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 50Mi
+              command: ["/bin/sh"]
+              args:
+                - -c
+                - "while true; do timeout 0.5s yes >/dev/null; sleep 0.5s; done"
+              ports:
+              - containerPort: 80
+                protocol: TCP
+            - name: replicaset-nginx-exempt
+              image: quay.io/vahirwad/nginx-unprivileged
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 50Mi
+              command: ["/bin/sh"]
+              args:
+                - -c
+                - "while true; do timeout 0.5s yes >/dev/null; sleep 0.5s; done"
+              ports:
+              - containerPort: 80
+                protocol: TCP
+            restartPolicy: Always
+
+- name: Validate the workload object replicaset-nginx
+  shell: oc get pods -n default | grep replicaset-nginx | grep Running | wc -l
+  register: pods_count
+  until: pods_count.stdout|int > 0
+  retries: 20
+  delay: 30
+  ignore_errors: yes
+
+- name: Fail if deployment of replicaset-nginx has failed
+  fail:
+    msg: "hamster-replicaset deploy failed."
+  when: pods_count.stdout|int == 0

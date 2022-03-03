@@ -49,3 +49,6 @@
 
 - import_playbook: ocp-jenkins.yml
   when: ocp_jenkins
+
+- import_playbook: ocp-vpa-operator.yml
+  when: ocp_vpa

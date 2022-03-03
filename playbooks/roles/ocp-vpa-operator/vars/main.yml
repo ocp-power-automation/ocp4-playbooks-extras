@@ -1,0 +1,8 @@
+---
+# environment vars file for VPA e2e
+vpa_env:
+   PATH: "/usr/local/go/bin:{{ ansible_env.PATH }}:{{ ansible_env.HOME }}/bin"
+   KUBECONFIG: "{{ ansible_env.HOME }}/.kube/config"
+   WATCH_NAMESPACE: openshift-vertical-pod-autoscaler
+   GOROOT: "/usr/local/go"
+   GOPATH: "{{ ansible_env.HOME }}/go"

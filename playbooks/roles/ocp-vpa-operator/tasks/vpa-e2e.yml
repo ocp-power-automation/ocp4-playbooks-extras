@@ -1,0 +1,121 @@
+# Cloning kubernetes-autoscaler test's repository
+- name: Cloning VPA e2e test's repository
+  git:
+    repo: 'https://github.com/openshift/kubernetes-autoscaler.git'
+    dest: "{{ vpa_workplace }}/e2e"
+
+# Installing Go Lang
+- name: Include role for installation of Go lang
+  include_role:
+    name: golang-installation
+  vars:
+    go_tarball: "{{ golang_tarball_sbo | default('https://dl.google.com/go/go1.17.6.linux-ppc64le.tar.gz', true) }}" 
+    golang_path: "/usr/local/"
+
+- name: Run VPA e2e tests
+  shell: |
+    cd {{ vpa_workplace }}/e2e/vertical-pod-autoscaler/e2e
+    GO111MODULE=on go test -mod vendor ./v1/*go -v --test.timeout=60m --args --ginkgo.v=true --ginkgo.focus="\[VPA\] \[full-vpa\]" --report-dir=/workspace/_artifacts --disable-log-dump
+  environment: "{{ vpa_env }}"
+  register: vpa_e2e_output
+  ignore_errors: yes
+
+- name: Save e2e output
+  copy:
+    content={{ vpa_e2e_output.stdout}} 
+    dest={{ vpa_workplace }}/e2e_output.txt
+
+- name: Read the summary from e2e output file
+  shell: grep -w "Test Suite completed" {{ vpa_workplace }}/e2e_output.txt
+  register: e2e_summary
+
+- name: Convert output to dictionary type
+  set_fact: 
+    e2e_summary_dict: "{{ e2e_summary.stdout }}"
+
+- name: Save VPA e2e summary
+  lineinfile:
+    line: "{{ item }}"
+    path: "{{ vpa_workplace }}/e2e_summary.txt"
+    insertafter: EOF
+    state: present
+    create: yes
+  with_items:
+  - "\n# VPA e2e test cases summary:"
+  - "Total test cases: {{ e2e_summary_dict['total'] }}"
+  - "{{ e2e_summary_dict['completed'] }} passed, {{ e2e_summary_dict['skipped'] }} skipped, {{ e2e_summary_dict['failed'] }} failed"
+  when: e2e_summary_dict.failed|int == 0
+
+# Re-running failed e2e test cases
+- block:
+  - name: Save the failed test cases
+    lineinfile:
+      line: "{{ item.split('] ')[-1] }}"
+      path: "{{ vpa_workplace }}/failed_testcases.txt"
+      insertafter: EOF
+      state: present
+      create: yes
+    with_items:
+    - "{{ e2e_summary_dict['failures'] }}\n"
+
+  - name: Re-running failed test cases
+    shell: |
+      cd {{ vpa_workplace }}/e2e/vertical-pod-autoscaler/e2e
+      loop_count=0
+      initial_failed_tests=$(wc -l < "{{ vpa_workplace }}/failed_testcases.txt")
+      while [ $loop_count -lt 3 ]
+      do
+        truncate -s 0 "{{ vpa_workplace }}/failed_output.txt"
+        while read line
+        do 
+            # Re-running failed test cases
+            GO111MODULE=on go test -mod vendor ./v1/*go -v --test.timeout=60m --args --ginkgo.v=true --ginkgo.focus="${line}" --report-dir=/workspace/_artifacts --disable-log-dump > {{ vpa_workplace }}/colored_output.txt
+            
+            # Removing the color codes from output
+            sed -r "s/\x1B\[(([0-9]{1,2})?(;)?([0-9]{1,2})?)?[m,K,H,f,J]//g" {{ vpa_workplace }}/colored_output.txt  > {{ vpa_workplace }}/output.txt 
+            
+            # Extracting the summary from output file
+            result=$(grep -E "[0-9]+ Passed\b|[0-9]+ Failed\b|[0-9]+ Pending\b|[0-9]+ Skipped" {{ vpa_workplace }}/output.txt)
+          
+            if [ $(echo "${result}" | awk '{print $1}') != "SUCCESS!" ]; then
+              echo "${line}" >> "{{ vpa_workplace }}/failed_output.txt"
+            fi
+        done < {{ vpa_workplace }}/failed_testcases.txt 
+
+        failed_tests="$(wc -l < "{{ vpa_workplace }}/failed_testcases.txt")"
+        cat {{ vpa_workplace }}/failed_output.txt > {{ vpa_workplace }}/failed_testcases.txt
+
+        if [ $failed_tests -eq "$(wc -l < "{{ vpa_workplace }}/failed_output.txt")" ] || [ "0" -eq "$(wc -l < "{{ vpa_workplace }}/failed_output.txt")" ]
+        then
+          break
+        fi
+        
+        loop_count=$(( $loop_count + 1 ))
+      done
+      rm -rf {{ vpa_workplace }}/failed_output.txt
+      rm -rf {{ vpa_workplace }}/colored_output.txt
+      rm -rf {{ vpa_workplace }}/output.txt
+      echo $(( $initial_failed_tests - $(wc -l < "{{ vpa_workplace }}/failed_testcases.txt" )))
+    register: passed_tests
+    ignore_errors: true
+    args:
+      executable: /bin/bash
+    environment:
+      PATH: "/usr/local/go/bin:{{ ansible_env.PATH }}:{{ ansible_env.HOME }}/bin"
+      KUBECONFIG: "{{ ansible_env.HOME }}/.kube/config"
+      WATCH_NAMESPACE: openshift-vertical-pod-autoscaler
+      GOROOT: "/usr/local/go"
+      GOPATH: "{{ ansible_env.HOME }}/go"
+
+  - name: Save VPA e2e summary after re-running
+    lineinfile:
+      line: "{{ item }}"
+      path: "{{ vpa_workplace }}/e2e_summary.txt"
+      insertafter: EOF
+      state: present
+      create: yes
+    with_items:
+    - "# VPA e2e test cases summary:"
+    - "Total test cases: {{ e2e_summary_dict['total'] }}"
+    - "{{ e2e_summary_dict['completed']|int + passed_tests.stdout|int  }} passed, {{ e2e_summary_dict['skipped'] }} skipped, {{ e2e_summary_dict['failed']|int - passed_tests.stdout|int }} failed" 
+  when: e2e_summary_dict.failed|int != 0
