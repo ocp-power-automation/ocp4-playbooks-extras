@@ -1,0 +1,80 @@
+---
+# Check if catalog source name, display name and image is not empty
+- block:
+  - name: Check if the catalog source name is not empty
+    fail:
+      msg: "Catalog source name is not defined."
+    when: custom_catalogsource_name == "" or custom_catalogsource_name == None
+
+  - name: Check if the catalog source display name is not empty
+    fail:
+      msg: "Catalog source display name is not defined."
+    when: custom_catalogsource_display_name == "" or custom_catalogsource_display_name == None
+
+  - name: Check if the catalog source image is not empty
+    fail:
+      msg: "Catalog source image is not defined."
+    when: custom_catalogsource_image == "" or custom_catalogsource_image == None
+
+# Create custom ImageContentSourcePolicy
+- name: Create ImageContentSourcePolicy
+  k8s:
+    state: present
+    definition:
+      apiVersion: operator.openshift.io/v1alpha1
+      kind: ImageContentSourcePolicy
+      metadata:
+        name: brew-registry
+      spec:
+        repositoryDigestMirrors:
+        - mirrors:
+          - brew.registry.redhat.io
+          source: registry.redhat.io
+        - mirrors:
+          - brew.registry.redhat.io
+          source: registry.stage.redhat.io
+        - mirrors:
+          - brew.registry.redhat.io
+          source: registry-proxy.engineering.redhat.com
+
+- name: Check if the ImageContentSourcePolicy has created
+  k8s:
+    api_version: operator.openshift.io/v1alpha1
+    kind: ImageContentSourcePolicy
+    name: brew-registry
+  register: imagecontentsourcepolicy_creation
+  ignore_errors: yes
+
+- name: Fail if the ImageContentSourcePolicy has not created
+  fail:
+    msg: "ImageContentSourcePolicy not created!"
+  when: imagecontentsourcepolicy_creation.failed
+  
+# Create custom CatalogSource
+- name: Create a custom CatalogSource
+  k8s:
+    state: present
+    definition:
+      apiVersion: operators.coreos.com/v1alpha1
+      kind: CatalogSource
+      metadata:
+        name: "{{ custom_catalogsource_name }}"
+        namespace: openshift-marketplace
+      spec:
+        sourceType: grpc
+        publisher: grpc
+        displayName: "{{ custom_catalogsource_display_name }}"
+        image: "{{ custom_catalogsource_image }}"
+
+- name: Check if the CatalogSource has created
+  k8s:
+    api_version: operators.coreos.com/v1alpha1
+    kind: CatalogSource
+    name: "{{ custom_catalogsource_name }}"
+    namespace: openshift-marketplace
+  register: catalogsource_creation
+
+- name: Fail if the CatalogSource has not created
+  fail:
+    msg: "CatalogSource {{ custom_catalogsource_name }} not created!"
+  when: catalogsource_creation.failed
