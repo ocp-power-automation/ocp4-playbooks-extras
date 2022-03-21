@@ -15,7 +15,15 @@ Role Variables
 **Note:**
 Variables can be used by external role to create custom CatalogSource.
 
-eg. The `set-custom-catalogsource` role is used in SBO role as following:
+
+Dependencies
+------------
+
+ - None
+
+Example Playbook
+----------------
+The `set-custom-catalogsource` role is used in SBO role as following:
 ```
   - name: Include role to create ImageContentSourcePolicy and CatalogSource
     include_role:
@@ -27,22 +35,6 @@ eg. The `set-custom-catalogsource` role is used in SBO role as following:
   when: sbo_catalogsource_image != '' and sbo_catalogsource_image != None
 ```
 Variables `sbo_catalogsource_name` and `sbo_catalogsource_image` can be set in the SBO variable file.
-
-Dependencies
-------------
-
- - None
-
-Example Playbook
-----------------
-```
----
-- name: Set custom catalog source
-  hosts: bastion
-  roles:
-  - set-custom-catalogsource
-```
-
 ## License
 
 See LICENCE.txt
