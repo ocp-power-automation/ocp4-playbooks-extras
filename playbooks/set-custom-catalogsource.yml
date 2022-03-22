@@ -1,5 +1,0 @@
----
-- name: Set custom catalog source
-  hosts: bastion
-  roles:
-  - set-custom-catalogsource
