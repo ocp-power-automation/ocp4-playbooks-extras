@@ -1,12 +1,20 @@
 ---
 - name: EgressIP Validation
   block:
-    - name: Run commands
-      shell: |
-        oc project test
-
+    - name: Create a namespace
+      k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: test
+            labels:
+              kubernetes.io/metadata.name: test
+              name: test
+ 
     - name: Get worker nodes 
-      shell: oc get nodes | grep worker | grep -oE ".*worker-[0-9]"
+      shell: oc get nodes | grep worker | awk '{print $1}'
       register: workers
   
     # assignes label to worker nodes which have to assign egressip
@@ -91,7 +99,7 @@
 
     # getting worker node which has egressip assigned 
     - name: Get node to restart
-      shell: oc get egressip | grep -oE "[a-z0-9-]*-worker-[0-9]"
+      shell: oc get egressip | awk 'NR==2 {print $3}'
       register: worker_node
     
     - set_fact: node_egress="{{ worker_node.stdout }}"
