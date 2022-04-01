@@ -1,6 +1,6 @@
 ---
 - name: Create an OCP Project
-  openshift_raw:
+  k8s:
     api_version: project.openshift.io/v1
     kind: Project
     name: test
@@ -13,7 +13,7 @@
 - name: Create Egress-firewall
   block:
     - name: Create Configuration for Egress firewall  
-      openshift_raw:
+      k8s:
         state: present
         definition:
           apiVersion: k8s.ovn.org/v1
@@ -83,7 +83,7 @@
 - name: Update EgressFirewall
   block:
     - name: Create Second Configuration for Egress firewall
-      openshift_raw:
+      k8s:
         state: present
         definition:
           apiVersion: k8s.ovn.org/v1
@@ -179,7 +179,7 @@
 - name: Delete EgressFirewall
   block:
     - name: Create Third Configuration for Egress firewall
-      openshift_raw:
+      k8s:
         state: present
         definition:
           apiVersion: k8s.ovn.org/v1

@@ -22,7 +22,7 @@
 
 #create Subscription for the Service Binding Operator
 - name: subscription for service-binding operator
-  openshift_raw:
+  k8s:
       state: present
       definition:
         apiVersion: operators.coreos.com/v1alpha1
@@ -38,7 +38,7 @@
 
 # tasks file for roles/operator-gp
 - name: Create operator group for Service Binding Operator
-  openshift_raw:
+  k8s:
     state: present
     definition:
       apiVersion: operators.coreos.com/v1
