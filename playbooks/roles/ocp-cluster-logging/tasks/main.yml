@@ -93,7 +93,7 @@
 
 # Creating namespaces 
 - name: Create namespace for elasticsearch and cluster logging
-  openshift_raw:
+  k8s:
     state: present
     definition:
       apiVersion: v1
@@ -110,7 +110,7 @@
 
 # Create operator group objects for OpenShift Elasticsearch Operator and Red Hat OpenShift Logging Operator
 - name: Create operator group for Elasticsearch
-  openshift_raw:
+  k8s:
     state: present
     definition:
       apiVersion: operators.coreos.com/v1
@@ -121,7 +121,7 @@
       spec: {}
 
 - name: Create operator group for cluster logging
-  openshift_raw:
+  k8s:
     state: present
     definition:
       apiVersion: operators.coreos.com/v1
@@ -135,7 +135,7 @@
 
 # Create a Subscription object OpenShift Elasticsearch Operator and Red Hat OpenShift Logging Operator.
 - name: Subscription for cluster-logging operator
-  openshift_raw:
+  k8s:
     state: present
     definition:
       apiVersion: operators.coreos.com/v1alpha1
@@ -172,7 +172,7 @@
 
 # Testcase-1 deployment of nginx pod in default namespace
 - name: Create a nginx pod in default namespace for test
-  openshift_raw:
+  k8s:
     state: present
     definition:
       kind: Pod
@@ -193,7 +193,7 @@
 
 #Create namespace for structured data generating app centos-logtest
 - name: Create namespace
-  openshift_raw:
+  k8s:
     state: present
     definition:
       apiVersion: v1

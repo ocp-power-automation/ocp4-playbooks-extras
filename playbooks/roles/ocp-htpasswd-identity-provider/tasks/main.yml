@@ -29,7 +29,7 @@
 
 # Create or update htpass-secret 
 - name: Generate the new secret if does not exists otherwise update existing secret
-  openshift_raw:
+  k8s:
     state: present
     definition:
       apiVersion: v1
@@ -43,7 +43,7 @@
 
 # Creating HTPasswd CR
 - name: Create CR for HTPasswd identity provider
-  openshift_raw:
+  k8s:
     state: present
     definition:
       apiVersion: config.openshift.io/v1

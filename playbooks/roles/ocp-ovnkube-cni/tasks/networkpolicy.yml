@@ -2,7 +2,7 @@
 - name: NetworkPolicy Create,View,Edit and delete Operations
   block:
     - name: Create namespace
-      openshift_raw:
+      k8s:
         state: present
         definition:
           apiVersion: v1
@@ -11,7 +11,7 @@
             name: test-2
 
     - name: Create network policy
-      openshift_raw:
+      k8s:
         state: present
         definition:
           kind: NetworkPolicy
@@ -48,7 +48,7 @@
         msg: "Network Policies: {{ nw_policies_describe.stdout_lines }}"
 
     - name: Edit NerworkPolicy 
-      openshift_raw:
+      k8s:
         state: present
         definition:
           kind: NetworkPolicy
@@ -82,7 +82,7 @@
       register: delete_policy
      
     - name: Create Service run-pod
-      openshift_raw:
+      k8s:
         state: present
         definition:
           apiVersion: v1
@@ -100,7 +100,7 @@
                 targetPort: 9376
 
     - name: Create POD run-pod
-      openshift_raw:
+      k8s:
         state: present
         definition:
           kind: Pod
@@ -124,7 +124,7 @@
         msg: "{{ pods_status_1 }}"
 
     - name: Create network policy allow-all
-      openshift_raw:
+      k8s:
         state: present
         definition:
           kind: NetworkPolicy
@@ -140,7 +140,7 @@
             - {}
 
     - name: Create NeworkPolicy deny-all
-      openshift_raw:
+      k8s:
         state: present
         definition:
           kind: NetworkPolicy
@@ -162,7 +162,7 @@
         msg: "Network Policies: {{ nw_policies.stdout_lines }}"
     
     - name: Create A Deployment
-      openshift_raw:
+      k8s:
         state: present
         definition:
           apiVersion: apps/v1
@@ -325,7 +325,7 @@
 - name: Multitenant Validation
   block:
     - name: Create namespace
-      openshift_raw:
+      k8s:
         state: present
         definition:
           apiVersion: v1
@@ -334,7 +334,7 @@
             name: test
         
     - name: Create network policy allow-from-openshift-ingress
-      openshift_raw:
+      k8s:
         state: present
         definition:
           kind: NetworkPolicy
@@ -354,7 +354,7 @@
       register: policy_1
 
     - name: Create network policy allow-from-openshift-monitoring
-      openshift_raw:
+      k8s:
         state: present
         definition:
           apiVersion: networking.k8s.io/v1
@@ -374,7 +374,7 @@
       register: policy_2
 
     - name: Create network policy allow-same-namespace
-      openshift_raw:
+      k8s:
         state: present
         definition:
           apiVersion: networking.k8s.io/v1
