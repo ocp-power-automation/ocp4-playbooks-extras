@@ -69,7 +69,7 @@
 
 # Creating a namespace for NFD Operator Installation
 - name: Create a namespace for the NFD Operator
-  openshift_raw:
+  k8s:
      state: present
      definition:
        apiVersion: v1
@@ -80,7 +80,7 @@
 
 # Installing NFD Operator
 - name: Install the NFD Operator in the namespace
-  openshift_raw:
+  k8s:
      state: present
      definition:
        apiVersion: operators.coreos.com/v1
@@ -116,7 +116,7 @@
 
 # Creating subscription for NFD Operator 
 - name: Create the Subscription CR
-  openshift_raw:
+  k8s:
      state: present
      definition:
        apiVersion: operators.coreos.com/v1alpha1
@@ -165,7 +165,7 @@
 
   # Create the NodeFeatureDiscovery CR
 - name: Create the  NodeFeatureDiscovery Custom Resource 
-  openshift_raw:
+  k8s:
     state: present
     definition:
       apiVersion: nfd.openshift.io/v1

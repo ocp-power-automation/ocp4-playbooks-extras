@@ -5,7 +5,7 @@
 
 # Create a OpenShift logging instance
 - name: Create an instance for logging operator
-  openshift_raw:
+  k8s:
     state: present
     definition:
       apiVersion: "logging.openshift.io/v1"

@@ -1,5 +1,5 @@
 - name: Create an ClusterLogForwarder instance
-  openshift_raw:
+  k8s:
     state: present
     definition:
       apiVersion: logging.openshift.io/v1

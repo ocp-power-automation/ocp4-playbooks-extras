@@ -1,6 +1,6 @@
 ---
 - name: Create EgressIP Configuration
-  openshift_raw:
+  k8s:
     state: present
     definition:
       apiVersion: k8s.ovn.org/v1
