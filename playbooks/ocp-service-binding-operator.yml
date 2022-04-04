@@ -1,0 +1,12 @@
+---
+- name: Installation of Service Binding Operator and running smoke acceptance tests
+  hosts: bastion
+  tasks:
+  - name: Include the global-secret-update role
+    include_role:
+      name: global-secret-update
+    when: sbo_catalogsource_image != "" and sbo_catalogsource_image != None and sbo_cleanup == false
+
+  - name: Include the Service Binding Operator role
+    include_role:
+      name: ocp-service-binding-operator

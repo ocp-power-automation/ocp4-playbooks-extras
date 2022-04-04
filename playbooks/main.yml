@@ -38,7 +38,7 @@
 - import_playbook: golang-installation.yml
   when: golang_installation
   
-- import_playbook: ocp-service-binding-operator.yaml
+- import_playbook: ocp-service-binding-operator.yml
   when: ocp_sbo 
   
 - import_playbook: ocp-htpasswd-identity-provider.yml

@@ -1,6 +1,0 @@
----
-- name: Installation of Service Binding Operator and running smoke acceptance tests
-  hosts: bastion
-  roles:
-    - role: ocp-service-binding-operator
-
