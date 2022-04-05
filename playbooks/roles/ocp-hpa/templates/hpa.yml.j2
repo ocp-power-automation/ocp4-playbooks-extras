@@ -1,0 +1,65 @@
+- name: Create a HorizontalPodAutoscaler {{ resource_name }}-autoscale for "{{ '{{app_name}}' }}"
+  k8s:
+    state: present
+    definition:
+      apiVersion: {{ hpa_api_version }}
+      kind: HorizontalPodAutoscaler
+      metadata:
+        name: {{ resource_name }}-autoscale
+        namespace: default
+      spec:
+        scaleTargetRef:
+          apiVersion: "{{ '{{objects_apiversion}}' }}"
+          kind: "{{ '{{workload_object}}' }}"
+          name: "{{ '{{app_name}}' }}"
+        minReplicas: {{ hpa_min_replicas | default(1, true) }}
+        maxReplicas: {{ hpa_max_replicas | default(5, true) }}
+        metrics:
+{% if resource_name == "memory" %}
+        - type: Resource
+          resource:
+            name: memory
+            target:
+{% if resource_target_type == "AverageValue" %}
+              type: AverageValue
+              averageValue: {{ average_memory_value }}
+{% else %}
+              type: Utilization
+              averageUtilization: {{ average_memory_value }}
+{% endif %}
+{% elif resource_name == "cpu" %}
+        - type: Resource
+          resource:
+            name: cpu
+            target:
+{% if resource_target_type == "AverageValue" %}
+              type: AverageValue
+              averageValue: {{ average_cpu_value }}
+{% else %}
+              type: Utilization
+              averageUtilization: {{ average_cpu_value }}
+{% endif %}
+{% elif resource_name == "memory-cpu" %}
+        - type: Resource
+          resource:
+            name: "memory"
+            target:
+{% if resource_target_type == "AverageValue" %}
+              type: AverageValue
+              averageValue: {{ average_memory_value }}
+{% else %}
+              type: Utilization
+              averageUtilization: {{ average_memory_value }}
+{% endif %}
+        - type: Resource
+          resource:
+            name: "cpu"
+            target:
+{% if resource_target_type == "AverageValue" %}
+              type: AverageValue
+              averageValue: {{ average_cpu_value }}
+{% else %}
+              type: Utilization
+              averageUtilization: {{ average_cpu_value }}
+{% endif %}
+{% endif %}

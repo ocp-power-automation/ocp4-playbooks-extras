@@ -1,0 +1,85 @@
+---
+# Validate if the pods are scaling up using HPA
+- name: Validate if the {{ app_name }} pods are scaling up
+  shell: oc get pods -n default | grep {{ app_name }} | grep Running | wc -l
+  register: pods_count
+  until: pods_count.stdout|int > min_replicas|int
+  retries: 10
+  delay: 120
+  ignore_errors: yes
+
+- name: Get the {{ app_name }} pods when scaled up
+  shell: oc get pods -n default | grep {{ app_name }} | grep Running 
+  register: replica_pods
+
+- name: Get the HPA details when scaled up
+  shell: oc get hpa {{ resource_name }}-autoscale -n default
+  register: hpa_replica_details
+
+# Saves the output to file
+- lineinfile:
+    line: "{{ item }}"
+    path: /root/hpa_output.txt
+    insertafter: EOF
+    state: present
+    create: yes
+  with_items:
+  - "# HPA {{ resource_name }}-autoscale's output for {{ app_name }} when scaled up\n"
+  - "# oc get hpa {{ resource_name }}-autoscale -n default\n {{ hpa_replica_details.stdout }}\n"
+  - "# oc get pods -n default | grep {{ app_name }} | grep Running \n{{ replica_pods.stdout }}\n"
+
+# Fails if the pods are not scaling up
+- name: Pods for {{ app_name }} not scaling up.
+  fail:
+    msg: "Pods for {{ app_name }} not scaling up."
+  when: pods_count.failed
+
+# Validate if the pods are scaling down using HPA
+- name: Patch the {{ resource_name }}-autoscale HPA
+  k8s:
+    definition:
+      kind: HorizontalPodAutoscaler
+      metadata:
+        name: "{{ resource_name }}-autoscale"
+        namespace: default
+      spec: "{{ spec|from_yaml }}"
+  vars:
+    spec: |
+        scaleTargetRef:
+          name: {{ hpa_app_name }}
+        minReplicas: {{ hpa_min_replicas | default(1, true) }}
+        maxReplicas: {{ hpa_min_replicas | default(1, true) }}
+
+- name: Validate if the {{ app_name }} pods are scaling down
+  shell: oc get pods -n default | grep {{ app_name }} | grep Running | wc -l
+  register: min_pods_count
+  until: min_pods_count.stdout|int == min_replicas|int
+  retries: 10
+  delay: 120
+  ignore_errors: yes
+
+- name: Get the {{ app_name }} pods when scaled down
+  shell: oc get pods -n default | grep {{ app_name }} | grep Running 
+  register: replica_pods
+
+- name: Get the HPA details when scaled down
+  shell: oc get hpa {{ resource_name }}-autoscale -n default
+  register: hpa_replica_details
+
+# Saves the output to file
+- lineinfile:
+    line: "{{ item }}"
+    path: /root/hpa_output.txt
+    insertafter: EOF
+    state: present
+    create: yes
+  with_items:
+  - "# HPA {{ resource_name }}-autoscale output for {{ app_name }} when scaled down\n"
+  - "# oc get hpa {{ resource_name }}-autoscale -n default\n {{ hpa_replica_details.stdout }}\n"
+  - "# oc get pods -n default | grep {{ app_name }} | grep Running \n{{ replica_pods.stdout }}\n\n"
+
+# Fails if the pods are not scaling down
+- name: Pods for {{ app_name }} not scaling down.
+  fail:
+    msg: "Pods for {{ app_name }} not scaling down."
+  when: min_pods_count.failed

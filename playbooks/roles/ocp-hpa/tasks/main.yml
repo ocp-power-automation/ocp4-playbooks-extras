@@ -1,0 +1,62 @@
+---
+# Check if cluster health is good
+- name: Check all cluster operators are in good state
+  shell: oc get co | awk 'NR>1 { if($3=="False" || $4=="True" || $5=="True") { print $1 } }'
+  register: co
+  failed_when: co.stdout | length >  0
+
+- name: Check all nodes are healthy
+  shell: oc wait --all --for=condition=Ready nodes 
+
+# Check if default storage class has exists, it is required for statefulset application postgresql
+- name: Check if default storage class has exists
+  shell:  oc get sc | awk '/(default)/{print $1}' | wc -l
+  register: storage_class
+  failed_when: storage_class.stdout|int == 0
+  ignore_errors: yes
+
+- name: Fail if default storage class not exist
+  fail:
+    msg: "Default storage class does not exist. Please create one"
+  when: storage_class.failed
+
+# Delete the output of previous run
+- name: Delete older HPA output file
+  file:
+    state: absent
+    path: /root/hpa_output.txt
+
+# Set target type to AverageValue if not specified
+- set_fact:
+    resource_target_type: "{{ target_type | default('AverageValue', true) }}"
+
+# Generating the HPA template file
+- name: Generating HPA template file
+  template:
+    src: "{{ role_path }}/templates/hpa.yml.j2"
+    dest: "{{ role_path }}/tasks/hpa-{{ item.utilization_resource }}.yml"
+  vars:
+    average_memory_value: "{{ (resource_target_type == 'AverageValue') | ternary(average_memory | default('1Mi', true), average_memory | default('1', true)) }}"
+    average_cpu_value: "{{ (resource_target_type == 'AverageValue') | ternary(average_cpu | default('1m', true), average_cpu | default('3', true)) }}"
+    resource_name: "{{ item.utilization_resource }}"
+    hpa_api_version: "autoscaling/v2beta2"
+  when: item.utilization_resource_flag
+  loop:
+    - {utilization_resource_flag: "{{ hpa_memory_utilization }}", utilization_resource: "memory"}
+    - {utilization_resource_flag: "{{ hpa_cpu_utilization }}", utilization_resource: "cpu"}
+    - {utilization_resource_flag: "{{ hpa_memory_cpu_utilization }}", utilization_resource: "memory-cpu"}
+
+# Creating HPA with specific worload object and validating if pods are scaling up and scaling down
+- include_tasks: "{{ role_path }}/tasks/hpa.yml"
+  vars:
+    hpa_app_name: "{{ item.hpa_app_name }}"
+    object_apiversion: "{{ item.default_api }}"
+    objects_kind: "{{ item.default_object }}"
+  when: 
+  - object_kind == "" or object_kind == None or item.default_object == object_kind
+  loop:
+  - {default_object: "Deployment", default_api: "apps/v1", hpa_app_name: "deployment-nginx"}
+  - {default_object: "StatefulSet",default_api: "apps/v1", hpa_app_name: "statefulset-postgresql"}
+  - {default_object: "ReplicaSet",default_api: "apps/v1", hpa_app_name: "replicaset-nginx"}
+  - {default_object: "ReplicationController",default_api: "v1", hpa_app_name: "replicationcontroller-nginx"}
+  - {default_object: "DeploymentConfig",default_api: "apps.openshift.io/v1", hpa_app_name: "deploymentconfig-nginx"}

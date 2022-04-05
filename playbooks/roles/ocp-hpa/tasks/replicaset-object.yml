@@ -1,0 +1,56 @@
+---
+- name: Create a ReplicaSet object with nginx image 
+  k8s:
+    state: present
+    definition:
+      apiVersion: apps/v1
+      kind: ReplicaSet
+      metadata:
+        name: replicaset-nginx
+        namespace: default
+        labels:
+          tier: frontend
+      spec:
+        replicas: 1
+        selector: 
+          matchLabels: 
+            tier: frontend
+          matchExpressions: 
+            - {key: tier, operator: In, values: [frontend]}
+        template:
+          metadata:
+            labels:
+              tier: frontend
+          spec:
+            containers:
+            - image: quay.io/vahirwad/nginx-unprivileged
+              name: nginx-rs-app
+              resources: 
+                limits:
+                  cpu: 200m
+                  memory: 256Mi
+                requests:
+                  cpu: 100m
+                  memory: 100Mi
+              command:
+              - /bin/sh
+              - -c
+              - "dd if=/dev/zero of=/dev/null"
+              - "while true; do true; done"
+              ports:
+              - containerPort: 80
+                protocol: TCP
+            restartPolicy: Always
+
+- name: Validate replicaset-nginx deployment
+  shell: oc get pods -n default | grep replicaset-nginx | grep Running | wc -l
+  register: pods_count
+  until: pods_count.stdout|int > 0
+  retries: 10
+  delay: 60
+  ignore_errors: yes
+
+- name: Fail if deployment of replicaset-nginx has failed
+  fail:
+    msg: "replicaset-nginx deploy failed."
+  when: pods_count.stdout|int == 0
