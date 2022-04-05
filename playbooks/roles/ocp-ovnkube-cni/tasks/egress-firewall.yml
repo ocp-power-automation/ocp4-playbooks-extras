@@ -123,7 +123,7 @@
     
     # get the copy of default egress firewall object 
     - name: Get copy of EgressFirewall object
-      shell: oc get egressfirewall default -o yaml  > "{{ role_path }}/files/internet_egress_backup.yaml"
+      shell: oc get egressfirewall default -o yaml  > "{{ ovnkube_setup_directory }}/internet_egress_backup.yaml"
       register: copy_ef
       when:
         - '"default" in output.stdout'
@@ -133,12 +133,12 @@
       blockinfile:
         insertafter: uid
         block: "{{ lookup('file', 'egressfirewall_file.txt') }}"
-        path: "{{ role_path }}/files/internet_egress_backup.yaml"
+        path: "{{ ovnkube_setup_directory }}/internet_egress_backup.yaml"
       register: update_copy
       when: copy_ef.failed == false
 
     - name: Replaces the EgressFirewall object
-      shell: oc replace -f "{{ role_path }}/files/internet_egress_backup.yaml"
+      shell: oc replace -f "{{ ovnkube_setup_directory }}/internet_egress_backup.yaml"
       register: replace_ef
       when: update_copy.failed == false
 

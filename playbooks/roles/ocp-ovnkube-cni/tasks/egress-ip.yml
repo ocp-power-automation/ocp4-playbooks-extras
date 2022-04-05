@@ -83,12 +83,12 @@
         src: "{{ role_path }}/templates/egressips_worker.yaml.j2"
         dest: "{{ role_path }}/templates/egressips_worker.yaml"
       register: egressip_res
-
+      delegate_to: localhost
+      
     # creating egressip resource
-    - name: Deploy EgressIP  Resource
+    - name: Deploy EgressIP resource
       include_tasks: "{{ role_path }}/templates/egressips_worker.yaml"
-      when:
-        - egressip_res.failed == false
+      when: egressip_res.failed == false
 
     - name: Get EgressIp and display
       shell: oc get egressip

@@ -245,40 +245,40 @@
     - name: Generate the default project template
       shell: |
         oc project default
-        oc adm create-bootstrap-project-template -o yaml > "{{ role_path }}/files/template.yaml"
+        oc adm create-bootstrap-project-template -o yaml > "{{ ovnkube_setup_directory }}/template.yaml"
 
     - name: Edit the default project template
       blockinfile:
         insertbefore: parameters
         block: "{{ lookup('file', 'default_policy.txt') }}"
-        path: "{{ role_path }}/files/template.yaml"
+        path: "{{ ovnkube_setup_directory }}/template.yaml"
 
     - name: Create modified template
-      shell: oc  apply -f  "{{ role_path }}/files/template.yaml" -n openshift-config
+      shell: oc apply -f  "{{ ovnkube_setup_directory }}/template.yaml" -n openshift-config
       register: create_template
 
     - debug:
         msg: "{{ create_template.stdout }}"
 
     - name: Get the project.config.openshift.io/cluster resource
-      shell: oc get project.config.openshift.io/cluster -o yaml > "{{ role_path }}/files/default_policy_config.yaml"
+      shell: oc get project.config.openshift.io/cluster -o yaml > "{{ ovnkube_setup_directory }}/default_policy_config.yaml"
 
     - name: Edit the project.config.openshift.io/cluster resource
       lineinfile:
-        path: "{{ role_path }}/files/default_policy_config.yaml"
+        path: "{{ ovnkube_setup_directory }}/default_policy_config.yaml"
         regexp: "spec: {}"
         state: absent
 
     - name: Edit the project configuration resource
       blockinfile:
-          block: "{{ lookup('file', '{{ role_path }}/files/default_policy_config.txt') }}"
-          path: "{{ role_path }}/files/default_policy_config.yaml"
-
+        block: "{{ lookup('file', 'default_policy_config.txt') }}"
+        path: "{{ ovnkube_setup_directory }}/default_policy_config.yaml"
+    
     - name: Apply changes project configuration resource
-      shell: oc apply -f "{{ role_path }}/files/default_policy_config.yaml"
+      shell: oc apply -f "{{ ovnkube_setup_directory }}/default_policy_config.yaml"
       register: create_config
 
-    - name: Create a new Project
+    - name: Create a new project for testing default network policy
       shell: oc new-project test-3
 
     - name: Confirm that the network policy objects in the new project template exist in the new project
@@ -290,7 +290,7 @@
         msg: "{{ confim_op.stdout_lines }}"
 
     - name: Delete template
-      shell: oc  delete -f  "{{ role_path }}/files/template.yaml" -n openshift-config
+      shell: oc  delete -f  "{{ ovnkube_setup_directory }}/template.yaml" -n openshift-config
       ignore_errors: yes
 
     - name: Delete namespace
@@ -300,8 +300,8 @@
 
     - name: Generate the default project template
       shell: |
-        oc adm create-bootstrap-project-template -o yaml > "{{ role_path }}/files/template.yaml"
-        oc  apply -f  "{{ role_path }}/files/template.yaml" -n openshift-config
+        oc adm create-bootstrap-project-template -o yaml > "{{ ovnkube_setup_directory }}/template.yaml"
+        oc apply -f  "{{ ovnkube_setup_directory }}/template.yaml" -n openshift-config
 
     - lineinfile:
         line: "Default NetworkPolicy Success"
