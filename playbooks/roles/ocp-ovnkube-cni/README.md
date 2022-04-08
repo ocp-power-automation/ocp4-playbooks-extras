@@ -30,6 +30,7 @@ Role Variables
 | egressfirewall_tests_enabled  | no | false  | Flag to be set to true to validate only egressfirewall  |
 | egressip_tests_enabled  | no | false  | Flag to be set to true to validate only egressip |
 | networkpolicy_tests_enabled  | no | false  | Flag to be set to true to validate only networkpolicy  |
+| ovnkube_setup_directory | no | /tmp/OVNKube | Work directory |
 
 Note: Please set `ocp_ovnkube_cni` varible to true with combination with other variables to validate all CNI features or one specific CNI feature.  
 Example:  

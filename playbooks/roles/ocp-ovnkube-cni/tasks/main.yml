@@ -6,6 +6,15 @@
     msg: "NetworkType is: {{ network_provider.stdout }} and expected is OVNkube"
   failed_when: network_provider.rc != 0 or "OVNKubernetes" not in network_provider.stdout
 
+- name: Create setup directory for OVNKube
+  file:
+    path: "{{ ovnkube_setup_directory | default('/tmp/OVNKube', true) }}"
+    state: "{{ item }}"
+    mode: '0755'
+  with_items:
+  - absent
+  - directory
+
 - name: OVNKube CNI 
   include: "{{ cni }}"
   loop:

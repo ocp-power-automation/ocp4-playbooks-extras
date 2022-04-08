@@ -5,3 +5,4 @@ ovnkube_cni_tests_enabled: false
 egressfirewall_tests_enabled: false
 egressip_tests_enabled: false
 networkpolicy_tests_enabled: false
+ovnkube_setup_directory: ""
