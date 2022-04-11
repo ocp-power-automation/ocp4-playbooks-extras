@@ -1,3 +1,8 @@
+---
+# Set the default collector type
+- set_fact:
+    collector_type: "{{ log_collector_type | default('fluentd', true) }}"
+
 # Check if the ClusterLogging CR is exists
 - name: Check if the ClusterLogging instance exists
   shell: oc get ClusterLogging -n openshift-logging | wc -l
@@ -13,6 +18,8 @@
       metadata:
         name: "instance"
         namespace: "openshift-logging"
+        annotations:
+          logging.openshift.io/preview-vector-collector: "{{ (collector_type == 'vector') | ternary('enabled', omit) }}"
       spec:
         managementState: "Managed"
         logStore:
@@ -47,9 +54,11 @@
           curator:
             schedule: "30 3 * * *"
         collection:
-          logs:
-            type: "fluentd"
-            fluentd: {}
+          logs: "{{ collector_spec | from_yaml }}"
+  vars:
+    collector_spec: |
+      type: {{ collector_type }}
+      {{ collector_type }}: {}
   register: cl_cr
 
 # Check if deployment is successfull

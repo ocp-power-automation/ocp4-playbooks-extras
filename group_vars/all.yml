@@ -61,6 +61,7 @@ loki_url: ""
 cloudwatch_secret: ""
 aws_region: ""
 log_dir_path: "/root/clf_logs"
+log_collector_type: ""
 clf_clean_up: false
 
 ## ocp-nfd-operator required vars

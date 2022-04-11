@@ -81,6 +81,7 @@ Role Variables
 | loki_url | no | ""  | It is used to set URL of external loki system. It uses insecure connection(HTTP)|
 | cloudwatch_secret | no | aws_cw_secret | Name of the secret that uses the aws_access_key_id and aws_secret_access_key fields to specify your base64-encoded AWS credentials (HTTPS)|
 | log_dir_path | no | */root/clf_logs*  | Path on bastion node to save the fetched logs from external system.|
+| log_collector_type | no | `fluentd` | Log collector type. It can be `fluentd` or `vector` |
 | clf_clean_up | no | false  | It is used only for cleaning up Cluster Logging Operators, insatnces, Catalogsource, etc. from bastion. Playbook will skip remaining all other tasks.|
 
 #### Note: 
