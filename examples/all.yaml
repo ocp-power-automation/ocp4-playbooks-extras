@@ -126,3 +126,9 @@ average_cpu: ""
 hpa_min_replicas: ""
 hpa_max_replicas: ""
 object_kind: "" # Deployment, StatefulSet, ReplicaSet, ReplicationController, DeploymentConfig
+
+# jenkins required vars
+ocp_jenkins: false
+jenkins_template_name: "" # jenkins-ephemeral, jenkins-ephemeral-monitored, jenkins-persistent, jenkins-persistent-monitored
+jenkins_directory: ""
+jenkins_cleanup: false
