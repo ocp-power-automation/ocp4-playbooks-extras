@@ -1,0 +1,5 @@
+# jenkins required vars
+ocp_jenkins: false
+jenkins_template: "" # jenkins-ephemeral, jenkins-ephemeral-monitored, jenkins-persistent, jenkins-persistent-monitored
+jenkins_directory: ""
+jenkins_cleanup: false

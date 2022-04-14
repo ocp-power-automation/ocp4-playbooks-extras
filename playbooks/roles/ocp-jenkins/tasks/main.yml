@@ -1,0 +1,188 @@
+---
+# Checking COs and nodes
+- name: Check if the cluster is healthy
+  block:
+  - name: Check if all the cluster operators are available
+    shell: oc get co | awk 'NR>1 {if($3=="False" ||  $4=="True" || $5=="True" ){print $1}}'
+    register: co
+    failed_when: co.stdout | length >  0
+
+  - name: Check if all the nodes are healthy
+    shell: oc wait --all --for=condition=Ready nodes 
+  rescue:
+  - debug: 
+      msg: "Cluster is unstable. Stopping the playbook execution"
+
+  - name: Stopping the playbook execution
+    meta: end_play
+  
+# Setting default values if not specified in the var file
+- name: Setting jenkins workplace directory
+  set_fact:
+    jenkins_workplace: "{{ jenkins_directory | default('/root/jenkins_output', true) }}"
+
+- name: Setting jenkins template name
+  set_fact:
+    jenkins_template: "{{ jenkins_template_name | default('jenkins-ephemeral', true) }}"
+
+# Setting namespace name where jenkins service will be insatlled
+- name: Setting namespace name
+  set_fact:
+    jenkins_namespace: "test-jenkins-namespace"
+
+# Clean up resources
+- block:
+  - name: Creating jenkins template from exisiting resources
+    shell: oc get all -n test-jenkins-namespace -o yaml > {{ jenkins_workplace }}/jenkins_template.yml
+    
+  - name: Cleaning jenkins resources
+    shell: oc delete -f {{ jenkins_workplace }}/jenkins_template.yml -n {{ jenkins_namespace }}
+
+  - name: Check if the all resources has deleted from {{ jenkins_namespace }}
+    shell: oc get all -n {{ jenkins_namespace }} | wc -l
+    register: resources
+    until: resources.stdout | int == 0
+    retries: 15
+    delay: 30
+    ignore_errors: true 
+
+  # Clean working directory and create newer one
+  - name: Clean jenkins old working directory and create a new directory
+    file:
+      path: "{{ jenkins_workplace }}"
+      state: "{{ item }}"
+      mode: '0755'
+    with_items:
+    - absent
+    - directory
+
+  - name: Deleting the namespace {{ jenkins_namespace }}
+    k8s:
+      name: "{{ jenkins_namespace }}"
+      api_version: v1
+      kind: Namespace
+      state: absent
+    register: delete_namespace
+    until: delete_namespace.result | length == 0
+    retries: 15
+    delay: 20
+
+  - name: Stopping playbook execution
+    meta: end_play
+    when: jenkins_cleanup
+
+# Check if the default StorageClass is available when installing jenkins template with persistent storage
+- block:
+  - name: Check if the default storage class exists
+    k8s_info:
+      kind: StorageClass
+      namespace: default
+    register: storage_class
+
+  - fail: 
+      msg: "Default storage class does not exist. Templates 'jenkins-persistent-monitored' & 'jenkins-persistent' \
+            requires default storage class."
+    when: storage_class.resources | length == 0
+  when: jenkins_template == "jenkins-persistent-monitored" or jenkins_template == "jenkins-persistent"
+
+- name: Check if the sample operator has installed
+  block: 
+  - name: Fetching default sample operator information
+    k8s_info:
+      kind: Pod
+      namespace: openshift-cluster-samples-operator 
+    register: sample_pods
+
+  - fail: 
+      msg: "cluster-samples-operator's pod is not running."
+    when: sample_pods.resources[0].status.phase != "Running"
+
+# Creating the namespace for jenkins
+- name: Creating test namespace {{ jenkins_namespace }}
+  k8s:
+    name: "{{ jenkins_namespace }}"
+    api_version: v1
+    kind: Namespace
+    state: present
+
+# Installing jenkins
+- name: Installing jenkins using {{ jenkins_template }} template
+  block:
+  - name: Check if the jenkins template {{ jenkins_template }} is available
+    k8s_info:
+      api_version: template.openshift.io/v1
+      kind: Template
+      name: "{{ jenkins_template }}"
+      namespace: openshift
+    register: template_output
+
+  - name: Fail if the template does not exist
+    fail:
+      msg: "Jenkins template '{{ jenkins_template }}' not found in openshift namespace."
+    when: template_output.resources | length == 0
+
+  - name: Installing Jenkins using {{ jenkins_template }} template
+    shell: oc process {{ jenkins_template }} -n openshift | oc create -f - -n {{ jenkins_namespace }}
+
+# Validate the resources created by the jenkins template
+- block:
+  - name: Check if the deployement has created
+    shell: oc get deploymentconfig -n {{ jenkins_namespace }} | awk 'NR>1{print $4}'
+    register: deploymentconfig_current_count
+    until: deploymentconfig_current_count.stdout | int > 0
+    retries: 15
+    delay: 20
+
+  - name: Check if the jenkins pod has created
+    shell: oc get pods -n {{ jenkins_namespace }} --no-headers | grep -v "Running \| Completed" | wc -l
+    register: pods_count 
+    until: pods_count.stdout | int == 0
+    retries: 15
+    delay: 20
+
+  - name: Check if the one route has created
+    shell: oc get routes -n {{ jenkins_namespace }} | awk 'NR>1{print $2}'
+    register: jenkins_route
+    until: jenkins_route.stdout | length > 0
+    retries: 15
+    delay: 20
+
+  - name: Check if the one ReplicationController has created
+    shell: oc get replicationcontroller -n {{ jenkins_namespace }} | awk 'NR>1{print $4}'
+    register: replicationcontroller_ready_count
+    until: replicationcontroller_ready_count.stdout | int >= 1
+    retries: 15
+    delay: 20
+
+  - name: Check if the two services has created
+    shell: oc get service --no-headers -n {{ jenkins_namespace }} | wc -l
+    register: services_count
+    until: services_count.stdout | int >= 2
+    retries: 15
+    delay: 20
+  ignore_errors: true
+  rescue:
+  - debug:
+      msg: "Jenkins resources has not installed properly."
+
+  - name: Stopping the playbook execution
+    meta: end_play
+
+- name: Get all the resources
+  shell: oc get all -n {{ jenkins_namespace }}
+  register: jenkins_resources
+
+- name: Save all resource's details from the test namespace
+  lineinfile:
+    line: "{{ item }}"
+    path: "{{ jenkins_workplace }}/jenkins_output.txt"
+    insertafter: EOF
+    state: present
+    create: yes
+  with_items:
+  - "# Jenkins resources while using  {{ jenkins_template }} template\n"
+  - "{{ jenkins_resources.stdout }}\n"
+
+- name: Please add this URL to the host file to load jenkins UI
+  debug:
+    msg: "{{ jenkins_route.stdout }}"

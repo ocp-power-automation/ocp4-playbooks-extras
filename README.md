@@ -19,6 +19,7 @@ This repository consists of additional ansible playbooks for the following:
 15. Configure HTPasswd Identity Provider
 16. Set custom catalog source
 17. Run Horizontal Pod Autoscaler installation and verification
+18. Jenkins installation and verification
 
 ## Assumptions:
 
