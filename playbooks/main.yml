@@ -46,3 +46,6 @@
 
 - import_playbook: ocp-hpa.yml
   when: ocp_hpa
+
+- import_playbook: ocp-jenkins.yml
+  when: ocp_jenkins

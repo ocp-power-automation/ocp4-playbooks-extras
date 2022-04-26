@@ -1,0 +1,5 @@
+---
+- name: Installation and verification of Jenkins
+  hosts: bastion
+  roles:
+  - ocp-jenkins
