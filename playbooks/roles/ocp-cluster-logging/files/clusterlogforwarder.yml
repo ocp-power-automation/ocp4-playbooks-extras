@@ -22,6 +22,7 @@
   template:
     src: "{{ role_path }}/templates/clf-instance.yml.j2"
     dest: "{{ role_path }}/files/clf-instance.yml"
+  delegate_to: localhost
 
 # Creating ClusterLogForwarder custom resource
 - include_tasks: "{{ role_path }}/files/clf-instance.yml"
@@ -63,6 +64,7 @@
     - "elasticsearch"
     - "loki"
     - "cloudwatch"
+    - "kibana-ldap"
 
 - name: Fetch the logs from external instances 
   block:
@@ -88,7 +90,7 @@
       args:
         executable: /bin/bash
       ignore_errors: yes
-      when: syslog_server_url is defined
+      when: syslog_host is defined
     
     # Fetch logs from Elasticsearch
     - name: Fetch Logs from Elasticsearch
@@ -165,7 +167,7 @@
       shell: |
         ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@{{syslog_host}} 'echo 0 > /var/log/messages'
       ignore_errors: yes
-      when: syslog_server_url is defined
+      when: syslog_host is defined
 
     - name: Kafka clean up
       shell: |
