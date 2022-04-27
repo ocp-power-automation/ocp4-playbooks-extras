@@ -86,8 +86,11 @@ sbo_cleanup: false
 
 # htpasswd-identity-provider required vars
 htpasswd_identity_provider: false
-htp_username: ""
-htp_password: ""
+htpasswd_username: ""
+htpasswd_password: ""
+htpasswd_user_role: ""
+htpasswd_directory: "/root/htpassd_idp"
+htpasswd_delete_user: false
 
 # horizontal pod autoscaler required vars
 ocp_hpa: false
