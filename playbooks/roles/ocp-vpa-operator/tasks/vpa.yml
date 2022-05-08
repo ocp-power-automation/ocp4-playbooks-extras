@@ -1,0 +1,241 @@
+---
+# Setting facts
+- set_fact:
+    vpa_update_mode: "{{ vpa_update_mode_value }}"
+    vpa_minimum_replicas: "{{ (vpa_minimum_replicas_test) | ternary(3, 2) }}"
+
+# Installing workload object
+- include_tasks: "{{ role_path }}/tasks/{{ object_type | lower }}-object.yml"
+  vars: 
+    pod_replicas: 2
+
+# Get details of pod resources before appying VPA
+- block:
+  - name: Get the deatils of {{ app_name }} pods
+    k8s_info:
+      kind: Pod
+      namespace: default
+      label_selectors:
+        - "app = {{ app_name }}"
+    register: initial_pod
+
+  # Converting container list into dictionary with required resources
+  - set_fact:
+      initial_resources: "{{ initial_pod.resources[0].spec.containers | items2dict(key_name='name', value_name='resources') }}"
+
+  # Getting CPU and memory values of the containers before applying VPA
+  - set_fact:
+      pod_initial_cpu: "{{ initial_resources[app_name].requests.cpu }}"
+      pod_initial_memory: "{{ initial_resources[app_name].requests.memory }}"
+
+  # Getting CPU and memory values of the exempted containers before applying VPA
+  - set_fact:
+      pod_initial_cpu_exempt_container: "{{ initial_resources[app_name + '-exempt'].requests.cpu }}"
+      pod_initial_memory_exempt_container: "{{ initial_resources[app_name + '-exempt'].requests.memory }}"
+
+# Create VPA for specific workload object and update mode
+- name: Create "{{ vpa_name }}" for the {{ object_type | lower }} workload object
+  k8s:
+    state: present
+    definition:
+      apiVersion: autoscaling.k8s.io/v1
+      kind: VerticalPodAutoscaler
+      metadata:
+        name: "{{ vpa_name }}"
+        namespace: default
+      spec:
+        targetRef:
+          apiVersion: "{{ api_version }}"
+          kind: "{{ object_type }}"
+          name: "{{ app_name }}"
+        updatePolicy:
+          updateMode: "{{ vpa_update_mode }}"
+        resourcePolicy:
+          containerPolicies: 
+            - containerName: "{{ app_name }}"
+              minAllowed:
+                cpu: 100m
+                memory: 50Mi
+              maxAllowed:
+                cpu: 1
+                memory: 500Mi
+              controlledResources: ["cpu", "memory"]
+            - containerName: "{{ app_name }}-exempt"
+              mode: "Off"
+
+# Validate the VPA
+- block:
+  # Check if the VPA is providing recommendation and get those recommendation
+  - name: Get the VPA's recommendations
+    k8s:
+      kind: VerticalPodAutoscaler
+      name: "{{ vpa_name }}"
+      namespace: default
+      wait: yes
+      wait_condition:
+        type: RecommendationProvided
+        status: "True"
+      wait_timeout: 600
+      wait_sleep: 10
+    register: vpa_resource_recommendation
+
+  # VPA validation for minimum replicas and updateMode: Auto/Initial
+  - block:
+     # Check if the pods are not restarting while workload object's replica count is less than
+     # VerticalPodAutoscalerController's minimum replicas count or VPA update mode is Initial or Off
+    - name: Check if the {{ app_name }} pods don't terminate automatically when update mode is Initial or Off
+      shell: oc get pods -n default --no-headers | awk '{if ($3 == "Terminating" ) print $1}' | wc -l
+      register: pods_status
+      until: pods_status.stdout|int > 0
+      retries: 20
+      delay: 5
+      ignore_errors: yes
+
+    - name: Fail if the pods are terminating
+      fail:
+        msg: "Pods are terminating. Workload object pods should not be terminated automatically \
+              while VPA update mode is Initial or Off or if the workload object's replica count is\
+              less than VerticalPodAutoscalerController's minimum replicas count."
+      when: pods_status.failed == false
+    when: vpa_minimum_replicas_test or vpa_update_mode != "Auto"
+
+  # Delete the pods for given workload object if the update mode is Initial
+  # It will be used to validate VPA recommendations at pod creation.
+  - name: Delete the {{ app_name }} pod explicitly for VPA update mode Initial
+    k8s:
+      kind: Pod
+      namespace: default
+      name: "{{ initial_pod.resources[pod_index].metadata.name }}"
+      state: absent
+    loop:
+      - 0
+      - 1
+    loop_control:
+      loop_var: pod_index
+    when: vpa_update_mode == "Initial"
+
+  # Check if the pods are restarting when update mode is Auto/Initial
+  - name: Check if the {{ app_name }} pods are restarting
+    shell: oc get pods -n default --no-headers | awk '{if ($3 == "Terminating" ) print $1}' | wc -l
+    register: pods
+    until: pods.stdout|int > 0
+    retries: 20
+    delay: 5
+    when: 
+    - vpa_update_mode != "Off"
+    - (vpa_minimum_replicas_test and vpa_update_mode == "Initial") or (vpa_minimum_replicas_test == false and vpa_update_mode == "Auto")
+ 
+  # Check if the pods are in good state
+  - name: Check if the {{ app_name }} pods are in good state
+    shell: oc get pods -n default --no-headers | awk '{if ($3 != "Running" && $3 != "Completed" ) print $1}' | wc -l
+    register: pods
+    until: pods.stdout|int == 0
+    retries: 15
+    delay: 90
+
+  # Fetch the pod details after applying VPA
+  - name: Get the details of {{ object_type }} pod
+    k8s_info:
+      kind: Pod
+      namespace: default
+      label_selectors:
+        - "app = {{ app_name }}"
+    register: final_pod
+    
+  # Converting container list into dictionary with required resources
+  - set_fact:
+      final_resources: "{{ final_pod.resources[0].spec.containers | items2dict(key_name='name', value_name='resources') }}"
+
+  # Getting pods CPU and memory values from specified container after applying VPA
+  - set_fact:
+      pod_final_cpu: "{{ final_resources[app_name].requests.cpu }}"
+      pod_final_memory: "{{ final_resources[app_name].requests.memory }}"
+
+  # Getting pods CPU and memory values from exempted container after applying VPA
+  - set_fact:
+      pod_final_cpu_exempt_container: "{{ final_resources[app_name + '-exempt'].requests.cpu }}"
+      pod_final_memory_exempt_container: "{{ final_resources[app_name + '-exempt'].requests.memory }}"
+
+  # Save the VPA output and validate VPA
+  - block:
+    - lineinfile:
+        line: "{{ vpa_output }}"
+        path: "{{ vpa_workplace }}/vpa_output.txt"
+        insertafter: EOF
+        state: present
+        create: yes
+      with_items:
+      - "### VPA output for workload type {{ object_type }} and minimum replica value is {{ vpa_minimum_replicas }}"
+      - "\n# Container resources of the {{ app_name }} pod and recommendations of the VPA with updateMode: {{ vpa_update_mode }}"
+      - "\n# Container resources before applying VPA: \nCPU: {{ pod_initial_cpu }} \nMemory: {{ pod_initial_memory }}"
+      - "\n# Container resources after applying VPA: \nCPU: {{ pod_final_cpu }} \nMemory: {{ pod_final_memory }}\n"
+      - "# VPA Recommendations: \n{{ vpa_resource_recommendation.result.status.recommendation.containerRecommendations }}\n\n"
+      loop_control:
+        loop_var: vpa_output
+    
+    # VPA validation with updateMode: Auto/Initial
+    - name: Fail if the container resources has not updated after applying VPA with update mode Auto/Initial
+      fail: 
+        msg: "Container resources has not updated after applying {{ vpa_name }}"
+      when: 
+      - pod_initial_cpu == pod_final_cpu or pod_initial_memory == pod_final_memory
+      - vpa_minimum_replicas|int <= 2 or vpa_update_mode == "Initial"
+      - vpa_update_mode != "Off"
+    
+    # VPA validation for updateMode: Off
+    - name: Fail if the pod resources has updated after applying VPA with updateMode Off
+      fail: 
+        msg: "Pod resources has updated after applying VPA with updateMode: Off"
+      when: 
+      - pod_initial_cpu != pod_final_cpu or pod_initial_memory != pod_final_memory
+      - vpa_update_mode == "Off"
+      
+    # VPA validation with three minimum replicas, except for updateMode: Initial
+    - name: Fail if the pod resources has updated after applying VPA with minimum replicas to three
+      fail: 
+        msg: "Pod resources has updated after applying VPA. Workload objects that specify fewer than three \
+              replicas are not automatically acted upon by the {{ vpa_name }}"
+      when: 
+      - pod_initial_cpu != pod_final_cpu or pod_initial_memory != pod_final_memory
+      - vpa_minimum_replicas|int > 2 and vpa_update_mode != "Initial" 
+
+    # VPA validation for exempted container
+    - name: Fail if the resources of the exempted container has updated
+      fail: 
+        msg: "Exempted container resources should not be updated after applying the VPA"
+      when: >
+            pod_initial_cpu_exempt_container != pod_final_cpu_exempt_container or
+            pod_initial_memory_exempt_container != pod_final_memory_exempt_container
+
+  # Cleaning the workload object and the VPA    
+  always:
+    - name: Reduce the replica count to zero for the {{ app_name }} object
+      k8s:
+        definition:
+          kind: "{{ object_type }}"
+          metadata:
+            name: "{{ app_name }}"
+            namespace: default
+          spec:
+            replicas: 0
+
+    - name: Delete the {{ app_name }} workload object
+      k8s:
+        kind: "{{ object_type }}"
+        name: "{{ app_name }}"
+        namespace: default
+        state: absent
+
+    - name: Wait till all the {{ app_name }} pods get deleted
+      shell: oc get pods -n default | grep {{ app_name }} | wc -l
+      register: pods_count
+      until: pods_count.stdout|int == 0
+      retries: 10
+      delay: 90
+
+    - name: Delete the {{ vpa_name }} VPA 
+      k8s:
+        kind: VerticalPodAutoscaler
+        name: "{{ vpa_name }}"
+        namespace: default
+        state: absent

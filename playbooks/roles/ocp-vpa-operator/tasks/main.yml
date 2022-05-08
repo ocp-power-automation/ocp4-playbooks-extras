@@ -1,0 +1,278 @@
+---
+# VPA directory path
+- set_fact:
+    vpa_workplace: "{{ vpa_directory | default('/root/VPA_output', true) }}"
+
+# Clean VPA resources before installing newer VPA
+- block:
+  # Clean working directory and create newer one
+  - name: Create a new directory for VPA
+    file:
+      path: "{{ vpa_workplace }}"
+      state: "{{ item }}"
+      mode: '0755'
+    with_items:
+    - absent
+    - directory
+
+  - name: Delete the VPA Subscription if exists
+    k8s:
+      state: absent
+      api_version: operators.coreos.com/v1alpha1
+      kind: Subscription
+      name: vertical-pod-autoscaler
+      namespace: openshift-vertical-pod-autoscaler
+
+  - name: Delete the VPA OperatorGroup if exists
+    k8s:
+      kind: OperatorGroup
+      name: vpa-global-operators
+      namespace: openshift-vertical-pod-autoscaler
+      state: absent
+
+  - name: Get the installed ClusterServiceVersion of VPA 
+    shell: oc get csv -n openshift-vertical-pod-autoscaler --no-headers | awk '{ if ($1 ~ /^verticalpodautoscaler/) print $1 }'
+    register: installed_csv
+
+  - name: Delete the VPA ClusterServiceVersion if exists
+    k8s:
+      state: absent
+      api_version: operators.coreos.com/v1alpha1
+      kind: ClusterServiceVersion
+      namespace: openshift-vertical-pod-autoscaler
+      name: "{{ installed_csv.stdout }}"
+    when: installed_csv.stdout | length > 0
+
+  - name: Delete the VPA vpa-webhook-config if exists
+    k8s:
+      kind: MutatingWebhookConfiguration
+      name: vpa-webhook-config
+      state: absent
+  
+  - name: Delete the VerticalPodAutoscalerController if exists
+    k8s:
+      state: absent
+      kind: VerticalPodAutoscalerController
+      api_version: autoscaling.openshift.io/v1
+      namespace: openshift-vertical-pod-autoscaler
+      name: default
+    ignore_errors: true 
+    
+  - name: Delete the CustomResourceDefinition if exists
+    k8s:
+      kind: CustomResourceDefinition
+      name: "{{ item }}"
+      state: absent
+    loop:
+    - "verticalpodautoscalercheckpoints.autoscaling.k8s.io"
+    - "verticalpodautoscalercontrollers.autoscaling.openshift.io"
+    - "verticalpodautoscalers.autoscaling.k8s.io"
+  
+  - name: Delete the VPA Operator if exists
+    k8s:
+      kind: Operator
+      name: vertical-pod-autoscaler.openshift-vertical-pod-autoscaler
+      namespace: openshift-vertical-pod-autoscaler
+      state: absent
+
+  # End play after cleaning up if vpa_cleanup is set 
+  - meta: end_play
+    when: vpa_cleanup
+
+# Create namespace for VPA
+- name: Create namespace for vertical pod autoscaler
+  k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: openshift-vertical-pod-autoscaler
+
+# Custom ImageContentSourcePolicy and CatalogSource
+- name: Create ImageContentSourcePolicy and CatalogSource
+  block: 
+  - name: Set fact variable for CatalogSource name
+    set_fact:
+      vpa_catalogsource_name: "vertical-pod-autoscaler"
+
+  - name: Include role to create ImageContentSourcePolicy and CatalogSource
+    include_role:
+      name: set-custom-catalogsource
+    vars:
+      custom_catalogsource_name: "{{ vpa_catalogsource_name }}"
+      custom_catalogsource_display_name: "VPA Operator"
+      custom_catalogsource_image: "{{ vpa_catalogsource_image }}"
+  when: vpa_catalogsource_image != '' and vpa_catalogsource_image != None
+
+- name: Allow default catalog sources
+  k8s:
+    definition:
+      apiVersion: config.openshift.io/v1
+      kind: OperatorHub
+      metadata:
+        name: cluster
+      spec:
+        disableAllDefaultSources: false
+  when: vpa_catalogsource_image == '' or vpa_catalogsource_image == None
+
+# Create Subscription for VPA
+- name: Subscription for vertical pod autoscaler
+  k8s:
+    state: present
+    definition:
+      apiVersion: operators.coreos.com/v1alpha1
+      kind: Subscription
+      metadata:
+        name: vertical-pod-autoscaler
+        namespace: openshift-vertical-pod-autoscaler
+      spec:
+        channel: "{{ vpa_update_channel | default('stable', true) }}"
+        name: vertical-pod-autoscaler
+        source: "{{ vpa_catalogsource_name | default('redhat-operators', true) }}"
+        sourceNamespace: openshift-marketplace
+        installPlanApproval: Automatic
+        startingCSV: verticalpodautoscaler
+  
+# Create operator group for VPA
+- name: Create operator group for vertical pod autoscaler
+  k8s:
+    state: present
+    definition:
+      apiVersion: operators.coreos.com/v1
+      kind: OperatorGroup
+      metadata:
+        name: vpa-global-operators
+        namespace: openshift-vertical-pod-autoscaler
+      spec:
+        targetNamespaces:
+        - openshift-vertical-pod-autoscaler
+
+- name: Verification of VPA operator installation
+  block:
+  # Verify the operator installation.
+  - name: Verify the operator installation
+    shell: oc get csv -n openshift-vertical-pod-autoscaler --no-headers | awk '{ if (($1 ~ /^verticalpodautoscaler/) && $NF=="Succeeded") print $1 }'| wc -l
+    register: operators
+    until: operators.stdout|int == 1
+    retries: 15
+    delay: 120
+    ignore_errors: yes
+
+  # Verify VPA resources (pods, service, deployment, replicaset) count
+  - name: Verify pods count
+    shell: oc get pods -n openshift-vertical-pod-autoscaler --no-headers | grep Running | wc -l
+    register: vpa_pods
+    until: vpa_pods.stdout|int == 4
+    retries: 15
+    delay: 60
+
+  - name: Verify service count
+    shell: oc get service -n openshift-vertical-pod-autoscaler --no-headers | wc -l
+    register: vpa_service
+    until: vpa_service.stdout|int == 1
+    retries: 15
+    delay: 60
+
+  - name: Verify deployment count
+    shell: oc get deployment -n openshift-vertical-pod-autoscaler --no-headers | wc -l
+    register: vpa_deployment
+    until: vpa_deployment.stdout|int >= 4
+    retries: 15
+    delay: 60
+
+  - name: Verify replicaset count
+    shell: oc get replicaset -n openshift-vertical-pod-autoscaler --no-headers | wc -l
+    register: vpa_replicaset
+    until: vpa_replicaset.stdout|int >= 4
+    retries: 15
+    delay: 60
+  
+  # Show failing message and stop execution
+  rescue:
+  - name: "Ending play"
+    debug:
+      msg: "VPA operator has not installed properly"
+
+  - meta: end_play
+
+- name: Get all resources from openshift-vertical-pod-autoscaler namespace
+  shell: oc get all -n openshift-vertical-pod-autoscaler
+  register: vpa_resources
+
+# Saves the output to file
+- lineinfile:
+    line: "{{item}}"
+    path: "{{ vpa_workplace }}/vpa_output.txt"
+    insertafter: EOF
+    state: present
+    create: yes
+  with_items:
+  - "# VPA Resources\n"
+  - "{{ vpa_resources.stdout }}\n\n"
+
+- name: Setup and run VPA e2e
+  include_tasks: "{{ role_path }}/tasks/vpa-e2e.yml"
+  when: vpa_e2e
+
+# Updating minReplicas parameter in the VerticalPodAutoscalerController. 
+# It is only used while testing with changing the VPA minimum value
+- name: Updating minimum replica value to 3
+  k8s:
+    state: present
+    definition:
+      apiVersion: autoscaling.openshift.io/v1
+      kind: VerticalPodAutoscalerController
+      metadata:
+        name: default
+        namespace: openshift-vertical-pod-autoscaler
+      spec:
+        minReplicas: 3
+        podMinCPUMillicores: 25
+        podMinMemoryMb: 250
+        recommendationOnly: false
+        safetyMarginFraction: 0.15
+  when: vpa_minimum_replicas_test
+
+- block:
+  # Creating lists of dictionaries for workload objects and different VPA modes
+  - set_fact:
+      vpa_workloads:
+      - { workload_object: "Deployment", workload_object_api: "apps/v1", workload_app_name: "deployment-nginx" }
+      - { workload_object: "StatefulSet", workload_object_api: "apps/v1", workload_app_name: "statefulset-postgresql" }
+      - { workload_object: "ReplicaSet", workload_object_api: "apps/v1", workload_app_name: "replicaset-nginx"}
+      - { workload_object: "ReplicationController", workload_object_api: "v1", workload_app_name: "replicationcontroller-nginx" }
+      - { workload_object: "DeploymentConfig", workload_object_api: "apps.openshift.io/v1", workload_app_name: "deploymentconfig-nginx" }
+
+  - set_fact:
+      vpa_update_modes:
+      - { vpa_mode: "{{ vpa_update_mode_auto }}", update_mode: "Auto" }
+      - { vpa_mode: "{{ vpa_update_mode_initial }}", update_mode: "Initial" }
+      - { vpa_mode: "{{ vpa_update_mode_off }}", update_mode: "Off" }
+
+  # This loop is used to create VPA for specific or all workload objects and for update modes
+  - include_tasks: "{{ role_path }}/tasks/vpa.yml"
+    vars:
+      api_version: "{{ item.0.workload_object_api }}"
+      object_type: "{{ item.0.workload_object }}"
+      app_name: "{{ item.0.workload_app_name }}"
+      vpa_update_mode_value: "{{ item.1.update_mode }}"
+      vpa_name: "vpa-{{ item.1.update_mode | lower }}"
+    when: 
+    - vpa_object_kind == "" or vpa_object_kind == None or item.0.workload_object == vpa_object_kind
+    - item.1.vpa_mode | bool
+    with_nested:
+    - "{{ vpa_workloads }}"
+    - "{{ vpa_update_modes }}"
+  when: vpa_update_mode_auto or vpa_update_mode_initial or vpa_update_mode_off
+  always:
+  - name: Set minimum replica value to default 2
+    k8s:
+      definition:
+        kind: VerticalPodAutoscalerController
+        metadata:
+          name: default
+          namespace: openshift-vertical-pod-autoscaler
+        spec:
+          minReplicas: 2
+    when: vpa_minimum_replicas_test

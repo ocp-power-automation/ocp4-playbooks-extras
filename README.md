@@ -20,6 +20,7 @@ This repository consists of additional ansible playbooks for the following:
 16. Set custom catalog source
 17. Run Horizontal Pod Autoscaler installation and verification
 18. Jenkins installation and verification
+19. Vertical Pod Autoscaler installation, verification and e2e
 
 ## Assumptions:
 

@@ -1,0 +1,12 @@
+---
+- name: Include the Vertical Pod Autoscaler Operator role
+  hosts: bastion
+  tasks:
+  - name: Include the global-secret-update role
+    include_role:
+      name: global-secret-update
+    when: vpa_catalogsource_image != "" and vpa_catalogsource_image != None and vpa_cleanup == false
+
+  - name: Include the Vertical Pod Autoscaler Operator role
+    include_role:
+      name: ocp-vpa-operator

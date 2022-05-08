@@ -1,0 +1,57 @@
+---
+- name: Create a DeploymentConfig object with nginx image
+  k8s:
+    state: present
+    definition:
+      kind: DeploymentConfig
+      metadata:
+        name: deploymentconfig-nginx
+        namespace: default
+      spec:
+        replicas: 2
+        selector:
+          deployment-config.name: deploymentconfig-nginx
+          app: deploymentconfig-nginx
+        template:
+          metadata:
+            labels:
+              deployment-config.name: deploymentconfig-nginx
+              app: deploymentconfig-nginx
+          spec:
+            containers:
+            - name: deploymentconfig-nginx
+              image: quay.io/vahirwad/nginx-unprivileged
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 50Mi
+              command:
+              - /bin/sh
+              - -c
+              - "while true; do timeout 0.5s yes >/dev/null; sleep 0.5s; done"
+            - name: deploymentconfig-nginx-exempt
+              image: quay.io/vahirwad/nginx-unprivileged
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 50Mi
+              command:
+              - /bin/sh
+              - -c
+              - "while true; do timeout 0.5s yes >/dev/null; sleep 0.5s; done"
+        triggers:
+        - type: ConfigChange
+
+
+- name: Validate deploymentconfig-nginx deployment
+  shell: oc get pods -n default | grep deploymentconfig-nginx | grep Running | wc -l
+  register: pods_count
+  until: pods_count.stdout|int > 0
+  retries: 20
+  delay: 30
+  ignore_errors: yes
+
+- name: Fail if deployment of deploymentconfig-nginx has failed
+  fail:
+    msg: "deploymentconfig-nginx deploy failed."
+  when: pods_count.stdout|int == 0
