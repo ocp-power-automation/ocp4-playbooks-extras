@@ -1,4 +1,19 @@
 ---
+# htp_idp_username, htp_idp_password, htp_idp_user_role, htp_idp_directory, htp_idp_delete_user are the variables from another role
+- set_fact:
+    htp_username: "{{ htp_idp_username | default(htpasswd_username, true) }}"
+    htp_password: "{{ htp_idp_password | default(htpasswd_password, true) }}"
+    htp_user_role: "{{ htp_idp_user_role | default(htpasswd_user_role, true) }}"
+    htp_directory: "{{ htp_idp_directory | default(htpasswd_directory, true) }}"
+
+- set_fact:  
+    htp_delete_user: "{{ htp_idp_delete_user }}"
+  when: htp_idp_delete_user is defined
+
+- set_fact:  
+    htp_delete_user: "{{ htpasswd_delete_user }}"
+  when: htp_idp_delete_user is not defined
+
 # Fail the task if username and password is empty
 - fail:
     msg: "Please ensure that variables htp_username and htp_password are not empty"
@@ -6,9 +21,61 @@
         (htp_username == "" or htp_username == None) or
         (htp_password == "" or htp_password == None)
 
+- name: Login to cluster as an admin
+  shell: oc login -u system:admin
+  
+# Clean up block
+- block:
+  - name: Check if the user exists
+    shell: oc get user | awk 'NR>1 {if($1=="{{ htp_username }}"){print $1}}'
+    register: htp_ldap_user
+
+  - block:
+    - name: Remove the role from user
+      shell: oc adm policy remove-cluster-role-from-user {{ htp_user_role | default('cluster-reader', true)}} {{ htp_username }}
+
+    - name: Delete the LDAP user
+      shell: htpasswd -D users.htpasswd {{ htp_username }}
+      args:
+        chdir: "{{ htp_directory }}"
+
+    - name: Delete the user {{ htp_username }}
+      k8s:
+        state: absent
+        kind: User
+        name: "{{ htp_username }}"
+        api_version: user.openshift.io/v1
+
+    - name: Delete the identity for {{ htp_username }}
+      k8s:
+        state: absent
+        kind: Identity
+        name: "my_htpasswd_provider:{{ htp_username }}"
+        api_version: user.openshift.io/v1
+    when: htp_ldap_user.stdout | length > 0
+    ignore_errors: yes
+
+  - debug: 
+      msg: "No usesr found with the username {{ htp_username }}"
+    when: htp_ldap_user.stdout | length == 0
+
+  - name: Check total number of users in the users.htpasswd file
+    shell: cat {{ htp_directory }}/users.htpasswd | wc -l
+    register: user_count
+
+  - name: Delete the directory
+    ansible.builtin.file:
+      path: "{{ htp_directory }}"
+      state: absent
+    when: user_count.stdout | int == 0
+
+  - meta: end_play
+  
+  when: htp_delete_user
+
 - name: Create directory for HTPasswd file
   ansible.builtin.file:
-    path: "/root/htpassd_idp"
+    path: "{{ htp_directory }}"
     state: directory
     mode: '0755'
 
@@ -16,16 +83,20 @@
 - block:
   - name: Check that the file users.htpasswd exists
     stat:
-      path: /root/htpassd_idp/users.htpasswd
+      path: "{{ htp_directory }}/users.htpasswd"
     register: stat_result
 
   - name: Generate a flat file htpasswd that contains the user names and passwords for the cluster
-    shell: htpasswd  -B -b -c /root/htpassd_idp/users.htpasswd {{ htp_username }} {{ htp_password }}
+    shell: htpasswd -B -b -c {{ htp_directory }}/users.htpasswd {{ htp_username }} {{ htp_password }}
     when: not stat_result.stat.exists
 
   - name: Update a flat file htpasswd that contains the user names and passwords for the cluster
-    shell: htpasswd  -B -b /root/htpassd_idp/users.htpasswd {{ htp_username }} {{ htp_password }}
+    shell: htpasswd -B -b {{ htp_directory }}/users.htpasswd {{ htp_username }} {{ htp_password }}
     when: stat_result.stat.exists
+
+- name: Get the user details
+  shell: cat {{ htp_directory }}/users.htpasswd
+  register: users_data
 
 # Create or update htpass-secret 
 - name: Generate the new secret if does not exists otherwise update existing secret
@@ -39,7 +110,7 @@
         namespace: openshift-config
       type: Opaque
       data:
-        htpasswd: "{{ lookup('file', '~/htpassd_idp/users.htpasswd') | b64encode }}"
+        htpasswd: "{{ users_data.stdout | b64encode }}"
 
 # Creating HTPasswd CR
 - name: Create CR for HTPasswd identity provider
@@ -77,5 +148,5 @@
 - name: Login to cluster as admin
   shell: oc login -u system:admin
 
-- name: Grant read permission to {{ htp_username }}
-  shell: oc adm policy add-cluster-role-to-user cluster-reader {{ htp_username }}
+- name: Grant {{ htp_user_role | default('cluster-reader', true)}} permission to {{ htp_username }}
+  shell: oc adm policy add-cluster-role-to-user {{ htp_user_role | default('cluster-reader', true)}} {{ htp_username }}
