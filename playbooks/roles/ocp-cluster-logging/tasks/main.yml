@@ -234,3 +234,7 @@
     infra_log_label: "{{ log_labels }}-infrastructure"
     audit_log_label: "{{ log_labels }}-audit"
   when: cluster_log_forwarder
+
+# Creating ldap user and fetching logs with ldap user credentials
+- include_tasks: "{{ role_path }}/tasks/kibana-ldap.yml"
+  when: kibana_ldap_validation and cluster_log_forwarder

@@ -4,7 +4,7 @@ OCP Cluster Logging and Cluster Log Forwarding
 This playbook is used for installing OpenShift Logging by deploying the OpenShift Elasticsearch and Red Hat OpenShift Logging Operators. 
 
 Depending upon variables value this playbook can able to send container, infrastructure, and audit logs to specific endpoints outside your cluster. It deploys an OCP ClusterLogForwarder instance which can forward logs to the external Syslog, ElasticSearch, Kafka, Fluentd, Loki, AWS CloudWatch and to the default internal Elasticsearch log store.
- 
+
 It also deploys test applications to generate logs in default and project specific namespace.  
 
 | Namespace                   | Deployments/PODs |
@@ -18,6 +18,8 @@ Requirements
 
  - Running OCP 4.x cluster is needed.
  - Role global-secret-update 
+ - Role ocp-htpasswd-identity-provider
+ - For validating the internal Kibana, it creates LDAP user `ldap_user` using HTPasswd identity provider. This can be used when `cluster_log_forwarder` and `kibana_ldap_validation` is set to true.
  - Make sure that the StorageClass resource is present on cluster for dynamically provisioned storage on demand.
  - External VM instances/systems must be configured and running (Syslog, Elasticsearch, Fluentd, Kafka, Loki, CloudWatch) 
  - Bastion node must be able to make ssh connection to external VM instances with Keys.  
@@ -81,6 +83,7 @@ Role Variables
 | loki_url | no | ""  | It is used to set URL of external loki system. It uses insecure connection(HTTP)|
 | cloudwatch_secret | no | aws_cw_secret | Name of the secret that uses the aws_access_key_id and aws_secret_access_key fields to specify your base64-encoded AWS credentials (HTTPS)|
 | log_dir_path | no | */root/clf_logs*  | Path on bastion node to save the fetched logs from external system.|
+| kibana_ldap_validation | no | false  | Set it to true for validating Kibana as LDAP user |
 | log_collector_type | no | `fluentd` | Log collector type. It can be `fluentd` or `vector` |
 | clf_clean_up | no | false  | It is used only for cleaning up Cluster Logging Operators, insatnces, Catalogsource, etc. from bastion. Playbook will skip remaining all other tasks.|
 

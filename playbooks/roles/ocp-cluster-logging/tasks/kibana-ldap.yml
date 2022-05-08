@@ -1,0 +1,95 @@
+- name: Create LDAP user with username ldap_user
+  include_role:
+    name: ocp-htpasswd-identity-provider
+  vars:
+    htp_idp_username: "ldap_user" 
+    htp_idp_password: "ldap_user"
+    htp_idp_user_role: "cluster-admin"
+    htp_idp_directory: "/tmp/htpasswd"
+    htp_idp_delete_user: false
+
+- name: Login to the cluster as ldap_user
+  shell: oc login -u ldap_user -p ldap_user
+
+- name: Get the authentication token of the ldap_user
+  shell: oc whoami -t
+  register: user_token
+
+- name: Get Kibana pod name
+  shell: oc get pods -n openshift-logging | grep kibana | awk '{printf $1}'
+  register: kibana_pod_name
+
+- name: Create index patterns for Kibana if it does not exist
+  shell: | 
+    index_pattern=$(oc exec -c kibana {{ kibana_pod_name.stdout }} -n openshift-logging \
+    -- curl -s -H 'Authorization: Bearer {{ user_token.stdout }}' \
+    'http://localhost:5601/api/saved_objects/_find?type=index-pattern&search_fields=title&search={{ item }}*' -H 'kbn-xsrf: true' | jq '.saved_objects[].attributes.title')
+    
+    if [ "$index_pattern" = "" ] ;
+    then
+      oc exec -c kibana {{ kibana_pod_name.stdout }} -n openshift-logging \
+      -- curl -ks -H "Authorization: Bearer {{ user_token.stdout }}" \
+      "http://localhost:5601/api/saved_objects/index-pattern/{{ item }}*?overwrite=true" -H 'kbn-xsrf: true' \
+      -H 'Content-Type: application/json' -d '{"attributes": {"title": "{{ item }}*","timeFieldName":"@timestamp"}}'
+    fi
+  loop:
+    - app
+    - audit
+    - infra
+
+# This block checks if the index patterns created by LDAP user persists
+- block:
+  - name: Login to the cluster as system:admin
+    shell: oc login -u system:admin
+
+  - name: Pausing for 2 minutes to validate index patterns
+    pause:
+      minutes: 2
+
+  - name: Login to the cluster as ldap_user
+    shell: oc login -u ldap_user -p ldap_user
+
+  - name: Get the authentication token of the ldap_user
+    shell: oc whoami -t
+    register: user_token
+
+  - name: Get Kibana pod name
+    shell: oc get pods -n openshift-logging | grep kibana | awk '{printf $1}'
+    register: kibana_pod_name
+
+  - name: Validate index patterns if exists
+    shell: | 
+      index_pattern=$(oc exec -c kibana {{ kibana_pod_name.stdout }} -n openshift-logging \
+      -- curl -s -H 'Authorization: Bearer {{ user_token.stdout }}' \
+      'http://localhost:5601/api/saved_objects/_find?type=index-pattern&search_fields=title&search={{ item }}*' -H 'kbn-xsrf: true' | jq '.saved_objects[].attributes.title')
+      
+      if [ "$index_pattern" = "" ] ;
+      then
+          echo "{{ item }} index pattern got deleted."
+      fi
+    loop:
+      - app
+      - audit
+      - infra
+    register: index_exists
+
+  - name: Fail if the index patterns got deleted after some time
+    fail:
+      msg: "{{index_exists.results[item].stdout}}"
+    when: index_exists.results[item].stdout | length != 0
+    with_items: [0, 1, 2]
+
+- name: Fetch and save the logs
+  shell: |
+    oc exec -c kibana {{ kibana_pod_name.stdout }} -n openshift-logging \
+    -- curl -ks -H "Authorization: Bearer {{ user_token.stdout }}" \
+    "https://elasticsearch.openshift-logging.svc:9200/_search" -H 'Content-Type: application/json' -d\
+    '{"query": {"bool": {"must": [{"match": {"openshift.labels.logs": "{{item}}"}},  {"range": {"@timestamp": {"gte": "now-12m"}}}]}}}' > \
+    "{{cl_log_dir}}/kibana-ldap/{{item}}.txt"
+  loop:
+    - application
+    - audit
+    - infrastructure
+
+- name: Login to the cluster as system:admin
+  shell: oc login -u system:admin
