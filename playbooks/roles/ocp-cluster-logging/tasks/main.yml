@@ -14,7 +14,24 @@
 - set_fact:
       cl_log_dir: "{{ log_dir_path | default('/root/clf_logs', true) }}"
 
-- include_tasks: "{{ role_path }}/files/validate-urls.yml"
+# Validate external URLs and install python on external VMs
+- block:
+  - include_tasks: "{{ role_path }}/files/validate-urls.yml"
+
+  - name: Install python on external fluentd VM
+    raw: sudo yum install -y python3
+    delegate_to: fluentd
+    when: fluentd_server_url is defined
+
+  - name: Install python on external syslog VM
+    raw: sudo yum install -y python3
+    delegate_to: syslog
+    when: syslog_server_url is defined
+
+  - name: Install python on external kafka VM
+    raw: sudo yum install -y python3
+    delegate_to: kafka
+    when: kafka_server_url is defined
   when: cluster_log_forwarder
 
 # Custom ImageContentSourcePolicy and CatalogSource

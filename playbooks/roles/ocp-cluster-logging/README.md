@@ -22,11 +22,6 @@ Requirements
  - For validating the internal Kibana, it creates LDAP user `ldap_user` using HTPasswd identity provider. This can be used when `cluster_log_forwarder` and `kibana_ldap_validation` is set to true.
  - Make sure that the StorageClass resource is present on cluster for dynamically provisioned storage on demand.
  - External VM instances/systems must be configured and running (Syslog, Elasticsearch, Fluentd, Kafka, Loki, CloudWatch) 
- - Bastion node must be able to make ssh connection to external VM instances with Keys.  
- To add your public key to external VM, run following command on bastion node.
- ```
-ssh-copy-id root@<external-vm-ip>
- ```
  - Generate tls certificates in Syslog server and copy them to the bastion node. Create one secret named ***syslog-secret*** with tls certificates to connect with the external Syslog server.
 ```
 scp -r root@<syslog_vm_ip>:/<location_of_tls_certificates> <bastion_location>
@@ -63,6 +58,14 @@ data:
   aws_secret_access_key: d0phbHJYVXRuRkVNSS9LN01QWEU5HL2JQeFJmaUNZRVhBTVBMRUtFWQo=
 
 ```
+- Add this host group in the inventory file with IP addresses and passwords
+```
+[external_vms]
+fluentd ansible_host=<ip> ansible_python_interpreter=/usr/bin/python3 ansible_connection=ssh ansible_user=root ansible_ssh_pass=<password>
+syslog ansible_host=<ip> ansible_python_interpreter=/usr/bin/python3 ansible_connection=ssh ansible_user=root ansible_ssh_pass=<password>
+kafka ansible_host=<ip> ansible_python_interpreter=/usr/bin/python3 ansible_connection=ssh ansible_user=root ansible_ssh_pass=<password>
+```
+
 Role Variables
 --------------
 
