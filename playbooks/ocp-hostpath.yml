@@ -1,0 +1,5 @@
+---
+- name: Setup the directory for hostpath on the node and provision hostPath volume on the cluster
+  hosts: bastion
+  roles:
+  - ocp-hostpath-deploy

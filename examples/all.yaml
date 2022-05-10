@@ -150,3 +150,13 @@ vpa_object_kind: "" # Deployment, StatefulSet, ReplicaSet, ReplicationController
 vpa_directory: ""
 vpa_e2e: false
 vpa_cleanup: false
+
+## ocp_hostpath vars
+ocp_hostpath_enabled: false
+hostpath_setup_dir: ~/setup-files/hostpath-setup
+hostpath_node: worker-0
+hostpath_storage_size: 10Gi
+hostpath_pv_storage_path: "/mnt/data"
+hostpath_pod_image: nginx
+hostpath_pod_mountpath: /usr/share/nginx/html
+hostpath_pod_name: hostpath-storage
