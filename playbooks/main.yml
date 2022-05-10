@@ -52,3 +52,6 @@
 
 - import_playbook: ocp-vpa-operator.yml
   when: ocp_vpa
+
+- import_playbook: ocp-hostpath.yml
+  when: ocp_hostpath_enabled
