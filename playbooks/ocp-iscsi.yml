@@ -1,0 +1,10 @@
+- name: Setup the configuration changes for iSCSI on the node
+  hosts: "{{ iSCSI_node }}"
+  tasks:
+  - name: Configuring the node
+    include_tasks: "{{ playbook_dir }}/roles/ocp-iscsi-deploy/tasks/config.yaml"
+
+- name: Provision iSCSI volume on the cluster
+  hosts: bastion
+  roles:
+  - ocp-iscsi-deploy
