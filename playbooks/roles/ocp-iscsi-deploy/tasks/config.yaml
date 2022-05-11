@@ -1,0 +1,50 @@
+---
+- name: Create iSCSI files
+  file:
+    path: "{{ item }}"
+    state: file
+  with_items:
+  - /etc/iscsi/initiatorname.iscsi
+  - /etc/iscsi/iscsid.conf
+
+- name: Adding initiator name to file initiatorname.iscsi
+  become: yes
+  become_user: root
+  tags: initiator1
+  lineinfile:
+    group: root
+    path: /etc/iscsi/initiatorname.iscsi
+    regexp: "^InitiatorName"
+    line: "InitiatorName={{ initiator_name }}\n"
+    owner: root
+    state: present
+    backup: yes
+  register: initiator1out
+
+- name: Adding iSCSI configuration credentials to iscsid.conf
+  become: yes
+  become_user: root
+  tags: config1
+  lineinfile:
+    group: root
+    path: /etc/iscsi/iscsid.conf
+    line: "\nnode.session.auth.authmethod = CHAP \nnode.session.auth.username = admin \nnode.session.auth.password = admin\n"
+    owner: root
+    state: present
+    backup: yes
+  register: config1out
+
+- name: Restarting iSCSI service
+  shell: sudo systemctl restart iscsid
+
+- name: Check if connection works
+  shell: sudo iscsiadm -m discovery -t sendtargets -p {{ target_IP }}
+
+- name: Logout from iSCSI
+  shell: sudo iscsiadm -m node --logout 
+  register: result
+  ignore_errors: True
+
+- name: Login to iSCSI
+  shell: sudo iscsiadm -m node --login | grep "successful"
+  register: login_sucessful

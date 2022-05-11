@@ -58,3 +58,6 @@
 
 - import_playbook: ocp-csi-driver.yml
   when: ocp_csi_driver
+
+- import_playbook: ocp-iscsi.yml
+  when: ocp_iSCSI_enabled

@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: iscsi-pv
+spec:
+  storageClassName: iscsi
+  capacity:
+    storage: 1Gi
+  accessModes:
+    - ReadWriteOnce
+  iscsi:
+     targetPortal: "{{ target_IP }}:3260"
+     iqn: {{ iqn }}
+     lun: 0
+     fsType: 'ext4'
+     chapAuthDiscovery: true
+     chapAuthSession: true
+     secretRef:
+       name: chap-secret

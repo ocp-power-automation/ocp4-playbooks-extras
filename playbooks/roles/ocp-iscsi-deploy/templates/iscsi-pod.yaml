@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ iSCSI_pod_name }}
+  namespace: default
+spec:
+  containers:
+    - name: iscsipd-ro
+      image: {{ iSCSI_pod_image }}
+      command: ["/bin/sh", "-c"]
+      args: [ "tail -f /dev/null" ]
+      volumeMounts:
+        - name: data
+          mountPath: {{ iSCSI_pod_mountpath }}
+  nodeName: {{ iSCSI_node }}
+  volumes:
+    - name: data
+      persistentVolumeClaim:
+        claimName: iscsi-pvc

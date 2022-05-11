@@ -1,0 +1,10 @@
+---
+ocp_iSCSI_enabled: false
+iSCSI_setup_directory: ~/setup-files/iscsi-setup
+iSCSI_node: worker-0
+iSCSI_pod_image: quay.io/satwsing/centos
+iSCSI_pod_mountpath: /mnt/iscsipd
+iSCSI_pod_name: iscsipd
+initiator_name: # eg. iqn.2021-04.com.redhat:initiator2
+iqn: # eg. iqn.2021-04.redhat.com:iscsitarget2
+target_IP: ""
