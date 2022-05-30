@@ -22,6 +22,8 @@ This repository consists of additional ansible playbooks for the following:
 18. Jenkins installation and verification
 19. Vertical Pod Autoscaler installation, verification and e2e
 20. Setup persistent storage using hostPath
+21. PowerVC CSI driver installation and validation
+
 
 ## Assumptions:
 
