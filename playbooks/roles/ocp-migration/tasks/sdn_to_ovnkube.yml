@@ -1,20 +1,32 @@
 ---
+# check if Cluster Health is good
+# Check CO status
+- name: check if CO are not in Progressing  state
+  shell:  oc get co  | awk '{ print $4}' | grep -v PROGRESSING | grep True | wc -l
+  register: co_progress_status
+  until: co_progress_status.stdout|int == 0
+  retries: 5
+  delay: 30
+  ignore_errors: yes
+  
+- name: check if all CO are in AVAILABLE state
+  shell:  oc get co  | awk '{ print $3}' | grep -v AVAILABLE | grep False | wc -l
+  register: co_status
+  until: co_status.stdout|int == 0
+  retries: 5
+  delay: 30
+  ignore_errors: yes
+  
+# Check Nodes status
+- name: Check all nodes are Ready
+  shell: oc wait --all --for=condition=Ready nodes --timeout=60s
+
 - name: Check network provider plugin
   shell: oc get network.config/cluster -o jsonpath='{.status.networkType}{"\n"}'
   register: network_provider
 - debug:
     msg: "NetworkType is: {{ network_provider.stdout }}"
   failed_when: network_provider.rc != 0 or "OVNKubernetes" in network_provider.stdout
-
-
- # check if cluster is ready
-- name: check all Cluster Operators are available
-  shell: oc get co | awk 'NR>1 {if($3=="False" ||  $4=="True" || $5=="True" ){print $1}}'
-  register: co
-  failed_when: co.stdout | length >  0
-
-- name: Check all nodes are Ready
-  shell: oc wait --all  --for=condition=Ready nodes 
 
 - name: check if machineconfigpool in updated state 
   shell: |
