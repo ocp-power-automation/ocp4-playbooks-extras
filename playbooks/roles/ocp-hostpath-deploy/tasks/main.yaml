@@ -1,0 +1,60 @@
+---
+- name: Create a local volume on the node
+  file:
+    path: '{{ hostpath_pv_storage_path }}'
+    state: directory
+    mode: '0755'
+  become: yes
+  delegate_to:  "{{ hostpath_node | default('worker-0', true) }}"
+
+- name: Create setup directory
+  file:
+    path: "{{ hostpath_setup_dir }}"
+    state: "{{ item }}"
+    mode: '0755'
+  with_items:
+  - absent
+  - directory
+
+- name: Generate config yaml files
+  template:
+    src: "{{ item }}.yaml.j2"
+    dest: "{{ hostpath_setup_dir }}/{{ item }}.yaml"
+  with_items:
+  - hostpath-pv
+  - hostpath-pvc
+  - hostpath-pod
+
+- name: Create the Persistent Volume (PV)
+  k8s:
+    state: present
+    definition: "{{ lookup('file', '{{ hostpath_setup_dir }}/hostpath-pv.yaml') | from_yaml }}"
+
+- name: Create the Persistent Volume Claim 
+  k8s:
+    state: present
+    definition: "{{ lookup('file', '{{ hostpath_setup_dir }}/hostpath-pvc.yaml') | from_yaml }}"
+
+- name: Check Persistent Volume Claim is in bound state
+  shell: "oc get pvc task-pv-claim -n default --no-headers | grep Bound | wc -l"
+  register: pvc_count
+  until: pvc_count.stdout|int == 1
+  retries: 5
+  delay: 30 
+
+- name: Create the pod {{ hostpath_pod_name }}
+  k8s:
+    state: present
+    definition: "{{ lookup('file', '{{ hostpath_setup_dir }}/hostpath-pod.yaml') | from_yaml }}"
+
+- name: Check pod is in Running state
+  shell: "oc get pod {{ hostpath_pod_name }} -n default --no-headers | grep Running | wc -l"
+  register: pod_count
+  until: pod_count.stdout|int == 1
+  retries: 5
+  delay: 30
+  
+- name: Check the mount
+  shell: "oc exec -it '{{ hostpath_pod_name }}' lsblk | grep {{ hostpath_pod_mountpath }}"
+  register: mount_status
+  failed_when: mount_status.rc==1

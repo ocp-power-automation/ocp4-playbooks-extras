@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ hostpath_pod_name }}
+  namespace: default
+spec:
+  volumes:
+    - name: hostpath-storage
+      persistentVolumeClaim:
+        claimName: task-pv-claim
+  containers:
+    - name: {{ hostpath_pod_name }}
+      image: {{ hostpath_pod_image}}
+      securityContext:
+        privileged: true
+      volumeMounts:
+        - mountPath: "{{ hostpath_pod_mountpath }}"
+          name: hostpath-storage
+      nodeName: {{ hostpath_node }}
