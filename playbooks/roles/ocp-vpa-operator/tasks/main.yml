@@ -132,7 +132,6 @@
         source: "{{ vpa_catalogsource_name | default('redhat-operators', true) }}"
         sourceNamespace: openshift-marketplace
         installPlanApproval: Automatic
-        startingCSV: verticalpodautoscaler
   
 # Create operator group for VPA
 - name: Create operator group for vertical pod autoscaler
