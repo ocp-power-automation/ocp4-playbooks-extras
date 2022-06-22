@@ -160,3 +160,15 @@ hostpath_pv_storage_path: "/mnt/data"
 hostpath_pod_image: nginx
 hostpath_pod_mountpath: /usr/share/nginx/html
 hostpath_pod_name: hostpath-storage
+
+# ocp-csi-driver required vars
+ocp_csi_driver: false
+csi_setup_directory: "/tmp/csi_setup_directory"
+powervc_username: ""
+powervc_password: ""
+powervc_project_name: "icp-test"
+powervc_server_ip: ""
+powervc_storage_template: "c340f1_v7k base template"
+csi_driver_installation: false
+csi_driver_validation: false
+csi_driver_clean_up: false

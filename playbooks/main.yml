@@ -55,3 +55,6 @@
 
 - import_playbook: ocp-hostpath.yml
   when: ocp_hostpath_enabled
+
+- import_playbook: ocp-csi-driver.yml
+  when: ocp_csi_driver

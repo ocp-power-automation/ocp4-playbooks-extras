@@ -1,0 +1,445 @@
+---
+# Checking COs and nodes
+- name: Check if the cluster is healthy
+  block:
+  - name: Check if all the cluster operators are available
+    shell: oc get co | awk 'NR>1 {if($3=="False" ||  $4=="True" || $5=="True" ){print $1}}'
+    register: co
+    failed_when: co.stdout | length >  0
+
+  - name: Check if all the nodes are healthy
+    shell: oc wait --all --for=condition=Ready nodes 
+  rescue:
+  - debug: 
+      msg: "Cluster is unstable. Stopping the playbook execution"
+      
+  - name: Stopping the playbook execution
+    meta: end_play
+
+- set_fact:
+    csi_directory: "{{ csi_setup_directory | default('/tmp/csi_setup_directory', true) }}"
+    powervc_project: "{{ powervc_project_name | default('icp-test', true) }}"
+    storage_template: "{{ powervc_storage_template | default('c340f1_v7k base template', true) }}"
+    csi_namespace: "myproject"
+    powervc_csi_secret: "powervc-csi-secret"
+    dynamic_pod: "dynamic-pod"
+    static_pod: "static-pod"
+    dynamic_pvc: "dynamic-pvc"
+    static_pvc: "static-pvc"
+
+- set_fact:
+    csi_repository_directory: "{{ csi_directory }}/power-openstack-k8s-volume-driver"
+
+- name: Cleaning the CSI resources
+  block:
+  - name: Change the ocp project to {{ csi_namespace }}
+    shell: oc project {{ csi_namespace }}
+
+  - name: Delete the testing pods
+    k8s:
+      state: absent
+      api_version: v1
+      kind: Pod
+      namespace: "{{ csi_namespace }}"
+      name: "{{ item }}"
+    loop:
+    - "{{ dynamic_pod }}"
+    - "{{ static_pod }}"
+
+  - name: Check if the pods get deleted
+    shell: oc get pods | grep "{{ dynamic_pod }}\|{{ static_pod }}" | wc -l
+    register: pods_count
+    until: pods_count.stdout|int == 0
+    retries: 15
+    delay: 60
+
+  - name: Delete persistent volume claims
+    k8s:
+      state: absent
+      api_version: v1
+      kind: PersistentVolumeClaim
+      namespace: "{{ csi_namespace }}"
+      name: "{{ item }}"
+    loop:
+    - "{{ dynamic_pvc }}"
+    - "{{ static_pvc }}"
+
+  - name: Check if PVC's get deleted
+    shell: oc get pvc | grep "{{ dynamic_pvc }}\|{{ static_pvc }}" | wc -l
+    register: pvc_count
+    until: pvc_count.stdout|int == 0
+    retries: 15
+    delay: 60
+
+  - name: Check if PV's get deleted
+    shell: oc get pv | grep "{{ dynamic_pvc }}\|{{ static_pvc }}" | wc -l
+    register: pv_count
+    until: pv_count.stdout|int == 0
+    retries: 10
+    delay: 90
+
+  - name: Destroy all the resources    
+    shell: oc delete -f {{ csi_directory }}/powervc_csi_all_artifacts.yaml
+
+  - name: Deleting the Security Context Constraints (SCC) template
+    shell: oc delete -f {{ csi_repository_directory }}/template/scc.yaml
+
+  - name: Deleting the PowerVC credential's secret
+    k8s:
+      state: absent
+      kind: Secret
+      api_version: v1
+      namespace: "{{ csi_namespace }}"
+      name: "{{ powervc_csi_secret }}"
+
+  - name: Clean the working directory
+    file:
+      path: "{{ csi_directory }}"
+      state: absent
+  when: csi_driver_clean_up
+
+- name: PowerVC CSI driver installation
+  block:
+  - name: Validating the PowerVC IP
+    fail:
+      msg: "PowerVC IP is empty!."
+    when: powervc_server_ip == '' or powervc_server_ip == None
+
+  - name: Validating the PowerVC credentials
+    fail:
+      msg: "PowerVC credentials are invalid!"
+    when: powervc_username|length < 10 or powervc_password|length < 8
+
+  - name: Check if the PowerVC certificate's secret is exists
+    k8s_info:
+      api_version: v1
+      kind: Secret
+      name: powervc-certificate
+      namespace: default
+    register: powervc_certificate
+
+  - name: Fail if the powervc-certificate does not exists in default namespace
+    fail:
+      msg: "PowerVC certificate secret is not present!"
+    when: powervc_certificate.resources | length == 0
+
+  - fail:
+      msg: "PowerVC certificate is empty! Please check the certificate's secret."
+    when: >
+          (powervc_certificate.resources[0].data.certificate is not defined) or
+          (powervc_certificate.resources[0].data.certificate | length == 0)
+
+  - name: Create namespace for CSI driver validation
+    k8s:
+      state: present
+      definition:
+        apiVersion: v1
+        kind: Namespace
+        metadata:
+          name: "{{ csi_namespace }}"
+
+  - name: Change the ocp project to {{ csi_namespace }}
+    shell: oc project {{ csi_namespace }}
+
+  - name: Clean the working directory
+    file:
+      path: "{{ csi_repository_directory }}"
+      state: absent
+
+  - name: Cloning power-openstack-k8s-volume-driver repository
+    git:
+      repo: https://github.com/IBM/power-openstack-k8s-volume-driver.git
+      dest: "{{ csi_repository_directory }}"
+
+  - name: Provide access to system service account for openshift-infra:template-instance-controller
+    shell: oc adm policy add-cluster-role-to-user cluster-admin system:serviceaccount:openshift-infra:template-instance-controller
+
+  - name: Provide access to system service account for test-csi as default
+    shell: oc adm policy add-cluster-role-to-user cluster-admin system:serviceaccount:{{ csi_namespace }}:default
+
+  - name: Applying the Security Context Constraints (SCC) template
+    k8s:
+      state: present
+      src: "{{ csi_repository_directory }}/template/scc.yaml"
+
+  - name: Update the OPENSTACK_PROJECT_NAME as {{ powervc_project }}
+    lineinfile:
+      path: "{{ csi_repository_directory }}/template/ibm-powervc-csi-driver-template.yaml"
+      regexp: 'ibm-default'
+      line: '  value: "{{ powervc_project }}"'
+
+  - name: Insert the OPENSTACK_IP_OR_HOSTNAME as {{ powervc_server_ip }}
+    lineinfile:
+      path: "{{ csi_repository_directory }}/template/ibm-powervc-csi-driver-template.yaml"
+      insertafter: 'OPENSTACK_IP_OR_HOSTNAME'
+      line: '  value: "{{ powervc_server_ip }}"'
+
+  - name: Insert DRIVER_VOLUME_TYPE as {{ storage_template }}
+    lineinfile:
+      path: "{{ csi_repository_directory }}/template/ibm-powervc-csi-driver-template.yaml"
+      insertafter: 'DRIVER_VOLUME_TYPE'
+      line: '  value: "{{ storage_template }}"'
+
+  - name: Insert the OPENSTACK_CERT_DATA
+    lineinfile:
+      path: "{{ csi_repository_directory }}/template/ibm-powervc-csi-driver-template.yaml"
+      insertafter: 'OPENSTACK_CERT_DATA'
+      line: '  value: "{{ powervc_certificate.resources[0].data.certificate | b64decode }}"'
+
+  - name: Applying the ibm-powervc-csi-driver-template
+    k8s:
+      namespace: "{{ csi_namespace }}"
+      state: present
+      src: "{{ csi_repository_directory }}/template/ibm-powervc-csi-driver-template.yaml"
+
+  - name: Create a secret for PowerVC credentials
+    k8s:
+      state: present
+      definition:
+        kind: Secret
+        apiVersion: v1
+        metadata:
+          name: "{{ powervc_csi_secret }}"
+          namespace: "{{ csi_namespace }}"
+        type: Opaque
+        data:
+          OS_USERNAME: '{{ powervc_username | b64encode }}'
+          OS_PASSWORD: '{{ powervc_password | b64encode }}'
+
+  - name: Generating yaml file for all the artifacts
+    shell: oc process ibm-powervc-csi -p OPENSTACK_IP_OR_HOSTNAME={{ powervc_server_ip }} -p OPENSTACK_CRED_SECRET_NAME={{ powervc_csi_secret }} > {{ csi_directory }}/powervc_csi_all_artifacts.yaml
+
+  - name: Install all OpenShift artifacts
+    k8s:
+      namespace: "{{ csi_namespace }}"
+      state: present
+      src: "{{ csi_directory }}/powervc_csi_all_artifacts.yaml"
+  when: csi_driver_installation
+
+- name: PowerVC CSI driver installtion verification
+  block:
+  - name: Check the pods are in good state
+    shell: oc get pods -n {{ csi_namespace }} --no-headers | awk '{if ($3 != "Running" && $3 != "Completed" ) print $1}' | wc -l
+    register: pods
+    until: pods.stdout|int == 0
+    retries: 10
+    delay: 30
+
+  - name: Get the worker node count
+    shell: oc get node --no-headers | grep worker | wc -l
+    register: worker_node_count
+
+  - name: Validate the csi nodes count
+    shell: oc get csinodes --no-headers | awk '{if ($2 == "1") print $1}' | wc -l
+    register: csinodes
+    until: csinodes.stdout|int == worker_node_count.stdout|int
+    retries: 10
+    delay: 30
+
+  - name: Validate the storage class
+    shell: oc get sc | grep ibm-powervc-csi-volume-default
+    register: storage_class
+    until: storage_class.stdout|length != 0
+    retries: 10
+    delay: 30
+  when: csi_driver_installation or csi_driver_validation
+  always:
+  # Always block saves the output
+  - name: Delete the older output file
+    file:
+      state: absent
+      path: "{{ csi_directory }}/csi_output.txt"
+
+  - name: Get the csinodes
+    shell: oc get csinodes 
+    register: csinodes_output
+
+  - name: Get the pods from {{ csi_namespace }}
+    shell: oc get pods -n {{ csi_namespace }}
+    register: csi_pods
+
+  - name: Saving the output
+    lineinfile:
+      line: "{{ item }}"
+      path: "{{ csi_directory }}/csi_output.txt"
+      insertafter: EOF
+      state: present
+      create: yes
+    with_items:
+    - "# PowerVC CSI driver installtion verification"
+    - "# CSI pods:"
+    - "{{ csi_pods.stdout }}\n"
+    - "# Storage class:"
+    - "{{ storage_class.stdout }}\n"
+    - "# CSI nodes:"
+    - "{{ csinodes_output.stdout }}"
+
+- name: PowerVC CSI driver validation
+  block:
+  - name: Create dynamic persistent volume claim
+    k8s:
+      state: present
+      definition:  
+        apiVersion: v1
+        kind: PersistentVolumeClaim
+        metadata:
+          name: "{{ dynamic_pvc }}"
+          namespace: "{{ csi_namespace }}"
+        spec:
+          accessModes:
+          - ReadWriteMany
+          resources:
+            requests:
+              storage: 1Gi
+
+  - name: Validate the persistent volume claim
+    shell: oc get pvc | grep {{ dynamic_pvc }} | grep Bound
+    register: dynamic_pvc_output
+    until: dynamic_pvc_output.stdout_lines | length == 1
+    retries: 10
+    delay: 30
+
+  - name: Get the name of worker-0 node
+    shell: oc get nodes | grep worker-0 | awk '{print $1}'
+    register: worker1_name
+
+  - name: Deploy a pod with dynamic persistent volume claim
+    k8s:
+      state: present
+      definition:
+        apiVersion: v1
+        kind: Pod
+        metadata:
+          name: "{{ dynamic_pod }}"
+          namespace: "{{ csi_namespace }}"
+          labels:
+            app: nginx
+        spec:
+          nodeName: "{{ worker1_name.stdout }}"
+          containers:
+          - name: web-server
+            image: quay.io/powercloud/nginx-unprivileged:latest
+            volumeMounts:
+              - name: mypvc
+                mountPath: /usr/share/nginx/html/powervc
+            ports:
+            - containerPort: 80
+          volumes:
+          - name: mypvc
+            persistentVolumeClaim:
+              claimName: "{{ dynamic_pvc }}"
+              readOnly: false
+
+  - name: Check the pod is in good state
+    shell: oc get pods {{ dynamic_pod }} -n {{ csi_namespace }} --no-headers | awk '{if ($3 != "Running" && $3 != "Completed" ) print $1}' | wc -l
+    register: pods
+    until: pods.stdout|int == 0
+    retries: 20
+    delay: 30
+
+  - name: Validate if the files has been created at mount location
+    shell: oc exec -i -n {{ csi_namespace }} {{ dynamic_pod }} -- bash -c 'ls /usr/share/nginx/html/powervc'
+    register: validate_dynamic_pod_volume
+    ignore_errors: true
+
+  - fail:
+      msg: "Mounted volume is not working properly!"
+    when: validate_dynamic_pod_volume.failed
+
+  - name: Create a static persistent volume claim
+    k8s:
+      state: present
+      definition:
+        apiVersion: v1
+        kind: PersistentVolumeClaim
+        metadata:
+          name: "{{ static_pvc }}"
+          namespace: "{{ csi_namespace }}"
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          storageClassName: ibm-powervc-csi-volume-default
+          resources:
+            requests:
+              storage: 1Gi
+
+  - name: Validate the persistent volume claim
+    shell: oc get pvc | grep {{ static_pvc }} | grep Bound
+    register: static_pvc_output
+    until: static_pvc_output.stdout_lines | length == 1
+    retries: 10
+    delay: 10
+
+  - name: Get the name of worker-1 node
+    shell: oc get nodes | grep worker-1 | awk '{print $1}'
+    register: worker0_name
+
+  - name: Deploy a pod with static persistent volume claim
+    k8s:
+      state: present
+      definition:
+        apiVersion: v1
+        kind: Pod
+        metadata:
+          name: "{{ static_pod }}"
+          namespace: "{{ csi_namespace }}"
+        spec:
+          nodeName: "{{ worker0_name.stdout }}"
+          containers:
+          - name: app
+            image: quay.io/powercloud/centos:latest
+            command: ["/bin/sh"]
+            args: ["-c", "while true; do echo $(date -u) >> /data/out.txt; sleep 5; done"]
+            volumeMounts:
+            - name: persistent-storage
+              mountPath: /data
+          volumes:
+          - name: persistent-storage
+            persistentVolumeClaim:
+              claimName: "{{ static_pvc }}"
+
+  - name: Check the pod is in good state
+    shell: oc get pods {{ static_pod }} -n {{ csi_namespace }} --no-headers | awk '{if ($3 != "Running" && $3 != "Completed" ) print $1}' | wc -l
+    register: pods
+    until: pods.stdout|int == 0
+    retries: 20
+    delay: 30
+
+  - name: Validate if the files has been created at mount location
+    shell: oc exec -i -n {{ csi_namespace }} {{ static_pod }} -- bash -c 'ls data/out.txt'
+    register: validate_static_pod_volume
+    ignore_errors: true
+
+  - fail:
+      msg: "Mounted volume is not working properly!"
+    when: validate_static_pod_volume.failed
+  when: csi_driver_validation
+  always:
+  # Always block saves the output
+  - name: Get the testing pods from {{ csi_namespace }}
+    shell: oc get pods -n {{ csi_namespace }} | grep "{{ dynamic_pod }}\|{{ static_pod }}"
+    register: pods
+
+  - name: Get the persistent volume claims
+    shell: oc get pvc
+    register: pvc_output
+
+  - name: Get the persistent volumes
+    shell: oc get pv
+    register: pv_output
+  
+  - name: Saving the output
+    lineinfile:
+      line: "{{item}}"
+      path: "{{ csi_directory }}/csi_output.txt"
+      insertafter: EOF
+      state: present
+      create: yes
+    with_items:
+    - "\n\n# PowerVC CSI driver validation"
+    - "# CSI test pods:"
+    - "{{ pods.stdout }}\n"
+    - "# Persistent Volume Claims:"
+    - "{{ pvc_output.stdout }}\n"
+    - "# Persistent Volumes:"
+    - "{{ pv_output.stdout }}\n"
