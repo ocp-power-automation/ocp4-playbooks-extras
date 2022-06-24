@@ -1,0 +1,61 @@
+---
+- name: Create setup directory
+  file:
+    path: "{{ iSCSI_setup_directory }}"
+    state: "{{ item }}"
+    mode: '0755'
+  with_items:
+  - absent
+  - directory
+
+- name: Generate config yaml files
+  template:
+    src: "../templates/{{ item }}.yaml"
+    dest: "{{ iSCSI_setup_directory }}/{{ item }}.yaml"
+  with_items:
+  - chap-secret
+  - iscsi-pv
+  - iscsi-pvc
+  - iscsi-pod
+
+- name: Changing to default namespace
+  shell: oc project default
+
+- name: Create secret
+  k8s:
+    state: present
+    src: "{{ iSCSI_setup_directory }}/chap-secret.yaml"
+
+- name: Create iSCSI Persistent Volume(PV)
+  k8s:
+    state: present
+    src: "{{ iSCSI_setup_directory }}/iscsi-pv.yaml"
+
+- name: Create iSCSI Persistent Volume Claim(PVC)
+  k8s: 
+    state: present
+    src: "{{ iSCSI_setup_directory }}/iscsi-pvc.yaml"
+
+- name: Check PVC is in bound state
+  shell: "oc get pvc iscsi-pvc -n default --no-headers | grep Bound | wc -l"
+  register: pvc_count
+  until: pvc_count.stdout|int != 0
+  retries: 5
+  delay: 30 
+
+- name: Create iSCSI deployment
+  k8s: 
+    state: present
+    src: "{{ iSCSI_setup_directory }}/iscsi-pod.yaml"
+
+- name: Check pod is in Running state
+  shell: "oc get pod {{ iSCSI_pod_name }} -n default --no-headers | grep Running | wc -l"
+  register: pod_count
+  until: pod_count.stdout|int != 0
+  retries: 5
+  delay: 30
+
+- name: Check the mount
+  shell: "oc exec -it '{{ iSCSI_pod_name }}' lsblk | grep {{ iSCSI_pod_mountpath }}"
+  register: mount_status
+  failed_when: mount_status.rc == 1
