@@ -1,98 +1,108 @@
 ---
-# check if Cluster Health is good
-# Check CO status
-- name: check if CO are not in Progressing  state
-  shell:  oc get co  | awk '{ print $4}' | grep -v PROGRESSING | grep True | wc -l
+
+- name: Check if CO are not in PROGRESSING state
+  shell: oc get co | awk '{ print $4}' | grep -v PROGRESSING | grep True | wc -l
   register: co_progress_status
   until: co_progress_status.stdout|int == 0
   retries: 5
   delay: 30
   ignore_errors: yes
   
-- name: check if all CO are in AVAILABLE state
-  shell:  oc get co  | awk '{ print $3}' | grep -v AVAILABLE | grep False | wc -l
+- name: Check if all CO are in AVAILABLE state
+  shell: oc get co | awk '{ print $3}' | grep -v AVAILABLE | grep False | wc -l
   register: co_status
   until: co_status.stdout|int == 0
   retries: 5
   delay: 30
   ignore_errors: yes
   
-# Check Nodes status
-- name: Check all nodes are Ready
+- name: Check all nodes are in READY state
   shell: oc wait --all --for=condition=Ready nodes --timeout=60s
 
 - name: Check network provider plugin
   shell: oc get network.config/cluster -o jsonpath='{.status.networkType}{"\n"}'
   register: network_provider
+
 - debug:
     msg: "NetworkType is: {{ network_provider.stdout }}"
   failed_when: network_provider.rc != 0 or "OVNKubernetes" in network_provider.stdout
 
-- name: check if machineconfigpool in updated state 
+- name: Check if machineconfigpool in updated state 
   shell: |
     oc get machineconfigpool -n openshift-machine-config-operator --no-headers | awk '{ print $3 $4 $5 }' | grep -w  -v TrueFalseFalse  |  wc -l
   register: operand_count
   failed_when: operand_count.stdout|int != 0
 
-
-# Get backup the configuration for the cluster network
 - name: Take backup of the network operator
   shell: 'oc get Network.config.openshift.io cluster -o yaml > /root/cluster-openshift-sdn.yaml'
 
+- name: Set the migration field on the CNO to OVNkubernetes for first
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: operator.openshift.io/v1
+      kind: Network
+      metadata:
+        name: cluster
+      spec:
+        migration:
+          networkType: OVNKubernetes
 
-# Start Migration
-- name: Set the migration field is null before setting it to a value
+- name: Check patch being applied - if nodes getting into ' SchedulingDisabled\|NotReady' state
   shell: |
-    oc patch Network.operator.openshift.io cluster --type='merge' --patch '{"spec": {"migration": null}}'
+     oc get nodes --no-headers | grep -w 'SchedulingDisabled\|NotReady' | wc -l
+  register: operand_count
+  until: operand_count.stdout|int > 0
+  retries: 10
+  delay: 30
 
-- name: To change default CNI network provider
+- name: Check all nodes are in READY state
   shell: |
-    oc patch Network.operator.openshift.io cluster --type='merge' \
-    --patch '{ "spec": { "migration": {"networkType": "OVNKubernetes" } } }'
+     oc get nodes --no-headers | grep -w 'SchedulingDisabled\|NotReady' | wc -l
+  register: operand_count
+  until: operand_count.stdout|int == 0
+  retries: 10
+  delay: 120
 
-# Check nodes, MCP
-- name: Check all nodes are Ready
-  shell: oc wait --all  --for=condition=Ready nodes --timeout=600s
-
-- name: check if machineconfigpool in updated state 
+- name: Check if machineconfigpool in updated state 
   shell: |
     sleep 20s
     oc get machineconfigpool -n openshift-machine-config-operator --no-headers | awk '{ print $3 $4 $5 }' | grep -w  -v TrueFalseFalse  |  wc -l
   register: operand_count
   until: operand_count.stdout|int == 0
-  retries: 5
-  delay: 500
+  retries: 8
+  delay: 120
 
-- name: check if all nodes are in READY state
+- name: Check if all nodes are in READY state
   shell: |
      oc get nodes --no-headers | grep -w -v 'Ready' | wc -l
   register: operand_count
   until: operand_count.stdout|int == 0
-  retries: 5
+  retries: 10
   delay: 30
  
- 
-# Check CO Health Status
-- name: check if all CO are in AVAILABLE state
-  shell:  oc get co  | awk '{ print $3}' | grep -v AVAILABLE | grep False | wc -l
-  register: co_status
+- name: Check if all machine config pods are in RUNNING state
+  shell: oc get pod -n openshift-machine-config-operator | awk '{ print $3}' | grep -v STATUS | grep -v Running | wc -l
+  register: mc_pods
+  until: mc_pods.stdout|int == 0
+  retries: 6
+  delay: 120
 
-- name: check if CO are not in Progressing and Available state
-  shell:  oc get co  | awk '{ print $4}' | grep -v PROGRESSING | grep True | wc -l
-  register: co_progress_status
 - debug:
-    msg: "Some COs are not in good state"
-  when: 0 < co_progress_status.stdout|int or  0 < co_status.stdout|int
+    msg: "Some machine config pods are not in good state"
+  when: mc_pods.stdout|int != 0 
 
+- name: Configure the OVNKubernetes cluster network provider to start migration 
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: config.openshift.io/v1
+      kind: Network
+      metadata:
+        name: cluster
+      spec:
+        networkType: OVNKubernetes
 
-# Change NetworkType
-- name: To change default CNI network provider
-  shell: |
-     oc patch Network.config.openshift.io cluster \
-     --type='merge' --patch '{ "spec": { "networkType": "OVNKubernetes" } }'
-
-
-# Wait for multus rollout
 - name: Wait until the Multus daemon set pods restart
   shell: |
      oc -n openshift-multus rollout status daemonset/multus
@@ -101,21 +111,6 @@
   retries: 5
   delay: 20
 
-
-# Check CO Health Status
-- name: check if all CO are in AVAILABLE state
-  shell:  oc get co  | awk '{ print $3}' | grep -v AVAILABLE | grep False | wc -l
-  register: co_status
-
-- name: check if CO are not in Progressing and Available state
-  shell:  oc get co  | awk '{ print $4}' | grep -v PROGRESSING | grep True | wc -l
-  register: co_progress_status
-- debug:
-    msg: "Some COs are not in good state"
-  when: 0 < co_progress_status.stdout|int or  0 < co_status.stdout|int
-
-
-# Reboot all the nodes
 - name: Register ocp nodes hostname
   shell: oc get nodes  -o jsonpath='{.items[*].status.addresses[?(@.type=="Hostname")].address}'
   register: nodes
@@ -135,56 +130,51 @@
   args:
     executable: /bin/bash
 
-
-# Check Nodes status
-- name: Check all nodes are Ready
+- name: Check all nodes are in READY state
   shell: oc wait --all --for=condition=Ready nodes --timeout=60s
 
-# Check CO status
-- name: check if CO are not in Progressing and Available state
-  shell:  oc get co  | awk '{ print $4}' | grep -v PROGRESSING | grep True | wc -l
+- name: Check if CO are not in PROGRESSING state
+  shell: oc get co  | awk '{ print $4}' | grep -v PROGRESSING | grep True | wc -l
   register: co_progress_status
   until: co_progress_status.stdout|int == 0
-  retries: 5
-  delay: 30
+  retries: 6
+  delay: 120
   ignore_errors: yes
 
-- name: check if all CO are in AVAILABLE state
-  shell:  oc get co  | awk '{ print $3}' | grep -v AVAILABLE | grep False | wc -l
+- name: Check if all CO are in AVAILABLE state
+  shell: oc get co  | awk '{ print $3}' | grep -v AVAILABLE | grep False | wc -l
   register: co_status
   until: co_status.stdout|int == 0
-  retries: 5
-  delay: 30
+  retries: 6
+  delay: 60
   ignore_errors: yes
 
-- name: Fail when CO's are not in good status 
+- name: Fail when CO are not in good status 
   fail:
     msg: "Cluster operators are not in good status after migration"
   when: 0 < co_progress_status.stdout|int or  0 < co_status.stdout|int
 
-- name: Waiting for Start the PODS
+- name: Waiting for the PODS to start
   shell: |
      oc get pods --all-namespaces | grep -w -v 'Running\|Completed' | wc -l
   register: operand_count
   until: operand_count.stdout|int == 1
   retries: 5
   delay: 30
-
-# Validating NetworkType 
+ 
 - name: Check network provider plugin
   shell: oc get network.config/cluster -o jsonpath='{.status.networkType}{"\n"}'
   register: network_provider
+
 - debug:
     msg: " NetworkType : {{ network_provider.stdout }}" 
   failed_when: network_provider.rc != 0 or "OVNKubernetes" not in network_provider.stdout
    
-
-# To remove the migration configuration
-- name: To remove the migration configuration from the CNO configuration object
+- name: Remove the migration configuration from the CNO configuration object
   shell: |
     oc patch Network.operator.openshift.io cluster --type='merge' --patch '{ "spec": { "migration": null } }'
 
-- name: To remove custom configuration for the OpenShift SDN network provider
+- name: Remove custom configuration for the OpenShift SDN network provider
   shell: |
     oc patch Network.operator.openshift.io cluster --type='merge' --patch '{ "spec": { "defaultNetwork": { "openshiftSDNConfig": null } } }'
 
