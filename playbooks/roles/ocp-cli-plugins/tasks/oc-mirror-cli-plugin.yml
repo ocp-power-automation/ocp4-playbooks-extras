@@ -1,0 +1,83 @@
+---
+
+## oc-mirror CLI plug-in test
+
+- name: oc-mirror plugin test
+  block:
+    - name: Create path ~/.docker/
+      file:
+        path: ~/.docker/
+        state: directory
+        mode: 0755
+
+    - name: Check if the oc-mirror repository present already
+      stat:
+        path: ~/plugins/oc-mirror
+      register: oc_mirror_path
+
+    - name: Installing oc-mirror
+      git:
+        repo: https://github.com/openshift/oc-mirror.git
+        dest: ~/plugins/oc-mirror
+        version: main
+      when: oc_mirror_path.stat.exists == false
+
+    - name: Get the pull-secret location status
+      stat:
+        path: ~/.openshift/pull-secret
+      register: pull_secret_path
+
+    - name: Create ~/.docker/config.json
+      shell: cat .openshift/pull-secret | jq . > ~/.docker/config.json
+      args:
+        chdir: /root
+      when: pull_secret_path.stat.exists
+
+    - name: Run the make build command from oc-mirror repository
+      make:
+        chdir: ~/plugins/oc-mirror/
+        target: build
+      register: make_build_output
+
+    - name: Copy the oc-mirror executatble to /usr/bin
+      copy:
+        src: ~/plugins/oc-mirror/bin/oc-mirror
+        dest: /usr/bin/
+        remote_src: yes
+        mode: a+x
+
+    - name: Run the oc-mirror command with help
+      shell: oc mirror help
+
+    - name: Get the OCP version on the host cluster
+      shell: oc version -o json | jq '.openshiftVersion'
+      register: ocp_cluster_version
+
+    - set_fact:
+        ocp_version: "{{ '.'.join(ocp_cluster_version.stdout.strip('\"').split('.')[:2]) }}"
+
+    - name: Get the releases list for the obtained OCP cluster version
+      shell: "oc mirror list releases --version={{ ocp_version }}"
+      register: ocp_releases_list
+    
+    - debug:
+        msg: "{{ ocp_releases_list.stdout_lines }}"
+
+    - name: Get the operators list for the obtained OCP cluster version
+      shell: "oc mirror list operators --catalogs --version={{ ocp_version }}"
+      register: ocp_operators_catlog_output
+
+    - debug:
+        msg: "{{ ocp_operators_catlog_output.stdout_lines }}"
+
+    - name: Get the operators list from RedHat operators catlog index registry
+      shell: "oc mirror list operators --catalog=registry.redhat.io/redhat/redhat-operator-index:v{{ ocp_version }}"
+      register: rh_operators_catlog_index_output 
+
+    - debug:
+        msg: "{{ rh_operators_catlog_index_output.stdout_lines }}"
+
+  environment: "{{ cli_plugin_env }}"
+  rescue:
+    - debug:
+        msg: "Error occurred while performing test steps."

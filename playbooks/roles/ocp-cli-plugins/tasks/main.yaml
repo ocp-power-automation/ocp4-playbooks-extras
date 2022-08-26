@@ -1,0 +1,10 @@
+---
+
+## OCP CLI-plug-ins test
+
+- name: Invoke the the installation
+  include_tasks: install-cli-plugin-required-packages.yml
+
+- name: Invoke individual cli-plugin task module
+  include_tasks: "{{ cli_plugin_map[item] }}"
+  loop: "{{ deploy_cli_plugins }}"
