@@ -1,0 +1,10 @@
+
+# Mapping dict between input cli-plugin name and its equivalent cli-plugin module
+
+cli_plugin_map:
+  custom: "custom-cli-plugin.yml"
+  krew: "krew-cli-plugin.yml"
+  mirror: "oc-mirror-cli-plugin.yml"
+  compliance: "oc-compliance-cli-plugin.yml"
+
+default_go_tar_url: "https://go.dev/dl/go1.18.4.linux-ppc64le.tar.gz"  # Default golang tarball URL for ppc64le architecture with version 1.18.4

@@ -1,0 +1,35 @@
+---
+
+## Openshift custom-cli plugin test
+
+- name: Custom-cli plugin test
+  block:
+    - set_fact:
+        default_custom_plugin_path: "{{ role_path }}/files/oc-custom-plugin.sh"
+        user_defined_custom_plugin_path: "{{ role_path }}/files/{{ user_custom_plugin }}"
+
+    - debug:
+        msg: "The plugin named {{ user_custom_plugin }} does not found at role_path/files, the default sample plugin oc-custom-plugin.sh will be installed for the executing test"
+      when: user_custom_plugin != "" and user_defined_custom_plugin_path is not file
+
+    - name: Install the custom CLI-plugin
+      copy:
+        src: "{{ (user_defined_custom_plugin_path is file) | ternary(user_defined_custom_plugin_path, default_custom_plugin_path) }}"
+        dest: "/usr/local/bin/{{ (user_defined_custom_plugin_path is file) | ternary(user_custom_plugin | splitext | first, 'oc-custom-plugin') }}"
+        mode: a+x
+
+    - name: Test the custom CLI-plugin with 'oc'
+      shell: "oc {{ (user_defined_custom_plugin_path is file) | ternary(' '.join(user_custom_plugin.split('.')[0].split('-')[1:]), 'custom plugin') }}"
+      register: plugin_command_output
+
+    - name: CLI-plugin command output
+      debug:
+        msg: "{{ plugin_command_output.stdout_lines }}"
+        
+    - name: List the CLI-plugins
+      shell: oc plugin list
+      register: plugin_list
+        
+    - name: CLI-plugins list output
+      debug:
+        msg: "{{ plugin_list.stdout_lines }}"

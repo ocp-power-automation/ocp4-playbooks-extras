@@ -1,0 +1,7 @@
+---
+
+# Environment vars for ocp-cli-plug-ins test
+
+cli_plugin_env:
+  PATH: "/usr/local/go/bin:{{ ansible_env.PATH }}:{{ ansible_env.HOME }}/.krew/bin"
+

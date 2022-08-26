@@ -1,0 +1,42 @@
+---
+
+## oc-compliance CLI plug-in test
+
+- name: oc-compliance CLI plug-in test
+  block:
+    - name: Check if the oc-compliance repository present already
+      stat:
+        path: ~/plugins/oc-compliance
+      register: oc_compliance_path
+
+    - name: Install oc-compliance CLI plugin
+      git:
+        repo: https://github.com/openshift/oc-compliance.git
+        dest: ~/plugins/oc-compliance
+        version: master
+      when: oc_compliance_path.stat.exists == false
+
+    - name: Run make build
+      make:
+        chdir: ~/plugins/oc-compliance
+        target: build
+      register: build_output
+
+    - name: Copy the oc-compliance binary to PATH
+      copy:
+        src: ~/plugins/oc-compliance/bin/oc-compliance
+        dest: /usr/bin/
+        remote_src: yes
+        mode: a+x
+
+    - name: oc-compliance help command
+      shell: oc compliance help
+      register: oc_compliance_help_output
+
+    - name: oc-compliance help command output
+      debug:
+        msg: "{{ oc_compliance_help_output.stdout_lines }}"
+  environment: "{{ cli_plugin_env }}"
+  rescue:
+    - debug:
+        msg: "Error occurred while performing test steps."
