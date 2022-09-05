@@ -1,0 +1,15 @@
+# hypershift default variables
+hypershift_install: false
+hypershift_destroy: false
+mgmt_cluster_kubeconfig: "{{ ansible_env.HOME }}/.kube/config"
+hosted_cluster_name: "rdr-hypershift-cluster"
+hypershift_dir: "/root/hypershift"
+hypershift_git_repo: "https://github.com/openshift/hypershift"
+hypershift_git_branch: "main"
+nodepool_replicas: 2
+ocp_pull_secret_path: "~/.pullSecret"
+sys_type: "s922"
+proc_type: "dedicated"
+processors: "0.5"
+memory: "32"
+infra_id: "rdr-hypershift-infra"

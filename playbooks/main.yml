@@ -65,5 +65,12 @@
 - import_playbook: ocp-cli-plugins.yml
   when: enable_cli_plugins_test is defined and enable_cli_plugins_test
 
+
 - import_playbook: ocp-compliance.yml
   when: compliance_enabled is defined and compliance_enabled
+
+- import_playbook: hypershift.yml
+  when: >
+        (hypershift_install is defined and hypershift_install) or 
+        (hypershift_destroy is defined and hypershift_destroy)
+
