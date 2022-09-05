@@ -155,3 +155,27 @@ iSCSI_pod_name: iscsipd
 initiator_name: # eg. iqn.2021-04.com.redhat:initiator2
 iqn: # eg. iqn.2021-04.redhat.com:iscsitarget2
 target_IP: ""
+
+# hypershift required vars for installation/destroy
+mgmt_cluster_kubeconfig: "{{ ansible_env.HOME }}/.kube/config"
+hosted_cluster_name: "rdr-hypershift-cluster"
+infra_id: "rdr-hypershift-infra"
+hypershift_dir: "/root/hypershift"
+hypershift_git_repo: "https://github.com/openshift/hypershift"
+hypershift_git_branch: "main"
+ibmcloud_resource_group: ""
+powervs_region: ""
+powervs_zone: ""
+vpc_region: ""
+base_domain: ""
+# hypershift installation specific vars
+hypershift_install: false
+nodepool_replicas: 2
+ocp_pull_secret_path: "~/.pullSecret"
+sys_type: "s922"
+proc_type: "dedicated"
+processors: "1"
+memory: "32"
+ocp_release_image: ""
+#hypershift destroy specific vars
+hypershift_destroy: false

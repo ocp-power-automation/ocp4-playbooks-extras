@@ -1,0 +1,33 @@
+---
+- name: Clone hypershift github repo
+  git:
+    repo: "{{ hypershift_git_repo }}"
+    dest: "{{ hypershift_dir }}"
+    version: "{{ hypershift_git_branch }}"
+
+- name: Build the hypershift binary
+  make:
+    target: build
+    chdir: "{{ hypershift_dir }}"
+
+- name: Create directory to store hosted cluster configs
+  file:
+    path: "{{ ansible_env.HOME }}/{{ hosted_cluster_name }}-config"
+    state: directory
+
+- name: Install Hypershift operator
+  shell: |
+    bin/hypershift install 
+  args:
+    chdir: "{{ hypershift_dir }}"
+  environment:
+    KUBECONFIG: "{{ mgmt_cluster_kubeconfig }}"
+
+- name: Check Hypershift pods are in Ready state
+  shell: oc wait --all --for=condition=Ready -n hypershift pods --timeout=300s
+
+- include_tasks: "{{ role_path }}/tasks/hypershift-install.yml"
+  when: hypershift_install is defined and hypershift_install
+
+- include_tasks: "{{ role_path }}/tasks/hypershift-destroy.yml"
+  when: hypershift_destroy is defined and hypershift_destroy
