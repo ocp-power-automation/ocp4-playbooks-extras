@@ -16,6 +16,7 @@ Role Variables
 | golang_tarball_url| no | https://golang.org/dl/go1.16.10.linux-ppc64le.tar.gz  | HTTPS URL for golang tarball  |
 | golang_installation_path| no | /usr/local/  | Path of go lang instaaltion directory  |
 
+Note: Installation of go lang from another role can be done with the `go_tarball` and `golang_path` variables.
 
 Dependencies
 ------------
