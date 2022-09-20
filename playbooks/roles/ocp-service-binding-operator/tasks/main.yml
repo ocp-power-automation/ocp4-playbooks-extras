@@ -48,6 +48,14 @@
 - name: Check all nodes are healthy
   shell: oc wait --all --for=condition=Ready nodes 
 
+# Get the cluster version
+- name: Get the cluster version
+  shell: oc version | grep "Server Version:" | cut -d':' -f2 | cut -d'.' -f1-2
+  register: cluster_version
+
+- set_fact: 
+    ocp_cluster_version: cluster_version
+       
 # Install necessary packages
 - name: Install packages
   yum:
@@ -146,5 +154,12 @@
       msg: "Status : {{ output.stdout }}"
 
   # Storing SBO tests output
-  - local_action: copy content={{ output.stdout}} dest=/root/service-binding-operator/results.txt
+  - local_action: copy content={{ output.stdout}} dest=/root/service-binding-operator/results.txt 
+  - name: Compress Directory contents
+    become: yes
+    archive:
+      path: /root/service-binding-operator/out/acceptance-tests
+      dest: /root/service-binding-operator/output.tar
+      format: tar
+
   when: acceptance_tests
