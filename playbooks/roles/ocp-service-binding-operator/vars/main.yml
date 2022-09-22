@@ -1,5 +1,6 @@
 ---
 sbo_env:
+   EXTRA_BEHAVE_ARGS: "--tags=~@crdv1beta1 --tags=~@disable-openshift-{{ ocp_cluster_version }} --tags=~@disable.arch.ppc64le"
    PATH: "/usr/local/go/bin:{{ ansible_env.PATH }}"
    KUBECONFIG: "{{ ansible_env.HOME }}/.kube/config"
    WORKSPACE: /root/service-binding-operator
