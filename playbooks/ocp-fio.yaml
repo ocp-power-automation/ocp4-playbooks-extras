@@ -1,0 +1,7 @@
+---
+- name: Run File Integrity Operator
+  hosts: localhost
+  tasks:
+  - name: Deploy File Integrity Operator
+    include_role:
+      name: ocp-fio

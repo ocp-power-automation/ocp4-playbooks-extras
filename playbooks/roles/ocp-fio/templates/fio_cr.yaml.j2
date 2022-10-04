@@ -1,0 +1,32 @@
+- name: Create an FileIntegrity custom resource
+  kubernetes.core.k8s:
+    state: present
+    definition:
+        apiVersion: fileintegrity.openshift.io/v1alpha1
+        kind: FileIntegrity
+        metadata:
+          name: example-fileintegrity
+          namespace: openshift-file-integrity
+        spec:
+{% if fio_node_selector %}
+          nodeSelector:
+            {{ fio_node_selector }}: ""
+{% endif %}
+{% if fio_default_config == true %}
+          config: {}
+{% else %}
+          config:
+{% if fio_config_name %}
+            name: "{{ fio_config_name }}"
+{% endif %}
+{% if fio_config_key %}
+            key: "{{ fio_config_key }}"
+{% endif %}
+{% if fio_config_grace_period %}
+            gracePeriod: {{ fio_config_grace_period|int }}
+{% endif %}
+{% if fio_config_max_backups %}
+            maxBackups: {{ fio_config_max_backups|int }}
+{% endif %}
+{% endif %}
+          debug: {{ fio_debug | default('false', true) }}
