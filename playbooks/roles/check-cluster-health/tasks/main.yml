@@ -1,0 +1,15 @@
+---
+# tasks file for playbooks/roles/check-cluster-health
+
+- name: Check all co are in 'Available' state and not in 'Progressing' or 'Degraded' state
+  shell: oc get co --no-headers | awk '{ print $3 $4 $5 }' | grep -w -v TrueFalseFalse | wc -l
+  register: cluster_operator_count
+
+- name: Check all node are healthy
+  shell: oc get nodes --no-headers | grep -v Ready | wc -l
+  register: node_count
+
+- name: Fail incase cluster state is unhealthy
+  fail:
+    msg: The current cluster state is unhealthy.
+  when: cluster_operator_count.stdout|int > 0 or node_count.stdout|int > 0
