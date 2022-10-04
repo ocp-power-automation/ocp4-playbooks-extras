@@ -25,6 +25,7 @@ This repository consists of additional ansible playbooks for the following:
 21. PowerVC CSI driver installation and validation
 22. Setup persistent storage using iSCSI
 23. OC CLI-plug-ins automation testing
+24. Run cluster health check
 
 ## Assumptions:
 
