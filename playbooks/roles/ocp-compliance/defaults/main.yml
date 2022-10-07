@@ -1,0 +1,13 @@
+---
+# defaults file for playbooks/roles/ocp-compliance
+compliance_enabled: false
+compliance_catalogsource: "redhat-operators"
+compliance_directory: "/tmp/compliance"
+compliance_catalogsource_image: ""
+compliance_upgrade_channel: "release-0.1"
+compliance_e2e: false
+compliance_e2e_github_repo: ""
+compliance_e2e_github_branch: "master"
+compliance_github_username: ""
+compliance_github_token: ""
+compliance_cleanup: true
