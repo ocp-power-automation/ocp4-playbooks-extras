@@ -1,0 +1,149 @@
+---
+# tasks file for playbooks/roles/ocp-compliance
+
+- name: Check if cluster operators and nodes are healthy
+  include_role:
+    name: check-cluster-health
+
+- name: Clean up
+  include_tasks: "{{ role_path }}/tasks/compliance-cleanup.yaml"
+  when: compliance_cleanup
+
+- name: Create working directory
+  file:
+    state: "directory"
+    path: "{{ compliance_directory }}"
+
+- name: Setup custom catalog source
+  block:
+  - name: Include the global-secret-update role
+    include_role:
+        name: global-secret-update
+
+  - name: Set fact variable for CatalogSource name
+    set_fact:
+      compliance_catalogsource: "qe-app-registry"
+
+  - name: Include role to create ImageContentSourcePolicy and CatalogSource
+    include_role:
+      name: set-custom-catalogsource
+    vars:
+      custom_catalogsource_name: "{{ compliance_catalogsource }}"
+      custom_catalogsource_display_name: "Compliance Operator"
+      custom_catalogsource_image: "{{ compliance_catalogsource_image }}"
+  when: compliance_catalogsource_image != '' and compliance_catalogsource_image != None
+
+- name: Deploy Compliance Operator
+  block:
+  - name: Create namespace for Compliance Operator
+    kubernetes.core.k8s:
+      state: present
+      definition:
+        apiVersion: v1
+        kind: Namespace
+        metadata:
+          labels:
+            pod-security.kubernetes.io/audit: privileged
+            pod-security.kubernetes.io/enforce: privileged
+            pod-security.kubernetes.io/warn: privileged
+            security.openshift.io/scc.podSecurityLabelSync: "false"
+          name: openshift-compliance
+        spec:
+          targetNamespaces:
+          - openshift-compliance
+
+  - name: Create operator group for Compliance Operator
+    kubernetes.core.k8s:
+      state: present
+      definition:
+        apiVersion: operators.coreos.com/v1
+        kind: OperatorGroup
+        metadata:
+          name: openshift-compliance
+          namespace: openshift-compliance
+        spec:
+          targetNamespaces:
+          - openshift-compliance
+
+  - name: Create subscription for Compliance Operator
+    kubernetes.core.k8s:
+      state: present
+      definition:
+        apiVersion: operators.coreos.com/v1alpha1
+        kind: Subscription
+        metadata:
+          name: compliance-operator
+          namespace: openshift-compliance
+        spec:
+          channel: "{{ compliance_upgrade_channel }}"
+          installPlanApproval: Automatic
+          name: compliance-operator
+          source: "{{ compliance_catalogsource }}"
+          sourceNamespace: openshift-marketplace
+
+  - name: Verification of operator installation
+    block:
+    - name: Check if the cluster service version has succeeded
+      shell: oc get csv -n openshift-compliance --no-headers | awk '{ if (($1 ~ /^compliance-operator/) && $NF=="Succeeded") print $1 }'| wc -l
+      register: compliance_operators_csv
+      until: compliance_operators_csv.stdout|int == 1
+      retries: 15
+      delay: 120
+
+    - name: Check if pods are running
+      shell: oc get pods -n openshift-compliance --no-headers | grep "Running" | wc -l
+      register: compliance_pods
+      until: compliance_pods.stdout|int == 3
+      retries: 15
+      delay: 60
+
+- name: Run e2e test cases
+  block:
+  - name: Install dependencies for running e2e tests
+    dnf:
+      name: make
+      state: present
+
+  - name: Include role for installing oc compliance plugin
+    include_role: 
+      name: ocp-cli-plugins
+      tasks_from: oc-compliance-cli-plugin.yml
+
+  - name: Clone the opeshift-test-private repository
+    git:
+      repo: "https://{{ compliance_github_username }}:{{ compliance_github_token }}@github.com{{ compliance_e2e_github_repo | urlsplit('path') }}"
+      dest: "{{ compliance_directory }}/openshift-tests-private"
+      version: "{{ compliance_e2e_github_branch }}"
+
+  - name: Copy test cases to the working directory
+    ansible.builtin.copy:
+      src: "{{ role_path }}/files/tests-cases.txt"
+      dest: "{{ compliance_directory }}/openshift-tests-private/tests.txt"
+
+  - name: Include role for installation of Go lang
+    include_role:
+      name: golang-installation
+    vars:
+      go_tarball: "https://dl.google.com/go/go1.18.2.linux-ppc64le.tar.gz" 
+      golang_path: "/usr/local"
+
+  - name: Run make target
+    make:
+      chdir: "{{ compliance_directory }}/openshift-tests-private"
+      target: build
+
+  - name: Run Compliance Operator and oc-compliance e2e tests
+    shell: |
+      ./bin/extended-platform-tests run -f tests.txt -o {{ compliance_directory }}/e2e-output.txt
+    args:
+      chdir: "{{ compliance_directory }}/openshift-tests-private"
+    ignore_errors: true
+
+  - name: Re run failed tests 
+    script: "{{ role_path }}/files/run-e2e.sh"
+    args:
+      chdir: "{{ compliance_directory }}/openshift-tests-private"
+
+  environment: "{{ compliance_e2e_env }}"
+  ignore_errors: true
+  when: compliance_e2e

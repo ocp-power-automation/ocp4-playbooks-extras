@@ -1,0 +1,7 @@
+---
+# vars file for playbooks/roles/ocp-compliance
+
+compliance_e2e_env:
+  PATH: "/usr/local/go/bin:{{ ansible_env.PATH }}"
+  KUBECONFIG: "{{ ansible_env.HOME }}/.kube/config"
+  COMPLIANCE_WORKDIR: "{{ compliance_directory }}"

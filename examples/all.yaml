@@ -189,3 +189,15 @@ iSCSI_pod_name: iscsipd
 initiator_name: # eg. iqn.2021-04.com.redhat:initiator2
 iqn: # eg. iqn.2021-04.redhat.com:iscsitarget2
 target_IP: ""
+
+# ocp-compliance vars
+compliance_enabled: false
+compliance_directory: "/tmp/compliance"
+compliance_catalogsource_image: ""         # "brew.registry.redhat.io/rh-osbs/iib:327237"
+compliance_upgrade_channel: "release-0.1"
+compliance_e2e: false
+compliance_e2e_github_repo: ""
+compliance_e2e_github_branch: ""
+compliance_github_username: ""
+compliance_github_token: ""
+compliance_cleanup: true
