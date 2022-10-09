@@ -1,0 +1,14 @@
+---
+- name: Configuring LDAP identity provider with IBM Blue Pages
+  hosts: bastion
+  tasks:
+    - fail:
+        msg: "Please ensure you have set the environment variable IBM_EMAIL_ID and IBM_PASSWORD"
+      vars:
+        ibm_email_id: "{{ lookup('ansible.builtin.env','IBM_EMAIL_ID',default='') }}"
+        ibm_password: "{{ lookup('ansible.builtin.env','IBM_PASSWORD',default='') }}"
+      when: ibm_password == "" or ibm_email_id == ""
+
+    - name: Include a role for LDAP
+      import_role:
+        name: ibmbluepages-ldap-identity-provider 

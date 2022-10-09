@@ -64,3 +64,6 @@
 
 - import_playbook: ocp-cli-plugins.yml
   when: enable_cli_plugins_test is defined and enable_cli_plugins_test
+
+- import_playbook: ibmbluepages-ldap-identity-provider.yml
+  when: ldap_identity_provider is defined and ldap_identity_provider

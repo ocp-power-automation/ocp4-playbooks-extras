@@ -1,0 +1,5 @@
+---
+
+ldap_identity_provider: false  # Set to true enable the playbook execution
+ldap_cr_name: ""  # Name for the custom resource object for LDAP
+ldap_user_role: ""  # Role based permission to be assigned to the new user e.g. ["admin", "basic-user", "cluster-admin", "cluster-status", "cluster-reader", "edit", "self-provisioner", "view"]

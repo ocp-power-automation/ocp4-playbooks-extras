@@ -6,6 +6,11 @@ deploy_cli_plugins: []  # List of cli-plug-ins to be deploy and test e.g ["custo
 user_custom_plugin: ""  # 'oc-' prefixed user defined custom plug-in name e.g. oc-my-plugin.sh
 golang_tar_url: ""  # Golang tar URL to install golang version >= 1.18
 
+## LDAP identity providers vars
+ldap_identity_provider: false  # Set true to enable the LDAP playbook execution
+ldap_cr_name: ""  # User defined name for LDAP CR object
+ldap_user_role: ""  # Role based permission to be assigned to the new user e.g. ["admin", "basic-user", "cluster-admin", "cluster-status", "cluster-reader", "edit", "self-provisioner", "view"]
+
 ## ocp-e2e vars
 e2e_tests_enabled: false
 e2e_tests_dir: /tmp/openshift_ws

@@ -1,0 +1,11 @@
+---
+
+ldap_id: "emailaddress"
+ldap_email: "emailaddress"
+ldap_name: "cn"
+ldap_preferred_username: "emailaddress"
+ibmcluepages_ldap_url: "ldap://9.17.186.253:389/o=ibm.com?emailaddress?sub?(objectclass=ePerson)"
+ldap_default_cr_name: "ldapidp"
+ldap_dn: ""
+ldap_bind_password_name: ""
+default_user_role: "cluster-reader"

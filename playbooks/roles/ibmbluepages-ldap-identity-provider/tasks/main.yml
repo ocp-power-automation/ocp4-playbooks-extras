@@ -1,0 +1,106 @@
+---
+
+- name: Login to the cluster as a system admin
+  shell: oc login -u system:admin
+
+- name: Cleanup the old identity configmap objects and users
+  block:
+    - name: Get the existing identities 
+      shell: oc get identity --no-headers | awk '{print $1}'
+      register: old_identities
+
+    - name: Get the existing users associated with these providers
+      shell: oc get user --no-headers | awk '{print $1}'
+      register: old_users
+
+    - name: Delete the existing identities
+      k8s:
+        state: absent
+        kind: Identity
+        name: "{{ item }}"
+        api_version: user.openshift.io/v1
+      loop: "{{ old_identities.stdout_lines }}"
+
+    - name: Delete the existing users
+      k8s:
+        state: absent
+        kind: User
+        name: "{{ item }}"
+        api_version: user.openshift.io/v1
+      loop: "{{ old_users.stdout_lines }}"
+
+- set_fact:
+    idp_cr_name: "{{ ldap_cr_name | default(ldap_default_cr_name, true) }}"
+    ibm_email_id: "{{ lookup('ansible.builtin.env','IBM_EMAIL_ID',default='') }}"
+    ibm_password: "{{ lookup('ansible.builtin.env','IBM_PASSWORD',default='') }}"
+
+- name: Update OAUTH config object to configure LDAP identity provider
+  k8s:
+    state: present
+    apply: yes
+    definition:
+      apiVersion: config.openshift.io/v1
+      kind: OAuth
+      metadata:
+        name: cluster
+      spec:
+        identityProviders:
+        - name: "{{ idp_cr_name }}"
+          mappingMethod: claim
+          type: LDAP
+          ldap:
+            attributes:
+              id: 
+              - "{{ ldap_id }}"
+              email: 
+              - "{{ ldap_email }}"
+              name: 
+              - "{{ ldap_name }}"
+              preferredUsername: 
+              - "{{ ldap_preferred_username }}"
+            bindDN: "{{ ldap_dn }}"
+            bindPassword: 
+              name: "{{ ldap_bind_password_name }}"
+            ca: 
+              name: ""
+            insecure: true
+            url: "{{ ibmcluepages_ldap_url }}"
+
+- name: Delay to get pods re-instantiate
+  wait_for:
+    timeout: 180
+
+- name: Wait untill pods get in the Running state
+  shell: "oc get pods -n openshift-authentication --no-headers | grep -v Running | wc -l"
+  retries: 10
+  delay: 30
+  register: pods_in_running
+  until: pods_in_running.stdout|int == 0
+  ignore_errors: yes
+
+# Validating user login
+- name: Validate login to cluster with the provided ibm_email_id 
+  shell: "oc login -u {{ ibm_email_id }} -p {{ ibm_password }}"
+  retries: 20
+  delay: 10
+  register: result
+  until: result.rc == 0
+  ignore_errors: yes
+
+- name: Unable to login with the given ibm username and password
+  fail:
+    msg: "Login with {{ ibm_email_id }} failed !"
+  when: result.rc != 0
+
+- name: Verify the current logged-in user
+  shell: oc whoami
+  register: current_logged_in_user
+
+- debug:
+    msg: "{{ current_logged_in_user.stdout_lines }}"
+
+- name: Switch back as a system admin to the cluster
+  shell: oc login -u system:admin
+
+- name: Grant the role permission to the role
+  shell: "oc adm policy add-cluster-role-to-user {{ ldap_user_role | default(default_user_role, true)}} {{ ibm_email_id }}"
