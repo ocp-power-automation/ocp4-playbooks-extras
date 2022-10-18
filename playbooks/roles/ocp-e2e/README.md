@@ -14,11 +14,11 @@ Role Variables
 | Variable                    | Required | Default                                    | Comments                                            |
 |-----------------------------|----------|--------------------------------------------|-----------------------------------------------------|
 | e2e_tests_git               | no       | https://github.com/openshift/origin        | Git repo url for the e2e tests                      |
-| e2e_tests_git_branch        | no       | release-4.4                                | Git repo branch for e2e tests                       |
+| e2e_tests_git_branch        | no       | release-4.12                               | Git repo branch for e2e tests                       |
 | e2e_tests_exclude_list_url  | no       | ""                                         | URL to list of testcases to be excluded             |
 | e2e_tests_dir               | no       | /tmp/openshift_ws                          | Test directory                                      |
 | e2e_upgrade_image           | no       | ""                                         | The cluster will be upgraded to this image by e2e. In case of an empty string, the upgrade won't be done. |
-| golang_tarball              | no       | https://dl.google.com/go/go1.12.17.linux-ppc64le.tar.gz | HTTP URL for golang tarball            |
+| golang_tarball              | no       | https://dl.google.com/go/go1.18.6.linux-ppc64le.tar.gz | HTTP URL for golang tarball             |
 | github_token                | no       | ""                                         | Github token used for authentication                |
 | e2e_tests_enabled           | no       | false                                      | Flag to be set to true to enable e2e tests playbook |
 
