@@ -24,6 +24,7 @@ This repository consists of additional ansible playbooks for the following:
 20. Setup persistent storage using hostPath
 21. PowerVC CSI driver installation and validation
 22. Setup persistent storage using iSCSI
+23. OC CLI-plug-ins automation testing
 
 ## Assumptions:
 

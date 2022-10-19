@@ -1,0 +1,101 @@
+---
+
+## oc-krew CLI plug-in test
+
+- name: krew CLI plug-in test
+  block:
+    - name: Building the krew binary for ppc64le arch
+      block:
+        - name: Check the krew repo at local path
+          stat:
+            path: ~/plugins/krew
+          register: krew_path
+
+        - name: Installing krew
+          git:
+            repo: https://github.com/kubernetes-sigs/krew.git
+            dest: ~/plugins/krew
+            version: master
+          when: krew_path.stat.exists == false
+
+        - name: Install the plugin dependency gox
+          shell: go install github.com/mitchellh/gox@latest
+          args:
+            chdir: ~/plugins/krew/
+
+        - name: Copy the gox executable at /usr/bin/
+          copy:
+            src: ~/go/bin/gox
+            dest: /usr/bin/
+            mode: a+x
+            remote_src: yes
+
+        - name: Build the binary from make-binary.sh
+          shell: ./hack/make-binary.sh
+          args:
+            chdir: ~/plugins/krew
+
+        - name: List the generated krew binary for ppc64le
+          shell: ls out/bin/krew-linux_ppc64le
+          args:
+            chdir: ~/plugins/krew/
+          register: ls_output
+
+        - name: List of the generated krew ppc64le binaries
+          debug:
+            msg: "{{ ls_output.stdout_lines }}"
+
+    - name: Installing the krew
+      block:
+        - name: Copy the ppc64le krew binary at PATH
+          copy:
+            src: ~/plugins/krew/out/bin/krew-linux_ppc64le
+            dest: /usr/bin/oc-krew
+            mode: a+x
+            remote_src: yes
+
+        - name: Update the krew
+          shell: oc krew update
+          args:
+            chdir: ~/plugins/krew/
+
+        - name: Run krew help command
+          shell: oc krew help
+          args:
+            chdir: ~/plugins/krew/
+          register: krew_help_command_output
+
+        - name: krew help command output
+          debug:
+            msg: "{{ krew_help_command_output.stdout_lines }}"
+
+        - name: Run krew search command
+          shell: oc krew search
+          args:
+            chdir: ~/plugins/krew/
+          register: krew_search_command_output
+
+        - name: krew search command output
+          debug:
+            msg: "{{ krew_search_command_output.stdout_lines }}" 
+
+    - name: Install and test the basic plugin available for ppc64le arch
+      block:
+        - name: Install the restart plugin from krew
+          shell: oc krew install restart
+          args:
+            chdir: ~/plugins/krew/
+
+        - name: List the available krew plugins
+          shell: oc krew list
+          args:
+            chdir: ~/plugins/krew/
+          register: krew_plugins_list
+
+        - name: Plugin list output
+          debug:
+            msg: "{{ krew_plugins_list.stdout_lines }}"
+  environment: "{{ cli_plugin_env }}"
+  rescue:
+    - debug:
+        msg: "Error occurred while performing test steps."

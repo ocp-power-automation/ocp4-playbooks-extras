@@ -1,0 +1,6 @@
+---
+
+- name: OCP CLI-plug-ins test suite
+  hosts: bastion
+  roles:
+  - ocp-cli-plugins

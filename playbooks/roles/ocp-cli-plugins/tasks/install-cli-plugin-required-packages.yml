@@ -1,0 +1,15 @@
+---
+
+## OCP CLI-plug-in required package installation module
+
+- name: Install prerequisite packages
+  yum:
+    name: "@Development tools"
+    state: latest
+
+- name: Install golang with version>=1.18
+  include_role:
+    name: golang-installation
+  vars:
+    go_tarball: "{{ golang_tar_url | default(default_go_tar_url, true) }}"
+    golang_installation_path: "/usr/local/"

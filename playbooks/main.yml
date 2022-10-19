@@ -61,3 +61,6 @@
 
 - import_playbook: ocp-iscsi.yml
   when: ocp_iSCSI_enabled
+
+- import_playbook: ocp-cli-plugins.yml
+  when: enable_cli_plugins_test is defined and enable_cli_plugins_test

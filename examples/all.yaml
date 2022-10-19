@@ -1,5 +1,11 @@
 ---
 
+## ocp-cli-plugins vars
+enable_cli_plugins_test: false   # Set true to enable the cli-plug-ins test
+deploy_cli_plugins: []  # List of cli-plug-ins to be deploy and test e.g ["custom", "krew", "mirror", "compliance"] 
+user_custom_plugin: ""  # 'oc-' prefixed user defined custom plug-in name e.g. oc-my-plugin.sh
+golang_tar_url: ""  # Golang tar URL to install golang version >= 1.18
+
 ## ocp-e2e vars
 e2e_tests_enabled: false
 e2e_tests_dir: /tmp/openshift_ws
