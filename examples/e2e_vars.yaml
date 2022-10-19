@@ -3,9 +3,9 @@
 e2e_tests_enabled: false  #Set to true to enable e2e tests playbook
 e2e_tests_dir: /tmp/openshift_ws  #Test directory path
 e2e_tests_git: "https://github.com/openshift/origin"  #Git repo url for the e2e tests
-e2e_tests_git_branch: "release-4.4"  #Git repo branch for e2e tests
+e2e_tests_git_branch: "release-4.12"  #Git repo branch for e2e tests
 e2e_tests_exclude_list_url: ""  #URL to list of testcases to be excluded
 e2e_upgrade_image: ""  #Cluster will be upgraded to this image by e2e
-golang_tarball: "https://dl.google.com/go/go1.12.17.linux-ppc64le.tar.gz"  #HTTP URL for golang tarball
+golang_tarball: "https://dl.google.com/go/go1.18.6.linux-ppc64le.tar.gz"  #HTTP URL for golang tarball
 github_token: ""  #Github token used for authentication
 
