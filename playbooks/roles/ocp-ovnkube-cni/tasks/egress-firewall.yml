@@ -1,14 +1,20 @@
 ---
-- name: Create an OCP Project
-  k8s:
-    api_version: project.openshift.io/v1
-    kind: Project
-    name: test
+- name: Create a namespace
+  kubernetes.core.k8s:
     state: present
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        labels:
+          pod-security.kubernetes.io/audit: privileged
+          pod-security.kubernetes.io/enforce: privileged
+          pod-security.kubernetes.io/warn: privileged
+          security.openshift.io/scc.podSecurityLabelSync: "false"
+        name: test
 
 - name: Run commands
-  shell: |
-    oc project test
+  shell: oc project test
 
 - name: Create Egress-firewall
   block:
@@ -78,7 +84,7 @@
         - { name: "{{ output }}", error: "EgressFirewall not created" }
         - { name: "{{ delete_ef }}", error: "EgressFirewall not Deletd" }
       when: item.name.failed
-  ignore_errors: yes 
+  ignore_errors: yes
       
 - name: Update EgressFirewall
   block:
@@ -173,7 +179,7 @@
         - "{{ replace_ef }}"
         - "{{ description_update }}"
       when: item.failed
-  ignore_errors: yes    
+  ignore_errors: yes
 
 
 - name: Delete EgressFirewall
