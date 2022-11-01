@@ -132,6 +132,7 @@
     git:
       repo: 'https://github.com/redhat-developer/service-binding-operator.git'
       dest: /root/service-binding-operator
+      version: "{{ sbo_git_branch }}"
 
   # Installing Go Lang
   - name: Include role for installation of Go lang
@@ -144,22 +145,25 @@
   # Running SBO tests
   - name: Run acceptance tests for Service Binding Operator
     shell: |
-      cd /root/service-binding-operator
-      TEST_ACCEPTANCE_START_SBO=remote make test-acceptance
+      TEST_ACCEPTANCE_START_SBO=remote make test-acceptance 2>&1 > /root/service-binding-operator/results.txt
+    args:
+      chdir: /root/service-binding-operator
+      executable: /bin/bash
     environment: "{{ sbo_env }}"
     register: output
     ignore_errors: yes
 
   - debug: 
-      msg: "Status : {{ output.stdout }}"
+      msg: "Acceptance test results are stored at /root/service-binding-operator/results.txt"
 
-  # Storing SBO tests output
-  - local_action: copy content={{ output.stdout}} dest=/root/service-binding-operator/results.txt 
-  - name: Compress Directory contents
+  - name: Compress acceptance tests directory contents
     become: yes
     archive:
       path: /root/service-binding-operator/out/acceptance-tests
-      dest: /root/service-binding-operator/output.tar
+      dest: /root/service-binding-operator/acceptance-tests.tar
       format: tar
+
+  - debug:
+      msg: "Acceptance test logs are stored at /root/service-binding-operator/acceptance-tests.tar"
 
   when: acceptance_tests
