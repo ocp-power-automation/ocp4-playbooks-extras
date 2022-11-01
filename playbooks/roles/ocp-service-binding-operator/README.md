@@ -37,6 +37,7 @@ Role Variables
 | sbo_update_channel | no | stable | Update channel for SBO |
 | golang_tarball_sbo | no | https://dl.google.com/go/go1.17.6.linux-ppc64le.tar.gz | HTTPS URL for golang tarball |
 | acceptance_tests | no | false | Flag is used to run smoke acceptance tests |
+| sbo_git_branch | no | master | Github branch used for running acceptance tests |
 | sbo_cleanup | no | false | Flag is used to clean SBO resources |
 
 Dependencies
