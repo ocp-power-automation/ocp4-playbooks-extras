@@ -1,13 +1,18 @@
 ---
-- name: NetworkPolicy Create,View,Edit and delete Operations
+- name: NetworkPolicy create, view, edit and delete operations
   block:
-    - name: Create namespace
-      k8s:
+    - name: Create a namespace
+      kubernetes.core.k8s:
         state: present
         definition:
           apiVersion: v1
           kind: Namespace
           metadata:
+            labels:
+              pod-security.kubernetes.io/audit: privileged
+              pod-security.kubernetes.io/enforce: privileged
+              pod-security.kubernetes.io/warn: privileged
+              security.openshift.io/scc.podSecurityLabelSync: "false"
             name: test-2
 
     - name: Create network policy
@@ -278,8 +283,19 @@
       shell: oc apply -f "{{ ovnkube_setup_directory }}/default_policy_config.yaml"
       register: create_config
 
-    - name: Create a new project for testing default network policy
-      shell: oc new-project test-3
+    - name: Create a namespace
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            labels:
+              pod-security.kubernetes.io/audit: privileged
+              pod-security.kubernetes.io/enforce: privileged
+              pod-security.kubernetes.io/warn: privileged
+              security.openshift.io/scc.podSecurityLabelSync: "false"
+            name: test-3
 
     - name: Confirm that the network policy objects in the new project template exist in the new project
       shell: oc get networkpolicy -n test-3
@@ -290,7 +306,7 @@
         msg: "{{ confim_op.stdout_lines }}"
 
     - name: Delete template
-      shell: oc  delete -f  "{{ ovnkube_setup_directory }}/template.yaml" -n openshift-config
+      shell: oc delete -f "{{ ovnkube_setup_directory }}/template.yaml" -n openshift-config
       ignore_errors: yes
 
     - name: Delete namespace
@@ -324,13 +340,18 @@
 
 - name: Multitenant Validation
   block:
-    - name: Create namespace
-      k8s:
+    - name: Create an OCP namespace
+      kubernetes.core.k8s:
         state: present
         definition:
           apiVersion: v1
           kind: Namespace
           metadata:
+            labels:
+              pod-security.kubernetes.io/audit: privileged
+              pod-security.kubernetes.io/enforce: privileged
+              pod-security.kubernetes.io/warn: privileged
+              security.openshift.io/scc.podSecurityLabelSync: "false"
             name: test
         
     - name: Create network policy allow-from-openshift-ingress
