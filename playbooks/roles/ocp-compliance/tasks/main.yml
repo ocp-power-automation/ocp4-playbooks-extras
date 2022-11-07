@@ -104,6 +104,13 @@
       name: make
       state: present
 
+  - name: Include role for installation of Go lang
+    include_role:
+      name: golang-installation
+    vars:
+      go_tarball: "https://go.dev/dl/go1.19.3.linux-ppc64le.tar.gz"
+      golang_path: "/usr/local"
+
   - name: Include role for installing oc compliance plugin
     include_role: 
       name: ocp-cli-plugins
@@ -119,13 +126,6 @@
     ansible.builtin.copy:
       src: "{{ role_path }}/files/tests-cases.txt"
       dest: "{{ compliance_directory }}/openshift-tests-private/tests.txt"
-
-  - name: Include role for installation of Go lang
-    include_role:
-      name: golang-installation
-    vars:
-      go_tarball: "https://dl.google.com/go/go1.18.2.linux-ppc64le.tar.gz" 
-      golang_path: "/usr/local"
 
   - name: Run make target
     make:
