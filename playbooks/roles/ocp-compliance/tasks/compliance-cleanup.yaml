@@ -1,0 +1,141 @@
+---
+# this file is used for cleaning up the compliance operator resources
+
+- name: Check if ScanSettingBinding exists
+  shell: oc get ScanSettingBinding -n openshift-compliance --no-headers | awk '{print $1}'
+  register: scan_setting_binding
+
+- name: Delete the ScanSettingBinding if exists
+  kubernetes.core.k8s:
+    api_version: compliance.openshift.io/v1alpha1
+    state: absent
+    kind: ScanSettingBinding
+    name: "{{ item }}"
+    namespace: openshift-compliance
+  loop: "{{ scan_setting_binding.stdout_lines }}"
+  when: scan_setting_binding.stdout_lines|length > 0
+
+- name: Check if ScanSetting exists
+  shell: oc get ScanSetting -n openshift-compliance --no-headers | awk '{print $1}'
+  register: scan_setting
+
+- name: Delete the ScanSetting if exists
+  kubernetes.core.k8s:
+    api_version: compliance.openshift.io/v1alpha1
+    state: absent
+    kind: ScanSetting
+    name: "{{ item }}"
+    namespace: openshift-compliance
+  loop: "{{ scan_setting.stdout_lines }}"
+  when: scan_setting.stdout_lines|length > 0
+
+- name: Check if ComplianceSuite exists
+  shell: oc get ComplianceSuite -n openshift-compliance --no-headers | awk '{print $1}'
+  register: compliance_suite
+
+- name: Delete the ComplianceSuite if exists
+  kubernetes.core.k8s:
+    api_version: compliance.openshift.io/v1alpha1
+    state: absent
+    kind: ComplianceSuite
+    name: "{{ item }}"
+    namespace: openshift-compliance
+  loop: "{{ compliance_suite.stdout_lines }}"
+  when: compliance_suite.stdout_lines|length > 0
+
+- name: Get the name of cluster service version for Compliance Operator
+  shell: oc get csv -n openshift-compliance --no-headers | awk '{ if ($1 ~ /^compliance-operator/) print $1 }'
+  register: compliance_csv
+
+- name: Delete the profile bundle if exists
+  kubernetes.core.k8s:
+    api_version: compliance.openshift.io/v1alpha1
+    state: absent
+    kind: ProfileBundle
+    name: "{{ item }}"
+    namespace: openshift-compliance
+  loop: 
+  - "ocp4"
+  - "rhcos4"
+  when: compliance_csv.stdout|length > 0
+
+- name: Get the subscription name
+  shell: oc get subscription -n openshift-compliance --no-headers | awk '{print $1}'
+  register: compliance_subscription
+
+- name: Delete the subscription if exists
+  kubernetes.core.k8s:
+    api_version: operators.coreos.com/v1alpha1
+    state: absent
+    kind: Subscription
+    name: "{{ compliance_subscription.stdout }}"
+    namespace: openshift-compliance
+  when: compliance_subscription.stdout|length > 0
+
+- name: Get the operator group name
+  shell: oc get operatorgroup -n openshift-compliance --no-headers | awk '{print $1}'
+  register: compliance_operator_group
+
+- name: Delete the operator group if exists
+  kubernetes.core.k8s:
+    api_version: operators.coreos.com/v1
+    state: absent
+    kind: OperatorGroup
+    name: "{{ compliance_operator_group.stdout }}"
+    namespace: openshift-compliance
+  when: compliance_operator_group.stdout|length > 0
+
+- name: Delete the cluster service version if exists
+  kubernetes.core.k8s:
+    api_version: operators.coreos.com/v1alpha1
+    state: absent
+    kind: ClusterServiceVersion
+    name: "{{ compliance_csv.stdout }}"
+    namespace: openshift-compliance
+  when: compliance_csv.stdout|length > 0
+
+- name: Check if all the pods has been deleted
+  shell: oc get pods -n openshift-compliance --no-headers
+  register: compliance_pods
+  until: compliance_pods.stdout|int == 0
+  retries: 15
+  delay: 60
+
+- name: Get custom resource definitions
+  shell: oc get crd | awk '{print $1}'| grep compliance
+  register: compliance_crds
+  ignore_errors: true
+
+- name: Delete the custom resource definition if exists
+  shell: oc delete crd {{ item }}
+  loop: "{{ compliance_crds.stdout_lines }}"
+  when: compliance_crds.stdout_lines|length > 0
+
+- name: Check if all the custom resource definitions has been deleted
+  shell: oc get crd | awk '{print $1}'| grep compliance
+  register: compliance_crds
+  failed_when: compliance_crds.stdout_lines|length != 0
+
+- name: Delete the Compliance Operator if exists
+  kubernetes.core.k8s:
+    state: absent
+    kind: Operator
+    name: compliance-operator.openshift-compliance
+
+- name: Delete the namespace if exists
+  kubernetes.core.k8s:
+    state: absent
+    kind: Namespace
+    name: openshift-compliance
+
+- name: Check if the namespace gets deleted
+  shell: oc get namespace --no-headers | grep compliance | wc -l
+  register: compliance_namespace
+  until: compliance_namespace.stdout|int == 0
+  retries: 15
+  delay: 30
+
+- name: Delete the workplace
+  file:
+    state: absent
+    path: "{{ compliance_directory }}"

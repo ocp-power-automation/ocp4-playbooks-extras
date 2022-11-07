@@ -26,6 +26,7 @@ This repository consists of additional ansible playbooks for the following:
 22. Setup persistent storage using iSCSI
 23. OC CLI-plug-ins automation testing
 24. Run cluster health check
+25. Run Compliance Operator installation and e2e 
 
 ## Assumptions:
 
