@@ -1,5 +1,5 @@
 re_run_count=0
-max_re_runs=3
+max_re_runs=1
 echo -e "\ne2e summary:" > $COMPLIANCE_WORKDIR/e2e-summary.txt
 cat "${COMPLIANCE_WORKDIR}/e2e-output.txt" | tail -n 1 >> $COMPLIANCE_WORKDIR/e2e-summary.txt
 sed -e 's/\"/\\"/g;s/.*/\"&\"/' "${COMPLIANCE_WORKDIR}/e2e-output.txt" | awk '/Failing tests:/,EOF' | tail -n +3 | head -n -2 > $COMPLIANCE_WORKDIR/failed_tests.txt

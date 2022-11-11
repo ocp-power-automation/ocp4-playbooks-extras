@@ -5,7 +5,7 @@ The Compliance Operator lets OpenShift Container Platform administrators describ
 
 This playbook has two modules:
 Installation of the Compliance Operator and oc-compliance plugin.
-Running the end to end tests for Compliance operator with CIS profiles and oc-compliance plugin.
+Running the end to end tests for Compliance operator with CIS, PCI profiles and oc-compliance plugin.
 
 Requirements
 ------------
