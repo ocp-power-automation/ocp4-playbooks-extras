@@ -1,0 +1,159 @@
+---
+## descheduler deployment and e2e run tasks
+
+# Environment variables check block
+- set_fact:
+    descheduler_github_username: "{{ lookup('ansible.builtin.env', 'GITHUB_USERNAME') }}"
+    descheduler_github_access_token: "{{ lookup('ansible.builtin.env', 'GITHUB_ACCESS_TOKEN') }}"
+    descheduler_e2e_dir: "{{ [descheduler_workdir, descheduler_e2e_repo.split('/')[-1]] | join('/') }}"
+
+- fail:
+    msg: "Please set descheduler_e2e_repo variable with the e2e repo URL."
+  when: descheduler_e2e_repo == "" or descheduler_e2e_repo == None
+
+- fail:
+    msg: "Please set the environment variables GITHUB_USERNAME and GITHUB_ACCESS_TOKEN on your host."
+  when: descheduler_github_username == "" or descheduler_github_access_token == ""
+
+# Cluster health check
+- name: Invoke the role check-cluster-health to check cluster status
+  include_role:
+    name: check-cluster-health
+
+# Descheduler operator deployment block
+- name: Descheduler operator deployment
+  block:
+    - name: Setup a catalogsource for installing descheduler operator
+      block:
+        - name: Include the global pull-secret update role to extract podman-secret
+          include_role:
+            name: global-secret-update
+
+        - name: Include the catalogsource setup role
+          include_role:
+            name: set-custom-catalogsource
+          vars:
+            custom_catalogsource_name: "{{ descheduler_catalogsource_name }}"
+            custom_catalogsource_display_name: "Descheduler Operator"
+            custom_catalogsource_image: "{{ descheduler_catalogsource_image }}"
+      when: descheduler_catalogsource_image != '' or descheduler_catalogsource_image == None
+
+    - name: Create a target namespace
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: "{{ descheduler_namespace }}"
+          spec:
+            targetNamespaces:
+            - "{{ descheduler_namespace }}"
+
+    - name: Create a OperatorGroup into target namespace
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: operators.coreos.com/v1
+          kind: OperatorGroup
+          metadata:
+            name: openshift-descheduler-operatorgroup
+            namespace: "{{ descheduler_namespace }}"
+          spec:
+            targetNamespaces:
+            - "{{ descheduler_namespace }}"
+
+    - name: Create a subscription for descheduler operator
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: operators.coreos.com/v1alpha1
+          kind: Subscription
+          metadata:
+            name: openshift-descheduler-subscription
+            namespace: "{{ descheduler_namespace }}"
+          spec:
+            channel: "{{ descheduler_channel }}"
+            installPlanApproval: Automatic
+            name: cluster-kube-descheduler-operator 
+            source: "{{ descheduler_catalogsource_name }}"
+            sourceNamespace: openshift-marketplace
+  when: descheduler_operator_deploy
+
+- name: Verify the operator installation
+  block:
+    - name: Check if the cluster service version has status as Succeeded
+      shell: "oc get csv --all-namespaces --no-headers | grep clusterkubedescheduleroperator | awk '{ if (($2 ~ /clusterkubedescheduleroperator/) && $NF  == \"Succeeded\") print $2 }'| wc -l"
+      register: descheduler_operators_csv
+      until: descheduler_operators_csv.stdout|int != 0
+      retries: 15
+      delay: 60
+
+    - name: Check if pods are running
+      shell: "oc get pods --all-namespaces --no-headers | grep descheduler | awk '{ if ($4 == \"Running\") print $2 }' | wc -l"
+      register: descheduler_pods
+      until: descheduler_pods.stdout|int != 0
+      retries: 15
+      delay: 60
+
+# Descheduler e2e run block
+- name: Running e2e test suite in openshift-tests-private for descheduler
+  block:
+    - name: Create a directory for clonning the repo
+      file:
+        state: directory
+        path: "{{ descheduler_workdir }}/e2e-test-result/"
+        mode: 0755
+
+    - name: Install the developer tools
+      yum:
+        name: '@Development tools' 
+        state: present
+
+    - name: Get the golang version
+      shell: go version | awk -F'.' '{ print $2 }'
+      register: go_minor_version
+    
+    - name: Install the latest version of go
+      include_role: 
+        name: golang-installation
+      vars:
+        go_tarball: "{{ descheduler_go_tarball }}"
+        golang_installation_path: "/usr/local"
+      when: go_minor_version.stdout|int < 18
+
+    - name: Clone the openshift-tests-private repo
+      git:
+        repo: "https://{{ descheduler_github_username }}:{{ descheduler_github_access_token }}@github.com{{ descheduler_e2e_repo | urlsplit('path') }}"
+        dest: "{{ descheduler_e2e_dir }}"
+        version: "{{ descheduler_e2e_github_branch }}"
+        force: true
+      when: descheduler_e2e_repo != "" or descheduler_e2e_repo != None
+
+    - name: Replace the catalogsource name in the kube_descheduler_operator test module
+      ansible.builtin.replace:
+        path: "{{ descheduler_e2e_dir }}/test/extended/workloads/kube_descheduler_operator.go"
+        regexp: 'opsrcName\:\s*\"[a-zA-Z0-9\-]*\"'
+        replace: "opsrcName:  \"{{ descheduler_catalogsource_name }}\""
+
+    - name: Replace the descheduler operator image build with the custom one in the kube_descheduler_operator test module
+      ansible.builtin.replace:
+        path: "{{ descheduler_e2e_dir }}/test/extended/workloads/kube_descheduler_operator.go"
+        regexp: 'imageInfo\:\s*\"[a-z0-9\.\/\:\-]*\"'
+        replace: "imageInfo:  \"{{ descheduler_catalogsource_image }}\""
+
+    - name: Compile the go modules using make command
+      make:
+        chdir: "{{ descheduler_e2e_dir }}"
+        target: build
+
+    - name: Run the kube_descheduler_operator.go module for descheduler e2e tests
+      shell: "./bin/extended-platform-tests run all --dry-run| 
+        grep 'descheduler operator\\|Descheduler-Descheduler\\|Descheduler-Validate'|
+        ./bin/extended-platform-tests run --junit-dir=./ -f - -o ../e2e-test-result/descheduler-e2e-test-summary.txt"
+      args: 
+        chdir: "{{ descheduler_e2e_dir }}"
+      ignore_errors: true
+
+  environment: "{{ descheduler_e2e_env }}"
+  when: descheduler_e2e_tests_run
