@@ -1,0 +1,6 @@
+---
+
+- name: cluster-kube-descheduler-operator deployment playbook
+  hosts: bastion
+  roles:
+  - ocp-descheduler

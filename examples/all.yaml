@@ -9,6 +9,19 @@ ipa_provider_cr_name: "IPA"  # Identity provider custom-resource object name
 ipa_user_first_name: "Summer"  # IPA user first name to display
 ipa_user_last_name: "Star"  # IPA user last name to display
 
+## ocp-descheduler vars
+descheduler_role_enable: false
+descheduler_operator_deploy: false
+descheduler_catalogsource_image: "quay.io/openshift-release-dev/ocp-release-nightly:iib-int-index-art-operators-4.12"
+descheduler_catalogsource_name: "kube-descheduler-operator-catalog"
+descheduler_namespace: "openshift-descheduler"
+descheduler_channel: "4.12"
+descheduler_e2e_tests_run: false
+descheduler_workdir: "/tmp/descheduler"
+descheduler_e2e_repo: "https://github.com/openshift/openshift-tests-private"
+descheduler_e2e_github_branch: "master"
+descheduler_go_tarball: "https://go.dev/dl/go1.18.4.linux-ppc64le.tar.gz"
+
 ## ocp-cli-plugins vars
 enable_cli_plugins_test: false   # Set true to enable the cli-plug-ins test
 deploy_cli_plugins: []  # List of cli-plug-ins to be deploy and test e.g ["custom", "krew", "mirror", "compliance"] 

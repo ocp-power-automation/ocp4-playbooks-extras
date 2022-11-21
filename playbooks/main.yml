@@ -86,3 +86,6 @@
 - import_playbook: request-header-identity-provider.yml
   when: request_header_provider is defined and request_header_provider
 
+- import_playbook: ocp-descheduler.yml
+  when: descheduler_role_enable is defined and descheduler_role_enable
+

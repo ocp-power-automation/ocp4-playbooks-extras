@@ -32,6 +32,7 @@ This repository consists of additional ansible playbooks for the following:
 1. Configure and test IPA identity provider
 1. Enable monitoring for user-defined projects
 1. Configure and test Request-Header identity provider
+1. Descheduler deployment and running e2e test
 
 ## Assumptions:
 
