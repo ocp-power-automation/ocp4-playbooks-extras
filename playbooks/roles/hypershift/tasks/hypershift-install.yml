@@ -1,0 +1,91 @@
+---
+- name: Create Hypershift infra in PowerVS
+  shell: |
+    ./bin/hypershift create infra powervs \
+    --base-domain {{ base_domain }} \
+    --resource-group {{ ibmcloud_resource_group }} \
+    --infra-id {{ infra_id }} \
+    --region {{ powervs_region }} \
+    --zone {{ powervs_zone }} \
+    --vpc-region {{ vpc_region }} \
+    --name {{ hosted_cluster_name }} \
+    --output-file {{ ansible_env.HOME }}/{{ hosted_cluster_name }}-config/infra.json
+  args:
+    chdir: "{{ hypershift_dir }}"
+  register: infra
+  ignore_errors: yes
+
+- name: Save infra creation log to file 
+  copy:
+    content: "{{ infra.stderr }}"
+    dest: "{{ ansible_env.HOME }}/{{ hosted_cluster_name }}-config/infra.log"
+
+- name: Infra creation failed
+  fail: 
+    msg: "Failed to create infra" 
+  when: infra.rc != 0 
+  
+- name: Render hosted cluster configuration
+  shell: |
+    set -o pipefail && \
+    ./bin/hypershift create cluster powervs \ 
+    --pull-secret {{ ocp_pull_secret_path }} \
+    --name {{ hosted_cluster_name }} \
+    --resource-group {{ ibmcloud_resource_group }} \
+    --base-domain {{ base_domain }} \
+    --node-pool-replicas {{ nodepool_replicas }} \
+    --release-image {{ ocp_release_image }} \ 
+    --proc-type {{ proc_type }} \ 
+    --memory {{ memory }}  \ 
+    --region {{ powervs_region }} \
+    --zone {{ powervs_zone }} \
+    --vpc-region {{ vpc_region }} \
+    --processors {{ processors }} \
+    --sys-type {{ sys_type }} \
+    --infra-json {{ ansible_env.HOME }}/{{ hosted_cluster_name }}-config/infra.json \
+    --render 2>&1 > {{ ansible_env.HOME }}/{{ hosted_cluster_name }}-config/render-cluster.yaml
+  args:
+    chdir: "{{ hypershift_dir }}"
+    executable: /bin/bash
+  environment:
+    KUBECONFIG: "{{ mgmt_cluster_kubeconfig }}"
+  register: render
+
+- name: Save hypershift rendered configuration log to file 
+  copy:
+    content: "{{ render }}"
+    dest: "{{ ansible_env.HOME }}/{{ hosted_cluster_name }}-config/render.log"
+
+- name: Deploy Hypershift
+  k8s:
+    state: present
+    src: "{{ ansible_env.HOME }}/{{ hosted_cluster_name }}-config/render-cluster.yaml"
+    
+- name: Obtain hosted cluster kubeconfig
+  shell: |
+    ./bin/hypershift create kubeconfig --name {{ hosted_cluster_name }}  > {{ ansible_env.HOME }}/{{ hosted_cluster_name }}-config/kubeconfig
+  register: kubecreate
+  until: 0 == kubecreate.rc|int
+  retries: 6
+  delay: 300
+  args:
+    chdir: "{{ hypershift_dir }}"
+
+- name: Check all co are in 'Available' state and not in 'Progressing' or 'Degraded' state
+  shell: oc get co --no-headers | awk '{ print $3 $4 $5 }' | grep -w -v TrueFalseFalse | wc -l
+  register: cocount
+  until: 0 == cocount.stdout|int
+  retries: 20
+  delay: 300
+  environment:
+    KUBECONFIG: "{{ ansible_env.HOME }}/{{ hosted_cluster_name }}-config/kubeconfig"
+  ignore_errors: yes
+
+- name: Fail in case hosted cluster is unhealthy
+  fail:
+    msg: "The current cluster state is unhealthy. Please export kubeconfig at {{ ansible_env.HOME }}/{{ hosted_cluster_name }}-config/kubeconfig and run oc get co for more details"
+  when: cocount.stdout != "0"
+
+- debug:
+    msg: "Deployment Successful. Please export kubeconfig at {{ ansible_env.HOME }}/{{ hosted_cluster_name }}-config/kubeconfig to access the cluster"
+  when: cocount.stdout == "0"

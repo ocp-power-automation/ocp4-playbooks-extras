@@ -1,0 +1,23 @@
+---
+- name: Checks for Hypershift on Power VS
+  hosts: bastion
+  tasks:
+    - name: Fail Hypershift installation incase 'IBMCLOUD_API_KEY' environment variable is an empty string
+      fail:
+        msg: IBMCLOUD_API_KEY environment variable must be a non-empty string.
+      when: (lookup('env', 'IBMCLOUD_API_KEY') == "")
+
+    - name: Check golang version for Hypershift deployment
+      shell: go version | awk '{ print substr ($3,3) }'
+      register: golang_version
+
+    - fail:
+        msg: golang is not installed or version < 1.18
+      when: golang_version.rc !=0 or golang_version.stdout < "1.18"
+    - debug:
+        msg: "{{ golang_version }}"
+
+    - include_role:
+        name: hypershift
+      vars:
+        IBMCLOUD_API_KEY: "{{ lookup('env', 'IBMCLOUD_API_KEY') }}"

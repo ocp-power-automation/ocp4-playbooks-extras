@@ -1,0 +1,32 @@
+---
+- name: Destroy Hypershift cluster in PowerVS
+  shell: |
+    set -o pipefail && \
+    ./bin/hypershift destroy cluster powervs \
+    --base-domain {{ base_domain }} \
+    --resource-group {{ ibmcloud_resource_group }} \
+    --infra-id {{ infra_id }} \
+    --region {{ powervs_region }} \
+    --zone {{ powervs_zone }} \
+    --vpc-region {{ vpc_region }} \
+    --name {{ hosted_cluster_name }} 2>&1 | tee {{ ansible_env.HOME }}/{{ hosted_cluster_name }}-config/destroy-cluster.log
+  async: 1800
+  poll: 10
+  register: destroy
+  ignore_errors: yes
+  args:
+    chdir: "{{ hypershift_dir }}"
+    executable: /bin/bash
+  environment:
+    KUBECONFIG: "{{ mgmt_cluster_kubeconfig }}"
+    
+- name: Save cluster destroy log to file 
+  copy:
+    content: "{{ destroy.stderr }}"
+    dest: "{{ ansible_env.HOME }}/{{ hosted_cluster_name }}-config/destroy.log"
+
+- name: Destroy cluster failed
+  fail: 
+    msg: "Failed to destroy cluster. Please check {{ ansible_env.HOME }}/{{ hosted_cluster_name }}-config/destroy.log to view the failures" 
+  when: destroy.rc != 0
+

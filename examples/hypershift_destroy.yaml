@@ -1,0 +1,13 @@
+# hypershift installation
+hypershift_destroy: false
+mgmt_cluster_kubeconfig: "{{ ansible_env.HOME }}/.kube/config"
+hosted_cluster_name: "rdr-hypershift-cluster"
+hypershift_dir: "/root/hypershift"
+hypershift_git_repo: "https://github.com/openshift/hypershift"
+hypershift_git_branch: "main"
+ibmcloud_resource_group: "hypershift_resource_group"
+powervs_region: "sao"
+powervs_zone: "sao01"
+vpc_region: "br-sao"
+base_domain: "ocp-powervs-ppc64le.com"
+infra_id: "rdr-hypershift-infra"
