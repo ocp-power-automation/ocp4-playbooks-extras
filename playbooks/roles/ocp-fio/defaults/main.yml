@@ -1,0 +1,22 @@
+---
+
+fio_enabled: false
+fio_install_operator: true
+fio_catalogsource_image: ""            # brew.registry.redhat.io/rh-osbs/iib:276833
+fio_catalogsource: "redhat-operators"
+fio_upgrade_channel: "release-0.1"
+fio_directory: "/tmp/fio"
+fio_config_name: ""
+fio_config_key: ""
+fio_config_grace_period: ""
+fio_config_max_backups: ""
+fio_default_config: true
+fio_node_selector: ""
+fio_debug: false
+fio_golang_tarball: "https://dl.google.com/go/go1.18.2.linux-ppc64le.tar.gz"
+fio_e2e: false
+fio_e2e_git_repository: ""
+fio_git_username: ""
+fio_git_token: ""
+fio_git_branch: "master"
+fio_cleanup: true

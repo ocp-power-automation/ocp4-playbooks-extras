@@ -1,0 +1,7 @@
+---
+# vars file for playbooks/roles/ocp-fio
+
+fio_e2e_env:
+   PATH: "/usr/local/go/bin:{{ ansible_env.PATH }}"
+   KUBECONFIG: "{{ ansible_env.HOME }}/.kube/config"
+   FIO_WORKDIR: "{{ fio_directory }}"

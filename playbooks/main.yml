@@ -74,3 +74,5 @@
         (hypershift_install is defined and hypershift_install) or 
         (hypershift_destroy is defined and hypershift_destroy)
 
+- import_playbook: ocp-fio.yaml
+  when: fio_enabled is defined and fio_enabled

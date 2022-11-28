@@ -1,0 +1,272 @@
+---
+# tasks file for playbooks/roles/ocp-fio
+
+#- name: Check if cluster operators and nodes are healthy
+#  include_role:
+#    name: check-cluster-health
+
+- name: Clean up
+  block:
+  - name: Check if FileIntegrity instance has deployed
+    shell: oc get fileintegrity -n openshift-file-integrity | wc -l
+    register: fio_object
+
+  - name: Delete FileIntegrity instance if exists
+    kubernetes.core.k8s:
+      state: absent
+      api_version: fileintegrity.openshift.io/v1alpha1
+      kind: FileIntegrity
+      name: example-fileintegrity
+      namespace: openshift-file-integrity 
+    when: fio_object.stdout|int == 1
+
+  - name: Delete the subscription if exists
+    kubernetes.core.k8s:
+      state: absent
+      api_version: operators.coreos.com/v1alpha1
+      kind: Subscription
+      name: file-integrity-operator
+      namespace: openshift-file-integrity
+
+  - name: Delete the operator group if exists
+    kubernetes.core.k8s:
+      kind: OperatorGroup
+      name: file-integrity-operator
+      namespace: openshift-file-integrity
+      state: absent
+
+  - name: Get the name of cluster service version for File Integrity Operator
+    shell: oc get csv -n openshift-file-integrity --no-headers | awk '{ if ($1 ~ /^file-integrity-operator/) print $1 }'
+    register: fio_operators_csv
+
+  - name: Delete the cluster service version if exists
+    kubernetes.core.k8s:
+      state: absent
+      api_version: operators.coreos.com/v1alpha1
+      kind: ClusterServiceVersion
+      namespace: openshift-file-integrity
+      name: "{{ fio_operators_csv.stdout }}"
+    when: fio_operators_csv.stdout|length > 0
+
+  - name: Check if all the pods has been deleted
+    shell: oc get pods -n openshift-file-integrity --no-headers
+    register: fio_pods
+    until: fio_pods.stdout|int == 0
+    retries: 15
+    delay: 60
+
+  - name: Get custom resource definitions
+    shell: oc get crd | awk '{print $1}'| grep fileintegrity
+    register: fio_crds
+    ignore_errors: true
+
+  - name: Delete the custom resource definition if exists
+    shell: oc delete crd {{ item }}
+    loop: "{{ fio_crds.stdout_lines }}"
+    when: fio_crds.stdout_lines|length > 0
+  
+  - name: Delete the File Integrity Operator if exists
+    kubernetes.core.k8s:
+      kind: Operator
+      name: file-integrity-operator.openshift-file-integrity
+      namespace: openshift-file-integrity
+      state: absent
+
+  - name: Delete the namespace if exists
+    kubernetes.core.k8s:
+      state: absent
+      kind: Namespace
+      name: openshift-file-integrity
+
+  - name: Check if the namespace gets deleted
+    shell: oc get namespace --no-headers | grep file-integrity | wc -l
+    register: fio_namespace
+    until: fio_namespace.stdout|int == 0
+    retries: 15
+    delay: 30
+
+  - name: Delete the workplace
+    file:
+      path: "{{ fio_directory }}"
+      state: "absent"
+      mode: '0755'
+  when: fio_cleanup
+
+- name: Create working directory
+  file:
+    state: "directory"
+    path: "{{ fio_directory }}"
+
+# Custom ImageContentSourcePolicy and CatalogSource
+- name: Create ImageContentSourcePolicy and CatalogSource
+  block: 
+  - name: Include the global-secret-update role
+    include_role:
+      name: global-secret-update
+
+  - name: Set fact variable for CatalogSource name
+    set_fact:
+      fio_catalogsource: "qe-app-registry"
+
+  - name: Include role to create ImageContentSourcePolicy and CatalogSource
+    include_role:
+      name: set-custom-catalogsource
+    vars:
+      custom_catalogsource_name: "{{ fio_catalogsource }}"
+      custom_catalogsource_display_name: "File Integrity Operator"
+      custom_catalogsource_image: "{{ fio_catalogsource_image }}"
+  when: fio_catalogsource_image != '' and fio_catalogsource_image != None
+
+- name: Deploy File Integrity Operator
+  block:
+  - name: Create namespace for File Integrity Operator
+    kubernetes.core.k8s:
+      state: present
+      definition:
+        apiVersion: v1
+        kind: Namespace
+        metadata:
+          labels:
+            pod-security.kubernetes.io/audit: privileged
+            pod-security.kubernetes.io/enforce: privileged
+            pod-security.kubernetes.io/warn: privileged
+            security.openshift.io/scc.podSecurityLabelSync: "false"
+          name: openshift-file-integrity
+        spec:
+          targetNamespaces:
+          - openshift-file-integrity
+
+  - name: Create operator group for File Integrity Operator
+    kubernetes.core.k8s:
+      state: present
+      definition:
+        apiVersion: operators.coreos.com/v1
+        kind: OperatorGroup
+        metadata:
+          name: file-integrity-operator
+          namespace: openshift-file-integrity
+        spec:
+          targetNamespaces:
+          - openshift-file-integrity
+
+  - name: Create subscription for File Integrity Operator
+    kubernetes.core.k8s:
+      state: present
+      definition:
+        apiVersion: operators.coreos.com/v1alpha1
+        kind: Subscription
+        metadata:
+          name: file-integrity-operator
+          namespace: openshift-file-integrity
+        spec:
+          channel: "{{ fio_upgrade_channel }}"
+          installPlanApproval: Automatic
+          name: file-integrity-operator
+          source: "{{ fio_catalogsource }}"
+          sourceNamespace: openshift-marketplace
+    
+  - name: Verification of operator installation
+    block:
+    - name: Check if the cluster service version has succeeded
+      shell: oc get csv -n openshift-file-integrity --no-headers | awk '{ if (($1 ~ /^file-integrity-operator/) && $NF=="Succeeded") print $1 }'| wc -l
+      register: fio_operators_csv
+      until: 1 == fio_operators_csv.stdout|int
+      retries: 15
+      delay: 120
+
+    - name: Check if pods are running
+      shell: oc get pods -n openshift-file-integrity --no-headers | grep -v "Running\|Completed" | wc -l
+      register: fio_pods
+      until: fio_pods.stdout|int == 0
+      retries: 15
+      delay: 60
+  when: fio_install_operator
+
+- name: Deploy FileIntegrity custom object
+  block:
+  - name: Check if the File Integrity Operator has installed
+    shell: oc get csv -n openshift-file-integrity --no-headers | awk '{ if (($1 ~ /^file-integrity-operator/) && $NF=="Succeeded") print $1 }'| wc -l
+    register: fio_operator
+
+  - fail:
+      msg: "Please make sure File Integrity Operator has been successfully installed..!"
+    when: fio_operator.stdout|int == 0
+
+  - name: Create a template for FileIntegrity custom resource
+    template:
+      src: "{{ role_path }}/templates/fio_cr.yaml.j2"
+      dest: "{{ role_path }}/fio_cr.yaml"
+    delegate_to: localhost
+
+  - name: Create an FileIntegrity custom resource
+    include_tasks: "{{ role_path }}/fio_cr.yaml"
+
+  - name: Verify if the FileIntegrity instance status is active
+    shell: oc get fileintegrity -n openshift-file-integrity -o jsonpath='{.items[0].status.phase}'
+    register: fio_status
+    until: fio_status.stdout == "Active"
+    retries: 15
+    delay: 120
+
+  - name: Get the nodes count
+    shell: oc get node --selector={{fio_node_selector}} --no-headers | wc -l
+    register: node_count
+
+  - name: Verify if the pods are running
+    shell: oc get pods -n openshift-file-integrity --no-headers | grep Running | grep aide | wc -l
+    register: fio_pods
+    until: fio_pods.stdout|int == node_count.stdout|int
+    retries: 15
+    delay: 120
+
+  - name: Verify if the FileIntegrity node status has been created
+    shell: oc get FileIntegrityNodeStatus -n openshift-file-integrity --no-headers | wc -l
+    register: fio_nodestatus_count
+    until: fio_nodestatus_count.stdout|int == node_count.stdout|int
+    retries: 15
+    delay: 120
+  when: >
+    ((fio_default_config or fio_config_name or fio_config_key) or
+    (fio_config_grace_period or fio_config_max_backups)) and not (fio_install_operator == false and fio_cleanup)
+
+- name: Run e2e
+  block:
+  - name: Install packages
+    yum:
+      name:
+      - git
+      - "@Development tools"
+      state: latest
+
+  - name: Clone the opeshift-test-private repository
+    git:
+      repo: "https://{{ fio_git_username }}:{{ fio_git_token }}@github.com{{ fio_e2e_git_repository | urlsplit('path') }}"
+      dest: "{{ fio_directory }}/openshift-tests-private"
+      version: "{{ fio_git_branch }}"
+
+  - name: Include role for installation of Go lang
+    include_role:
+      name: golang-installation
+    vars:
+      go_tarball: "{{ fio_golang_tarball }}"
+      golang_path: "/usr/local/"
+
+  - name: Run make target
+    make:
+      chdir: "{{ fio_directory }}/openshift-tests-private"
+      target: build
+
+  - name: Run File Integrity Operator e2e tests
+    shell: |
+      ./bin/extended-platform-tests run all --dry-run | grep FIO |./bin/extended-platform-tests run -f - -o {{ fio_directory }}/fio-e2e-output.txt
+    args:
+      chdir: "{{ fio_directory }}/openshift-tests-private"
+  
+  - name: Re run failed tests 
+    script: "{{ role_path }}/files/run-e2e.sh"
+    args:
+      chdir: "{{ fio_directory }}/openshift-tests-private"
+      
+  environment: "{{ fio_e2e_env }}"
+  ignore_errors: true
+  when: fio_e2e_git_repository and fio_git_username and fio_git_token and fio_e2e
