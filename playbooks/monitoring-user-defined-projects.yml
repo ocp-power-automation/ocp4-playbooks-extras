@@ -1,0 +1,8 @@
+---
+
+## User-defined-project-monitoring
+
+- name: Enabling user defined project monitoring
+  hosts: bastion
+  roles: 
+  - monitoring-user-defined-projects

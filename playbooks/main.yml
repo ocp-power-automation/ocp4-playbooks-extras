@@ -80,3 +80,6 @@
 - import_playbook: ipa-identity-provider.yml
   when: ipa_identity_provider is defined and ipa_identity_provider
 
+- import_playbook: monitoring-user-defined-projects.yml
+  when: enable_user_defined_project_monitoring is defined and enable_user_defined_project_monitoring
+
