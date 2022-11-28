@@ -76,3 +76,7 @@
 
 - import_playbook: ocp-fio.yaml
   when: fio_enabled is defined and fio_enabled
+
+- import_playbook: ipa-identity-provider.yml
+  when: ipa_identity_provider is defined and ipa_identity_provider
+
