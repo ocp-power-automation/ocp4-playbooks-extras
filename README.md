@@ -29,6 +29,7 @@ This repository consists of additional ansible playbooks for the following:
 1. Run Compliance Operator installation and e2e 
 1. Hypershift deployment on PowerVS
 1. Run File Integrity Operator and e2e
+1. Configure and test IPA identity provider
 
 ## Assumptions:
 

@@ -1,0 +1,10 @@
+---
+
+# ipa-identity-provider defaults vars
+ipa_identity_provider: false 
+ipa_project_name: "freeipa-test"
+ipa_user_uid: "user01"
+freeipa_openshift_container_image: "quay.io/powercloud/freeipa-openshift-container:latest"
+ipa_provider_cr_name: "IPA"
+ipa_user_first_name: "Summer"
+ipa_user_last_name: "Star"
