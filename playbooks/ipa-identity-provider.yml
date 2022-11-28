@@ -1,0 +1,20 @@
+---
+
+- name: IPA identity provider test with FreeIPA
+  hosts: bastion
+  tasks:
+    - set_fact:
+        ipa_admin_password: "{{ lookup('ansible.builtin.env', 'IPA_ADMIN_PASSWORD') }}"
+        ipa_dm_password: "{{ lookup('ansible.builtin.env', 'IPA_DM_PASSWORD') }}"
+        ipa_user_password: "{{ lookup('ansible.builtin.env', 'IPA_USER_PASSWORD') }}"
+      
+    - fail:
+        msg: "Please ensure you have set the environment variables IPA_ADMIN_PASSWORD, IPA_DM_PASSWORD and IPA_USER_PASSWORD"
+      when: |
+        (ipa_admin_password == "") or
+        (ipa_dm_password == "") or
+        (ipa_user_password == "")
+
+    - name: Loading the IPA provider role
+      import_role:
+        name: ipa-identity-provider

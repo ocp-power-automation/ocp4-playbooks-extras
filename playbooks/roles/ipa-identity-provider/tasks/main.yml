@@ -1,0 +1,332 @@
+---
+
+- name: Login to system:admin
+  shell: oc login -u system:admin
+
+- name: Create a sub-directory ~/freeipa-idp-test
+  file:
+    path: ~/ipa-idp-test
+    state: directory
+    mode: 0755
+
+- name: Create a new namespace
+  k8s:
+    name: "{{ ipa_project_name }}"
+    api_version: v1
+    kind: Namespace
+    state: present
+
+- name: Add the SCC contraint to the user in {{ ipa_project_name }}
+  shell: "oc adm policy add-scc-to-user anyuid -z default -n {{ ipa_project_name }}"
+
+- name: Create a secret object with IPA_ADMIN_PASSWORD and IPA_DM_PASSWORD
+  k8s:
+    state: present
+    apply: yes
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: freeipa-secret
+        namespace: "{{ ipa_project_name }}"
+      type: Opaque 
+      data:
+        IPA_ADMIN_PASSWORD: "{{ ipa_admin_password | b64encode }}"
+        IPA_DM_PASSWORD: "{{ ipa_dm_password | b64encode }}"
+
+- name: Create a configmap containing freeipa host details
+  k8s:
+    state: present
+    apply: yes
+    definition:
+      kind: ConfigMap
+      apiVersion: v1
+      metadata:
+        name: freeipa-configmap
+        namespace: "{{ ipa_project_name }}"
+      data:
+        CA_SUBJECT: |
+          CN=freeipa-test
+          O=FREEIPA-TEST
+        DEBUG_TRACE: ""
+        IPA_SERVER_HOSTNAME: "freeipa-ldap.{{ ipa_project_name }}.svc"
+        REALM: IPA.EXAMPLE.COM
+
+- name: Deploy freeipa app with the given deployment definition
+  k8s:
+    state: present
+    apply: yes
+    definition:
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        labels:
+          app: freeipa
+        name: freeipa
+        namespace: "{{ ipa_project_name }}"
+      spec:
+        replicas: 1
+        selector:
+          matchLabels:
+            app: freeipa
+        template:
+          metadata:
+            labels:
+              app: freeipa
+          spec:
+            containers:
+            - name: freeipa-openshift-container
+              image: "{{ freeipa_openshift_container_image }}"
+              securityContext:
+                runAsUser: 0
+              resources:
+                limits:
+                  cpu: "2"
+                  memory: "3Gi"
+              # We need 'tty: true' to see the systemd traces
+              tty: true
+              command: ["/usr/local/sbin/init"]
+              args:
+              - no-exit
+              - ipa-server-install
+              - -U
+              - --realm
+              - $(REALM)
+              - --domain
+              - $(REALM)
+              - --ca-subject=$(CA_SUBJECT)
+              - --no-ntp
+              - --no-sshd
+              - --no-ssh
+              env:
+              - name: KUBERNETES
+                value: "1"
+              - name: DEBUG_TRACE
+                valueFrom:
+                  configMapKeyRef:
+                    name: freeipa-configmap
+                    key: DEBUG_TRACE
+              - name: REALM
+                valueFrom:
+                  configMapKeyRef:
+                    name: freeipa-configmap
+                    key: REALM
+              - name: CA_SUBJECT
+                valueFrom:
+                  configMapKeyRef:
+                    name: freeipa-configmap
+                    key: CA_SUBJECT
+              - name: IPA_ADMIN_PASSWORD
+                valueFrom:
+                  secretKeyRef:
+                    name: freeipa-secret
+                    key: IPA_ADMIN_PASSWORD
+              - name: IPA_DM_PASSWORD
+                valueFrom:
+                  secretKeyRef:
+                    name: freeipa-secret
+                    key: IPA_DM_PASSWORD
+              - name: IPA_SERVER_HOSTNAME
+                valueFrom:
+                  configMapKeyRef:
+                    name: freeipa-configmap
+                    key: IPA_SERVER_HOSTNAME
+              - name: SYSTEMD_OFFLINE
+                value: "1"
+              - name: SYSTEMD_NSPAWN_API_VFS_WRITABLE
+                value: "network"
+              ports:
+                - name: http-tcp
+                  protocol: TCP
+                  containerPort: 80
+                - name: https-tcp
+                  protocol: TCP
+                  containerPort: 443
+              volumeMounts:
+                - name: data
+                  mountPath: /data
+                - name: systemd-tmp
+                  mountPath: /tmp
+                - name: systemd-var-run
+                  mountPath: /var/run
+                - name: systemd-var-dirsrv
+                  mountPath: /var/run/dirsrv
+            volumes:
+              - name: data
+                emptyDir: {}
+              - name: systemd-var-run
+                emptyDir:
+                  medium: "Memory"
+              - name: systemd-var-dirsrv
+                emptyDir:
+                  medium: "Memory"
+              - name: systemd-run-rpcbind
+                emptyDir:
+                  medium: "Memory"
+              - name: systemd-tmp
+                emptyDir:
+                  medium: "Memory"
+
+
+- name: Wait until pod gets initialized
+  wait_for:
+    timeout: 120
+
+- name: Check if the pod into the Running state
+  shell: "oc get po -n {{ ipa_project_name }} --no-headers | grep -v Running | wc -l"
+  retries: 5
+  delay: 30
+  register: running_pods_count
+  until: running_pods_count.stdout|int == 0
+
+- name: Get the freeipa pod
+  shell: "oc get pods -n {{ ipa_project_name }} | grep freeipa | awk '{ print $1 }'"
+  register: ipa_pod
+
+- debug:
+    msg: "{{ ipa_pod.stdout_lines }}"
+
+- name: Getting pod log for deployed freeipa
+  shell: "oc logs -n {{ ipa_project_name }} {{ ipa_pod.stdout_lines[0] }} | grep 'FreeIPA server configured'"
+  retries: 10
+  delay: 30
+  register: freeipa_pod_log
+  until: freeipa_pod_log != ""
+
+- debug:
+    msg: "{{ freeipa_pod_log.stdout_lines }}"
+
+- name: Set the kerberos admin password with kinit command in a freeipa pod
+  shell: |
+    oc rsh -n {{ ipa_project_name }} {{ ipa_pod.stdout_lines[0] }} bash -c "echo {{ ipa_admin_password }} | kinit admin"
+  register: kinit_admin_cmd_output
+
+- name: Check if the user already added to IPA search directory
+  shell: |
+    oc rsh -n {{ ipa_project_name }} {{ ipa_pod.stdout_lines[0] }} bash -c "ldapsearch -x -b '' | grep 'dn: uid={{ ipa_user_uid}}' | wc -l"
+  register: ipa_user_count
+
+- name: Add a new IPA user with the password
+  shell: |
+    oc rsh -n {{ ipa_project_name }} {{ ipa_pod.stdout_lines[0] }} bash -c "echo '{{ ipa_user_password }}' |\
+    ipa user-add {{ ipa_user_uid }} \
+     --first={{ ipa_user_first_name }} \
+     --last={{ ipa_user_last_name }} \
+     --password-expiration=20320502135053Z --password"
+  register: ipa_add_user_cmd_output
+  when: ipa_user_count.stdout|int == 0
+
+- debug:
+    msg: "{{ kinit_admin_cmd_output.stdout_lines }}"
+
+- name: Check the attributes of added user
+  kubernetes.core.k8s_exec:
+    namespace: "{{ ipa_project_name }}"
+    pod: "{{ ipa_pod.stdout_lines[0] }}"
+    command: "ldapsearch -x -b 'cn=users,cn=accounts,dc=ipa,dc=example,dc=com'"
+  register: ipa_user_attributes
+
+- debug:
+    msg: "{{ ipa_user_attributes.stdout_lines }}"
+
+- name: Deploy a service to export freeipa app on ports
+  k8s:
+    state: present
+    apply: yes
+    definition:
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: freeipa-ldap
+        labels:
+          app: freeipa
+        namespace: "{{ ipa_project_name }}"
+      spec:
+        selector:
+          app: freeipa
+        ports:
+          - name: ldap
+            port: 389
+            protocol: TCP
+          - name: ldaps
+            port: 636
+            protocol: TCP
+
+- name: Wait until service get initialized
+  wait_for:
+    timeout: 60
+
+- name: Check if the service instance is Running
+  shell: "oc get svc -n {{ ipa_project_name }} | grep freeipa | wc -l"
+  retries: 5
+  delay: 15
+  register: ipa_service 
+  until: ipa_service.stdout|int > 0
+
+- name: Copy the ca.crt from freeipa pod to local file system
+  shell: "oc cp {{ ipa_pod.stdout_lines[0] }}:/etc/ipa/ca.crt ipa-ca.crt -n {{ ipa_project_name }}"
+  args:
+    chdir: ~/ipa-idp-test
+
+- name: Check if the ipa-ca configmap exists already
+  shell: "oc get configmaps -n openshift-config | grep ipa-ca | wc -l"
+  register: ipa_ca_configmap
+
+- name: Create a configmap containing the ipa-ca.crt
+  shell: "oc create configmap ipa-ca --from-file=ca.crt=ipa-ca.crt -n openshift-config"
+  args:
+    chdir: ~/ipa-idp-test
+  when: ipa_ca_configmap.stdout|int == 0
+      
+- name: Configure the identity provider for LDAP with IPA
+  k8s:
+    state: present
+    apply: yes
+    definition:
+      apiVersion: config.openshift.io/v1
+      kind: OAuth
+      metadata:
+        name: cluster
+      spec:
+        identityProviders:
+        - name: "{{ ipa_provider_cr_name }}"
+          mappingMethod: claim
+          type: LDAP
+          ldap:
+            attributes:
+              email:
+              - mail
+              id:
+              - dn
+              name:
+              - cn
+              preferredUsername:
+              - uid
+            ca:
+              name: ipa-ca
+            insecure: false
+            url: "ldaps://freeipa-ldap.{{ ipa_project_name }}.svc/cn=users,cn=accounts,dc=ipa,dc=example,dc=com?uid"
+
+- name: Wait until pods get re-initialized
+  wait_for:
+    timeout: 180
+  
+- name: Check if the pods in openshift-authentication are into the Running state
+  shell: "oc get po -n openshift-authentication --no-headers | grep -v Running | wc -l"
+  retries: 10
+  delay: 30
+  register: auth_running_pods
+  until: auth_running_pods.stdout|int == 0
+
+- name: Login with the added ipa user
+  shell: "oc login -u {{ ipa_user_uid }} -p {{ ipa_user_password }}"
+
+- name: Check if the new user get logged-in
+  shell: oc whoami
+  register: logged_in_user
+
+- debug:
+    msg: "{{ logged_in_user.stdout_lines }}"
+
+- name: Login back to the system:admin
+  shell: oc login -u system:admin

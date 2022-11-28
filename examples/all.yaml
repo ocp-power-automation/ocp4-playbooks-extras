@@ -1,5 +1,14 @@
 ---
 
+## ipa-identity-provider vars
+ipa_identity_provider: false  # Set true to enable the role execution 
+ipa_project_name: "freeipa-test"  # Name to be assigned to a new namespace
+ipa_user_uid: "user01"  # Name to be assigned to a new IPA user
+freeipa_openshift_container_image: "quay.io/powercloud/freeipa-openshift-container:latest"  # FreeIPA container image for Openshift platform and ppc64le supported arch
+ipa_provider_cr_name: "IPA"  # Identity provider custom-resource object name
+ipa_user_first_name: "Summer"  # IPA user first name to display
+ipa_user_last_name: "Star"  # IPA user last name to display
+
 ## ocp-cli-plugins vars
 enable_cli_plugins_test: false   # Set true to enable the cli-plug-ins test
 deploy_cli_plugins: []  # List of cli-plug-ins to be deploy and test e.g ["custom", "krew", "mirror", "compliance"] 
