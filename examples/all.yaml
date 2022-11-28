@@ -15,6 +15,12 @@ deploy_cli_plugins: []  # List of cli-plug-ins to be deploy and test e.g ["custo
 user_custom_plugin: ""  # 'oc-' prefixed user defined custom plug-in name e.g. oc-my-plugin.sh
 golang_tar_url: ""  # Golang tar URL to install golang version >= 1.18
 
+# User defined project monitoring vars
+enable_user_defined_project_monitoring: false  # Set true to enable role execution
+user_defined_app_name: "prometheus-example-app"  # User defined app name
+user_defined_namespace: "test-namespace"  # User defined namespace
+service_monitor_name: "prometheus-example-app-monitor"  # User defined name for ServiceMonitor object name
+
 ## ocp-e2e vars
 e2e_tests_enabled: false
 e2e_tests_dir: /tmp/openshift_ws

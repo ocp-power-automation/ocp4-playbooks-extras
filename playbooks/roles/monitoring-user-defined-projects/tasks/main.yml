@@ -1,0 +1,172 @@
+---
+
+## Enabling monitoring to user-defined-projects
+
+- name: Create a new namespace
+  k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: "{{ user_defined_namespace }}"
+
+- name: Deploy a sample app
+  k8s:
+    state: present
+    definition: 
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        labels:
+          app: "{{ user_defined_app_name }}"
+        name: "{{ user_defined_app_name }}"
+        namespace: "{{ user_defined_namespace }}"
+      spec:
+        replicas: 1
+        selector:
+          matchLabels:
+            app: "{{ user_defined_app_name }}"
+        template:
+          metadata:
+            labels:
+              app: "{{ user_defined_app_name }}"
+          spec:
+            containers:
+            - image: ghcr.io/rhobs/prometheus-example-app:0.3.0
+              imagePullPolicy: IfNotPresent
+              name: "{{ user_defined_app_name }}"
+
+- name: Create a service that expose the metrics of the deployed app
+  k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Service
+      metadata:
+        labels:
+          app: "{{ user_defined_app_name }}"
+        name: "{{ user_defined_app_name }}"
+        namespace: "{{ user_defined_namespace }}"
+      spec:
+        ports:
+        - port: 8080
+          protocol: TCP
+          targetPort: 8080
+          name: web
+        selector:
+          app: "{{ user_defined_app_name }}"
+        type: ClusterIP
+
+- name: Check the pod for the deployed prometheus app
+  shell: "oc -n {{ user_defined_namespace }} get pod --no-headers | awk '{ if($3 != 'Running') print $3 }' | wc -l"
+  register: pod_count
+  until: pod_count.stdout|int > 0
+  retries: 10
+  delay: 60
+
+- name: Deploying ServiceMonitor resource object
+  k8s:
+    state: present
+    definition: 
+      apiVersion: monitoring.coreos.com/v1
+      kind: ServiceMonitor
+      metadata:
+        labels:
+          k8s-app: "{{ service_monitor_name }}"
+        name: "{{ service_monitor_name }}"
+        namespace: "{{ user_defined_namespace }}"
+      spec:
+        endpoints:
+        - interval: 30s
+          port: web
+          scheme: http
+        selector:
+          matchLabels:
+            app: "{{ user_defined_app_name }}"
+    
+- name: Check the ServiceMonitor resource
+  shell: "oc -n {{ user_defined_namespace }} get servicemonitor --no-headers | wc -l"
+  register: service_monitor_count
+  until: service_monitor_count.stdout|int > 0
+  retries: 5
+  delay: 30
+
+- name: Create and deploy cluster-monitering-config ConfigMap instance
+  k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: cluster-monitoring-config
+        namespace: openshift-monitoring
+      data:
+        config.yaml: |
+          enableUserWorkload: true
+
+- name: Create and deploy user-workload-monitoring-config ConfigMap instance
+  k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: user-workload-monitoring-config
+        namespace: openshift-user-workload-monitoring
+      data:
+        config.yaml: | 
+
+- name: Check if the pods are running in openshift-user-workload-monitoring namespace
+  shell: oc get po -n openshift-user-workload-monitoring --no-headers | awk '{ print $3 }' | grep 'Running' | wc -l
+  register: user_workload_monitoring_pods
+  until: user_workload_monitoring_pods.stdout|int == 5
+  retries: 5
+  delay: 30
+
+- name: Accessing metrics outside the cluster
+  block:
+    - name: Extract the secret used to retrieve the token
+      shell: "oc get secret -n openshift-user-workload-monitoring | grep  prometheus-user-workload-token | head -n 1 | awk '{ print $1 }'"
+      register: token_secret
+
+    - name: Extract token to connect to prometheus
+      shell: "echo $(oc get secret {{ SECRET }} -n openshift-user-workload-monitoring -o json | jq -r '.data.token') | base64 -d"
+      vars:
+        SECRET: "{{ token_secret.stdout.strip('\"') }}"
+      register: access_token
+    
+    - name: Extract the thanos-querier route host
+      k8s_info:
+        api_version: route.openshift.io/v1
+        kind: Route
+        name: thanos-querier
+        namespace: openshift-monitoring
+      register: thanos_querier_route_host
+
+    - name: Query the metrics of user defined services in the command line
+      shell: "curl -X GET -kG 'https://{{ THANOS_QUERIER_HOST }}/api/v1/query?' --data-urlencode \"query=up{namespace='{{ NAMESPACE }}'}\" -H 'Authorization: Bearer {{ TOKEN }}'"
+      args:
+        warn: false
+      vars: 
+        THANOS_QUERIER_HOST: "{{ thanos_querier_route_host.resources[0].spec.host }}"
+        TOKEN: "{{ access_token.stdout.strip('\"') }}"
+        NAMESPACE: "{{ user_defined_namespace }}"
+      register: query_output
+
+    - debug:
+        msg: "{{ query_output.stdout_lines }}"
+
+    - name: Create a app directory with the input name
+      file:
+        path: "~/{{ user_defined_app_name }}"
+        state: directory
+        mode: 0755   
+
+    - name: Copy the query output to the file
+      copy:
+        content: |
+          Following output shows the duration that your application pods have been up-
+
+          {{ query_output.stdout_lines }}
+        dest: "~/{{ user_defined_app_name }}/output.txt"
