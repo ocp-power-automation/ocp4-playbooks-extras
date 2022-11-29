@@ -1,0 +1,9 @@
+---
+
+# Request-header identity provider vars 
+request_header_provider: false  # Set true to enable the test execution
+request_header_user_display_name: "Default User"  # User's full name to be displayed e.g. "John Doe"
+request_header_username: "rh-user"  # Username to be attached in the request header e.g. "jdoe" 
+ca_cert_configmap: "cert-auth-configmap"  # Name for a ConfigMap object containing CA certificate bundle
+request_header_cr_name: "request-header-provider"  # Name for a identity provider custom resource object
+request_header_user_role: "cluster-reader"  # Role based permission to be assigned to the new user e.g. ["admin", "basic-user", "cluster-admin", "cluster-status", "cluster-reader", "edit", "self-provisioner", "view"]

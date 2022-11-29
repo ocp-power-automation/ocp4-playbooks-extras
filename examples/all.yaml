@@ -21,6 +21,14 @@ user_defined_app_name: "prometheus-example-app"  # User defined app name
 user_defined_namespace: "test-namespace"  # User defined namespace
 service_monitor_name: "prometheus-example-app-monitor"  # User defined name for ServiceMonitor object name
 
+# Request-header identity provider vars
+request_header_provider: false  # Set true to enable the test execution
+request_header_user_display_name: "Default User"  # User's full name to be displayed e.g. "John Doe"
+request_header_username: "rh-user"  # Username to be attached in the request header e.g. "jdoe" 
+ca_cert_configmap: "cert-auth-configmap"  # Name for a ConfigMap object containing CA certificate bundle
+request_header_cr_name: "request-header-provider"  # Name for a identity provider custom resource object
+request_header_user_role: "cluster-reader"  # Role based permission to be assigned to the new user e.g. ["admin", "basic-user", "cluster-admin", "cluster-status", "cluster-reader", "edit", "self-provisioner", "view"]
+
 ## ocp-e2e vars
 e2e_tests_enabled: false
 e2e_tests_dir: /tmp/openshift_ws

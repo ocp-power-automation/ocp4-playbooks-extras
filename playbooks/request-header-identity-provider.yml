@@ -1,0 +1,6 @@
+---
+
+- name: Request-header identity provider test 
+  hosts: bastion
+  roles:
+  - request-header-identity-provider

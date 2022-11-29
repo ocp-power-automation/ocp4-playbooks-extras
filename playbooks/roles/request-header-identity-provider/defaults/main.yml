@@ -1,0 +1,9 @@
+---
+
+# Request-header identity provider vars with default values 
+request_header_provider: false  
+request_header_user_display_name: "Default User" 
+request_header_username: "rh-user" 
+ca_cert_configmap: "cert-auth-configmap" 
+request_header_cr_name: "request-header-provider"
+request_header_user_role: "cluster-reader"
