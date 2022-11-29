@@ -1,0 +1,161 @@
+---
+
+# request header auth provider tasks module
+
+- name: Login to the cluster as a system-admin
+  shell: oc login -u system:admin
+
+- name: Cleanup block to delete the old identities and users
+  block:
+    - name: Get the existing identities 
+      shell: oc get identity --no-headers | awk '{print $1}'
+      register: old_identities
+
+    - name: Get the existing users associated with these providers
+      shell: oc get user --no-headers | awk '{print $1}'
+      register: old_users
+
+    - name: Delete the existing identities
+      k8s:
+        state: absent
+        kind: Identity
+        name: "{{ item }}"
+        api_version: user.openshift.io/v1
+      loop: "{{ old_identities.stdout_lines }}"
+
+    - name: Delete the existing users
+      k8s:
+        state: absent
+        kind: User
+        name: "{{ item }}"
+        api_version: user.openshift.io/v1
+      loop: "{{ old_users.stdout_lines }}"
+
+- name: Create a sub-directory ~/certs
+  file:
+    path: ~/certs
+    state: directory
+    mode: 0755 
+
+- name: Extract a ca certificate to provide along with request headers
+  shell: "oc extract -n openshift-config cm/admin-kubeconfig-client-ca --confirm"
+  args:
+    chdir: ~/certs
+
+- name: Check if CA configmap exists for {{ ca_cert_configmap }}
+  shell: "oc get configmap {{ ca_cert_configmap }} -n openshift-config --no-headers | wc -l"
+  register: ca_configmap_exists
+
+- name: Create a CA configmap
+  shell: "oc create configmap {{ ca_cert_configmap }} --from-file=ca.crt=ca-bundle.crt -n openshift-config"
+  args:
+    chdir: ~/certs
+  when: ca_configmap_exists.stdout|int == 0
+
+- name: Update a OAUTH cluster CR with request header provider configuration
+  k8s:
+    state: present
+    apply: yes
+    definition:
+      apiVersion: config.openshift.io/v1
+      kind: OAuth
+      metadata:
+        name: cluster
+      spec:
+        identityProviders:
+        - name: "{{ request_header_cr_name }}" 
+          mappingMethod: claim 
+          type: RequestHeader
+          requestHeader:
+            challengeURL: "https://www.example.com/challenging-proxy/oauth/authorize?${query}" 
+            loginURL: "https://www.example.com/login-proxy/oauth/authorize?${query}" 
+            ca: 
+              name: "{{ ca_cert_configmap }}"
+            headers: 
+            - X-Remote-User
+            - SSO-User
+            emailHeaders: 
+            - X-Remote-User-Email
+            nameHeaders: 
+            - X-Remote-User-Display-Name
+            preferredUsernameHeaders: 
+            - X-Remote-User-Login
+
+- name: Delay to get pods reinitialised
+  wait_for:
+    timeout: 180
+
+- name: Wait until pods get in the Running state
+  shell: "oc get pods -n openshift-authentication --no-headers | grep -v Running | wc -l"
+  retries: 10
+  delay: 30
+  register: pods_in_running
+  until: pods_in_running.stdout|int == 0
+  ignore_errors: yes
+
+- name: Prepare client certificate and key for extracted ca
+  block:
+    - name: Extract the current kubeconfig for client certificate and key
+      shell: "oc config view --context admin --minify --raw > current.kubeconfig"
+      args:
+        chdir: ~/certs
+    
+    - name: Obtain the client certificate from the kubeconfig
+      shell: grep client-certificate-data current.kubeconfig | grep -Eo "[^ ]+$" | base64 -d > client.crt
+      args:
+        chdir: ~/certs
+    
+    - name: Extract the key for client certificate obtained in previous step
+      shell: grep client-key-data current.kubeconfig | grep -Eo "[^ ]+$" | base64 -d > client.key
+      args:
+        chdir: ~/certs
+
+- name: Extract the OAUTH server route path
+  k8s_info:
+    api_version: route.openshift.io/v1
+    kind: Route
+    name: oauth-openshift
+    namespace: openshift-authentication
+  register: oauthroutepath
+
+- name: Trigger HTTP request to proxy auth endpoint with the request headers containing user details
+  shell: |
+    curl -k -I --cert ./client.crt --key ./client.key \
+    -H "SSO-User: {{ request_header_username }}" -H "X-Remote-User-Display-Name: {{ request_header_user_display_name }}" \
+    "https://{{ OAUTH_ROUTE_HOST }}/oauth/authorize?response_type=token&client_id=openshift-challenging-client" \
+    | grep -oP "sha256~[a-zA-Z0-9\-\_\~]+"
+  args:
+    chdir: ~/certs
+    warn: false
+  vars:
+    OAUTH_ROUTE_HOST: "{{ oauthroutepath.resources[0].spec.host }}"
+  environment:
+    KUBECONFIG: "/root/openstack-upi/auth/kubeconfig"
+  register: oauth_access_token
+
+- name: Check the created identity
+  shell: oc get identity
+  register: get_oc_identity_output
+
+- debug:
+    msg: "{{ get_oc_identity_output.stdout_lines }}"
+
+- name: Login to the cluster with newly added user
+  shell: "oc login --token {{ oauth_access_token.stdout.strip('\"') }}"
+  register: login_output
+
+- debug:
+    msg: "{{ login_output.stdout_lines }}"
+
+- name: Check the current logged-in user
+  shell: oc whoami
+  register: current_logged_in_user
+
+- debug:
+    msg: "{{ current_logged_in_user.stdout_lines }}"
+
+- name: Switch back again to system-admin user
+  shell: oc login -u system:admin
+
+- name: Grant the role permission to the newly created user
+  shell: "oc adm policy add-cluster-role-to-user {{ request_header_user_role }} {{ request_header_user_display_name }}"
