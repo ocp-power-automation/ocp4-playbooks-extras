@@ -1,0 +1,6 @@
+---
+
+# User defined project monitoring vars with defaults
+user_defined_namespace: "test-namespace"
+user_defined_app_name: "prometheus-example-app"
+service_monitor_name: "prometheus-app-monitor"
