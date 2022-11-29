@@ -83,3 +83,6 @@
 - import_playbook: monitoring-user-defined-projects.yml
   when: enable_user_defined_project_monitoring is defined and enable_user_defined_project_monitoring
 
+- import_playbook: request-header-identity-provider.yml
+  when: request_header_provider is defined and request_header_provider
+
