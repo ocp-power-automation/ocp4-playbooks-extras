@@ -20,13 +20,8 @@
   environment:
     KUBECONFIG: "{{ mgmt_cluster_kubeconfig }}"
     
-- name: Save cluster destroy log to file 
-  copy:
-    content: "{{ destroy.stderr }}"
-    dest: "{{ ansible_env.HOME }}/{{ hosted_cluster_name }}-config/destroy.log"
-
 - name: Destroy cluster failed
   fail: 
-    msg: "Failed to destroy cluster. Please check {{ ansible_env.HOME }}/{{ hosted_cluster_name }}-config/destroy.log to view the failures" 
+    msg: "Failed to destroy cluster. Please check {{ ansible_env.HOME }}/{{ hosted_cluster_name }}-config/destroy-cluster.log to view the failures"
   when: destroy.rc != 0
 
