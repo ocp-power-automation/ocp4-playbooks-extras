@@ -43,6 +43,7 @@
     --processors {{ processors }} \
     --sys-type {{ sys_type }} \
     --infra-json {{ ansible_env.HOME }}/{{ hosted_cluster_name }}-config/infra.json \
+    --infra-id {{ infra_id }} \
     --render 2>&1 > {{ ansible_env.HOME }}/{{ hosted_cluster_name }}-config/render-cluster.yaml
   args:
     chdir: "{{ hypershift_dir }}"
