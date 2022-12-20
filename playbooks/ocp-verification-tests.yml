@@ -1,0 +1,6 @@
+---
+- name: Run verification tests
+  hosts: bastion
+  roles:
+  - ocp-verification-tests
+

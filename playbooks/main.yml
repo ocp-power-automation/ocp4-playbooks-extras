@@ -89,3 +89,5 @@
 - import_playbook: ocp-descheduler.yml
   when: descheduler_role_enable is defined and descheduler_role_enable
 
+- import_playbook: ocp-verification-tests.yml
+  when: verification_enabled is defined and verification_enabled

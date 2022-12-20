@@ -1,0 +1,8 @@
+# Default variables for verification tests
+
+verification_enabled: false
+verification_dir: "/root/verification-tests"
+verification_git_repo: "https://github.com/openshift/verification-tests"
+verification_git_branch: "master"
+verification_feature_test: ""
+verification_test_tag: ""
