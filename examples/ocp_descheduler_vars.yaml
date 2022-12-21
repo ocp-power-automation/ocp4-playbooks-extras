@@ -1,0 +1,15 @@
+---
+
+## cluster-kube-descheduler installation and e2e run vars 
+
+descheduler_role_enable: false
+descheduler_operator_deploy: false
+descheduler_catalogsource_image: "quay.io/openshift-release-dev/ocp-release-nightly:iib-int-index-art-operators-4.12"
+descheduler_catalogsource_name: "my-operator-catalog"
+descheduler_namespace: "openshift-kube-descheduler-operator"
+descheduler_channel: "4.12"
+descheduler_e2e_tests_run: false
+descheduler_workdir: "/tmp/descheduler"  
+descheduler_e2e_repo: "https://github.com/openshift/openshift-tests-private"
+descheduler_e2e_github_branch: "master"
+descheduler_go_tarball: "https://go.dev/dl/go1.18.4.linux-ppc64le.tar.gz"

@@ -1,0 +1,8 @@
+---
+
+# Environment variables for running descheduler e2e test
+
+descheduler_e2e_env:
+  PATH: "{{ ansible_env.PATH }}:/usr/local/go/bin"
+  KUBECONFIG: "{{ ansible_env.HOME }}/.kube/config"
+  DESCHEDULER_E2E_DIR: "{{ descheduler_e2e_dir }}"
