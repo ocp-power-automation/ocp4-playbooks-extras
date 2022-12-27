@@ -1,0 +1,7 @@
+---
+- name: Installation of the NMState Operator and run e2e
+  hosts: bastion
+  tasks:
+  - name: Deploy NMState Operator
+    include_role:
+      name: ocp-nmstate-operator

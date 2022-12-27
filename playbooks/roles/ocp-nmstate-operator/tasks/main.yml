@@ -1,0 +1,282 @@
+---
+# tasks file for playbooks/roles/ocp-nmstate-operator
+
+- name: Check if cluster operators and nodes are healthy
+  include_role:
+    name: check-cluster-health
+
+- name: Clean up
+  block:
+  - name: Get the name of cluster service version
+    shell: oc get clusterserviceversion -n openshift-nmstate | awk '{ if ($1 ~ /nmstate/) print $1 }'
+    register: nmstate_csv
+
+  - name: Get the name of subscription
+    shell: oc get subscription -n openshift-nmstate | awk '{ if ($1 ~ /nmstate/) print $1 }'
+    register: nmstate_subscription
+
+  - name: Get the name of operator group
+    shell: oc get operatorgroup -n openshift-nmstate | awk '{ if ($1 ~ /nmstate/) print $1 }'
+    register: nmstate_operator_group
+
+  - name: Get the instance of the nmstate operator
+    shell: oc get nmstate -n openshift-nmstate -ojsonpath="{.items[].metadata.name}"
+    register: nmstate_instance
+    ignore_errors: true
+
+  - name: Delete the instance of the nmstate operator
+    kubernetes.core.k8s:
+      state: absent
+      api_version: nmstate.io/v1
+      kind: NMState
+      name: "{{ nmstate_instance.stdout }}"
+      namespace: openshift-nmstate
+    when: nmstate_instance.stdout|length > 0
+
+  - name: Delete the subscription if exists
+    kubernetes.core.k8s:
+      state: absent
+      api_version: operators.coreos.com/v1alpha1
+      kind: Subscription
+      name: "{{ nmstate_subscription.stdout }}"
+      namespace: openshift-nmstate
+    when: nmstate_subscription.stdout|length > 0
+
+  - name: Delete the operator group if exists
+    kubernetes.core.k8s:
+      state: absent
+      api_version: operators.coreos.com/v1
+      kind: OperatorGroup
+      name: "{{ nmstate_operator_group.stdout }}"
+      namespace: openshift-nmstate
+    when: nmstate_operator_group.stdout|length > 0
+
+  - name: Delete the cluster service version if exists
+    kubernetes.core.k8s:
+      state: absent
+      api_version: operators.coreos.com/v1alpha1
+      kind: ClusterServiceVersion
+      name: "{{ nmstate_csv.stdout }}"
+      namespace: openshift-nmstate
+    when: nmstate_csv.stdout|length > 0
+
+  - name: Check if all the pods has been deleted
+    shell: oc get pods -n openshift-nmstate --no-headers | wc -l
+    register: nmstate_pods
+    until: nmstate_pods.stdout|int == 0
+    retries: 15
+    delay: 60
+
+  - name: Get custom resource definitions
+    shell: oc get crd | awk '{print $1}'| grep nmstate
+    register: nmstate_crds
+    ignore_errors: true
+
+  - name: Delete the custom resource definition if exists
+    shell: oc delete crd {{ item }}
+    loop: "{{ nmstate_crds.stdout_lines }}"
+    when: nmstate_crds.stdout_lines|length > 0
+
+  - name: Delete the Kubernetes NMState Operator if exists
+    kubernetes.core.k8s:
+      state: absent
+      kind: Operator
+      name: kubernetes-nmstate-operator.openshift-nmstate
+
+  - name: Delete the namespace if exists
+    kubernetes.core.k8s:
+      state: absent
+      kind: Namespace
+      name: openshift-nmstate
+
+  - name: Check if the namespace gets deleted
+    shell: oc get namespace --no-headers | grep nmstate | wc -l
+    register: nmstate_namespace
+    until: nmstate_namespace.stdout|int == 0
+    retries: 15
+    delay: 30
+
+  - name: Delete the workspace
+    file:
+      path: "{{ nmstate_directory }}"
+      state: "absent"
+      mode: '0755'
+  when: nmstate_cleanup
+
+- name: Deploy Kubernetes NMState Operator
+  block:
+  - name: Setup custom catalog source
+    block:
+    - name: Include the global-secret-update role
+      include_role:
+          name: global-secret-update
+
+    - name: Set fact variable for catalog source name
+      set_fact:
+        nmstate_catalogsource: "nmstate-custom-catalogsource"
+
+    - name: Include role to create image content source policy and catalog source
+      include_role:
+        name: set-custom-catalogsource
+      vars:
+        custom_catalogsource_name: "{{ nmstate_catalogsource }}"
+        custom_catalogsource_display_name: "NMState Operator catalog source"
+        custom_catalogsource_image: "{{ nmstate_catalogsource_image }}"
+    when: nmstate_catalogsource_image != '' and nmstate_catalogsource_image != None
+
+  - name: Create namespace for nmstate operator
+    kubernetes.core.k8s:
+      state: present
+      definition:
+        apiVersion: v1
+        kind: Namespace
+        metadata:
+          labels:
+            pod-security.kubernetes.io/audit: privileged
+            pod-security.kubernetes.io/enforce: privileged
+            pod-security.kubernetes.io/warn: privileged
+            security.openshift.io/scc.podSecurityLabelSync: "false"
+            kubernetes.io/metadata.name: openshift-nmstate
+            name: openshift-nmstate
+          name: openshift-nmstate
+        spec:
+          finalizers:
+          - kubernetes
+
+  - name: Create operator group for nmstate operator
+    kubernetes.core.k8s:
+      state: present
+      definition:
+        apiVersion: operators.coreos.com/v1
+        kind: OperatorGroup
+        metadata:
+          generateName: openshift-nmstate-
+          name: openshift-nmstate
+          namespace: openshift-nmstate
+        spec:
+          targetNamespaces:
+          - openshift-nmstate
+
+  - name: Create subscription for nmstate operator
+    kubernetes.core.k8s:
+      state: present
+      definition:
+        apiVersion: operators.coreos.com/v1alpha1
+        kind: Subscription
+        metadata:
+          labels:
+            operators.coreos.com/kubernetes-nmstate-operator.openshift-nmstate: ""
+          name: nmstate-operator
+          namespace: openshift-nmstate
+        spec:
+          channel: "{{ nmstate_upgrade_channel }}"
+          installPlanApproval: Automatic
+          name: kubernetes-nmstate-operator
+          source: "{{ nmstate_catalogsource }}"
+          sourceNamespace: openshift-marketplace
+  when: nmstate_install_operator
+
+- name: Validate operator deployment and deploy instance of the nmstate operator
+  block:
+  - name: Check if the subscription has created
+    shell: oc get subscription nmstate-operator -n openshift-nmstate | wc -l
+    register: nmstate_operators_subscription
+    until: nmstate_operators_subscription.stdout|int == 2
+
+  - name: Check if the cluster service version has succeeded
+    shell: oc get clusterserviceversion -n openshift-nmstate | awk '{ if (($1 ~ /nmstate/) && $NF=="Succeeded") print $1 }' | wc -l
+    register: nmstate_operators_csv
+    until: nmstate_operators_csv.stdout|int == 1
+    retries: 15
+    delay: 120
+
+  - name: Check if operator pod is running
+    shell: oc get pod -l name=kubernetes-nmstate-operator -n openshift-nmstate | grep "Running" | wc -l
+    register: nmstate_operator_pods
+    until: nmstate_operator_pods.stdout|int == 1
+    retries: 10
+    delay: 60
+
+  - name: Create instance of the nmstate operator
+    kubernetes.core.k8s:
+      state: present
+      definition:
+        apiVersion: nmstate.io/v1
+        kind: NMState
+        metadata:
+          name: nmstate
+
+  - name: Check if all the pods are running
+    shell: oc get pods -n openshift-nmstate -l app=kubernetes-nmstate --no-headers | grep -v "Running\|Completed" | wc -l
+    register: nmstate_pods
+    until: nmstate_pods.stdout|int == 0 and nmstate_pods.stderr == ""
+    retries: 10
+    delay: 60
+  when: nmstate_install_operator or nmstate_e2e
+
+- name: Run e2e test cases
+  block:
+  - name: Install dependencies for running e2e tests
+    dnf:
+      name: make
+      state: present
+
+  - name: Include role for installation of Go lang
+    include_role:
+      name: golang-installation
+    vars:
+      go_tarball: "{{ nmstate_golang_tarball }}"
+      golang_path: "/usr/local"
+
+  - name: Clone the kubernetes-nmstate repository
+    git:
+      repo: "{{ nmstate_e2e_git_repository }}"
+      dest: "{{ nmstate_directory }}/kubernetes-nmstate"
+      version: "{{ nmstate_git_branch }}"
+
+  # Exporting these variables as environment variables and nmstate resource has been deployed by the same ansible playbook
+  - name: Remove lines
+    lineinfile:
+      path: "{{ nmstate_directory }}/kubernetes-nmstate/hack/ocp-e2e-tests-handler.sh"
+      regexp: '{{ item }}'
+      state: absent
+      backrefs: yes
+    loop:
+    - "export PRIMARY_NIC=enp2s0"
+    - "export PRIMARY_NIC=enp1s0"
+    - "export FIRST_SECONDARY_NIC=enp3s0"
+    - "export SECOND_SECONDARY_NIC=enp4s0"
+    - "make cluster-sync-operator"
+    - "oc create -f test/e2e/nmstate.yaml"
+
+  - name: Updating namespace name with openshift-nmstate
+    replace:
+      path: "{{ nmstate_directory }}/kubernetes-nmstate/hack/ocp-e2e-tests-handler.sh"
+      regexp: '{{ item.namespace_name }}'
+      replace: '{{ item.new_namespace_name }}'
+    loop:
+    - { namespace_name: " nmstate ", new_namespace_name: " openshift-nmstate "}
+
+  - name: Updating machine config file
+    replace:
+      path: "{{ nmstate_directory }}/kubernetes-nmstate/test/e2e/machineconfigs.yaml"
+      regexp: '{{ item.old_string }}'
+      replace: '{{ item.new_string }}'
+    loop:
+    - { old_string: "enp3s0", new_string: "env33" }
+    - { old_string: "enp4s0", new_string: "env34" }
+    - { old_string: "Connection", new_string: "connection" }
+
+  - name: Run kubernetes-nmstate e2e tests
+    shell: sh hack/ocp-e2e-tests-handler.sh > {{ nmstate_directory }}/nmstate_e2e_output.txt
+    args:
+      chdir: "{{ nmstate_directory }}/kubernetes-nmstate"
+    ignore_errors: true
+    environment: "{{ nmstate_e2e_env }}"
+
+  - name: Removing the color codes from output
+    ansible.builtin.replace:
+      path: "{{ nmstate_directory }}/nmstate_e2e_output.txt"
+      regexp: '\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])'
+      replace: ""
+  when: nmstate_e2e
