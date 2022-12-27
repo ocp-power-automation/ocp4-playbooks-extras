@@ -94,3 +94,6 @@
 
 - import_playbook: ocp-sctp.yml
   when: sctp_enabled is defined and sctp_enabled
+
+- import_playbook: ocp-nmstate-operator.yml
+  when: nmstate_enabled is defined and nmstate_enabled
