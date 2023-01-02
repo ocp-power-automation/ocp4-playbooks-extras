@@ -1,0 +1,77 @@
+---
+- name: Delete the service 
+  kubernetes.core.k8s:
+    state: absent
+    api_version: v1
+    kind: Service
+    namespace: sctp-namespace
+    name: sctpservice
+
+- name: Delete the client and server pod
+  kubernetes.core.k8s:
+    state: absent
+    api_version: v1
+    kind: Pod
+    namespace: sctp-namespace
+    name: "{{ item }}"
+  loop:
+  - "sctpserver"
+  - "sctpclient"
+
+- name: Check if all the pods has been deleted
+  shell: oc get pods -n sctp-namespace --no-headers | wc -l
+  register: sctp_pods
+  until: sctp_pods.stdout|int == 0
+  retries: 30
+  delay: 10
+
+- name: Delete the namespace if exists
+  kubernetes.core.k8s:
+    state: absent
+    kind: Namespace
+    name: sctp-namespace
+
+- name: Check if the namespace has deleted
+  shell: oc get namespace --no-headers | grep sctp-namespace | wc -l
+  register: sctp_namespace
+  until: sctp_namespace.stdout|int == 0
+  retries: 15
+  delay: 30
+
+- name: Delete the machine config
+  kubernetes.core.k8s:
+    state: absent
+    api_version: machineconfiguration.openshift.io/v1
+    kind: MachineConfig
+    namespace: sctp-namespace
+    name: load-sctp-module
+  register: machine_config
+
+- name: Check if the worker's MachineConfigPool has started reverting
+  shell: oc get machineconfigpool worker -o jsonpath="{.status.readyMachineCount}"
+  register: worker_ready_nodes
+  until: worker_ready_nodes.stdout|int < worker_node_count.stdout|int
+  retries: 15
+  delay: 30
+  when: machine_config.changed|bool == true
+
+- name: Check if the worker's MachineConfigPool has reverted
+  shell: oc get machineconfigpool worker -o jsonpath="{.status.readyMachineCount}"
+  register: worker_ready_nodes
+  until: worker_ready_nodes.stdout|int == worker_node_count.stdout|int
+  retries: 15
+  delay: 120
+  when: machine_config.changed|bool == true
+
+- name: Check if cluster operators and nodes are healthy
+  include_role:
+    name: check-cluster-health
+
+- name: Delete working directory for SCTP
+  file:
+    path: "{{ item }}"
+    state: "absent"
+    mode: "0755"
+  loop:
+    - "{{ sctp_workplace }}"
+    - "{{ verification_dir }}"
