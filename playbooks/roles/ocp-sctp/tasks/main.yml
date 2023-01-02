@@ -1,0 +1,214 @@
+---
+# tasks file for playbooks/roles/ocp-sctp
+
+- name: Check if cluster operators and nodes are healthy
+  include_role:
+    name: check-cluster-health
+
+- name: Get the worker machine count
+  shell: oc get machineconfigpool worker -o jsonpath="{.status.machineCount}"
+  register: worker_node_count
+
+# verification_dir variable will be used for clean up and copying results
+- name: Include default variables from role ocp-verification-tests 
+  ansible.builtin.include_vars:
+    file: "{{ playbook_dir }}/roles/ocp-verification-tests/defaults/main.yml"
+    name: verification_variables
+
+- set_fact:
+    verification_dir: "{{ verification_variables.verification_dir }}"
+
+- include_tasks: "{{ role_path }}/tasks/sctp_cleanup.yml"
+  when: sctp_cleanup
+
+- name: Enable the SCTP kernel module on worker nodes
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: machineconfiguration.openshift.io/v1
+      kind: MachineConfig
+      metadata:
+        name: load-sctp-module
+        labels:
+          machineconfiguration.openshift.io/role: worker
+      spec:
+        config:
+          ignition:
+            version: 3.2.0
+          storage:
+            files:
+              - path: /etc/modprobe.d/sctp-blacklist.conf
+                mode: 0644
+                overwrite: true
+                contents:
+                  source: data:,
+              - path: /etc/modules-load.d/sctp-load.conf
+                mode: 0644
+                overwrite: true
+                contents:
+                  source: data:,sctp
+  register: machine_config
+
+- name: Check if the worker's MachineConfigPool has started updating
+  shell: oc get machineconfigpool worker -o jsonpath="{.status.readyMachineCount}"
+  register: worker_ready_nodes
+  until: worker_ready_nodes.stdout|int < worker_node_count.stdout|int
+  retries: 15
+  delay: 30
+  when: machine_config.changed|bool == true
+
+- name: Check if the worker's MachineConfigPool has updated
+  shell: oc get machineconfigpool worker -o jsonpath="{.status.readyMachineCount}"
+  register: worker_ready_nodes
+  until: worker_ready_nodes.stdout|int == worker_node_count.stdout|int
+  retries: 15
+  delay: 120
+  when: machine_config.changed|bool == true
+
+- name: Check if cluster operators and nodes are healthy
+  include_role:
+    name: check-cluster-health
+
+- name: Create namespace
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        labels:
+          pod-security.kubernetes.io/audit: privileged
+          pod-security.kubernetes.io/enforce: privileged
+          pod-security.kubernetes.io/warn: privileged
+          security.openshift.io/scc.podSecurityLabelSync: "false"
+        name: sctp-namespace
+
+- name: Create a pod for the SCTP server
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Pod
+      metadata:
+        name: sctpserver
+        namespace: sctp-namespace
+        labels:
+          app: sctpserver
+      spec:
+        containers:
+          - name: sctpserver
+            image: registry.access.redhat.com/ubi8/ubi
+            command: ["/bin/sh", "-c"]
+            args:
+              ["dnf install -y nc && sleep inf"]
+            ports:
+              - containerPort: 30102
+                name: sctpserver
+                protocol: SCTP
+    wait: "True"
+    wait_condition:
+      type: Ready
+    wait_timeout: 300
+    wait_sleep: 30
+
+- name: Create a service for the SCTP listener pod
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: sctpservice
+        namespace: sctp-namespace
+        labels:
+          app: sctpserver
+      spec:
+        type: "{{ service_type }}"
+        selector:
+          app: sctpserver
+        ports:
+          - name: sctpserver
+            protocol: SCTP
+            port: 30102
+            targetPort: 30102
+
+- name: Create a pod for the SCTP client
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Pod
+      metadata:
+        name: sctpclient
+        namespace: sctp-namespace
+        labels:
+          app: sctpclient
+      spec:
+        containers:
+          - name: sctpclient
+            image: registry.access.redhat.com/ubi8/ubi
+            command: ["/bin/sh", "-c"]
+            args:
+              ["dnf install -y nc && sleep inf"]
+    wait: "True"
+    wait_condition:
+      type: Ready
+    wait_timeout: 300
+    wait_sleep: 60
+
+- name: Obtain the IP address of the sctpservice service
+  shell: oc get services sctpservice -n sctp-namespace -o jsonpath="{.spec.clusterIP}"
+  register: service_ip
+
+- name: Run an SCTP listener on the server
+  shell: oc -n sctp-namespace rsh sctpserver nc -l -vv -p 30102 --sctp
+  async: 15
+  poll: 0
+  register: sctp_server
+
+- name: Start the SCTP client
+  shell: oc -n sctp-namespace rsh sctpclient nc {{ service_ip.stdout }} 30102 --sctp -vv 
+  register: sctp_client_logs
+  async: 15
+  poll: 5
+  ignore_errors: true
+
+- name: Checking the SCTP listener on the server
+  async_status:
+    jid: "{{ sctp_server.ansible_job_id }}"
+  register: sctp_server_logs
+  until: sctp_server_logs.finished
+  retries: 10
+  delay: 10
+
+- name: Saving the logs
+  blockinfile: 
+    state: present
+    insertafter: EOF
+    dest: "{{ sctp_workplace }}/sctp_logs.txt"
+    marker: "----------------------------------------------------------------------------------------"
+    content: "{{ item }}"
+    create: true
+  with_items:
+  - "Server logs:"
+  - "{{ sctp_server_logs.stderr }}"
+  - "Client logs:"
+  - "{{ sctp_client_logs.stderr }}"
+
+- fail:
+    msg: "Unable to establish client server connection. Please check the logs {{ sctp_workplace }}/sctp_logs.txt"
+  when: '"CONNECT SUCCESS" not in sctp_client_logs.stderr'
+
+- name: Run verification tests for SCTP
+  include_role:
+    name: ocp-verification-tests
+  vars:
+  - verification_feature_test: "features/networking/sctp.feature"
+  when: sctp_verification_tests
+
+- name: Copy verification test results to {{ sctp_workplace }}
+  ansible.builtin.copy:
+    src: "{{ verification_dir }}/result/"
+    dest: "{{ sctp_workplace }}/verification-tests-result/"
+    remote_src: yes
+  when: sctp_verification_tests
