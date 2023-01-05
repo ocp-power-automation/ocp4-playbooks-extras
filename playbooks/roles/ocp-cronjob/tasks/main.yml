@@ -1,0 +1,70 @@
+---
+# Creating namespace for cronjob
+- name: Create namespace for cronjob
+  k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: "{{ cronjob_namespace }}"
+    
+# create cronjobs
+- name: Create Cronjobs
+  block: 
+  - name: Create Cronjob
+    template:
+      src: "{{ role_path }}/templates/cron-job.yml.j2"
+      dest: "{{ role_path }}/files/cronjob.yml"
+      
+  - name: Apply the cronjob
+    shell: oc apply -f "{{ role_path }}/files/cronjob.yml"
+
+  - name: Check if pods are created
+    shell: oc get pods -n {{ cronjob_namespace }} --no-headers | wc -l
+    register: pod_count
+    until: pod_count.stdout|int > 0
+    retries: 3
+    delay: 30
+
+  - name: Check pod status
+    shell: oc wait -l parent=cronjobpi --for=condition=Ready pods
+    register: pod_status
+
+  - debug:
+      msg: "{{ pod_status.stdout_lines }}"
+
+  - name: Check if jobs are getting created
+    shell: oc get jobs -n {{ cronjob_namespace }} --no-headers | wc -l
+    register: job_count
+    until: job_count.stdout|int > 0
+    retries: 3
+    delay: 30
+
+  - name: Check if jobs are running
+    shell: oc get jobs -n {{ cronjob_namespace }}
+    register: output_jobs
+
+  - name: Check if pods are running
+    shell: oc get pods -n {{ cronjob_namespace }} | grep "Completed\|Running"
+    register: output_pods
+
+  - name: Fail if pods are not getting created
+    fail:
+      msg: "Pods are not getting created !"
+    when: pod_count.stdout|int == 0
+
+  - name: Fail if jobs are not getting created
+    fail:
+      msg: "Jobs are not getting created !"
+    when: job_count.stdout|int == 0
+
+  - debug:
+      msg: "{{ output_jobs.stdout_lines }}"
+
+  - debug:
+      msg: "{{ output_pods.stdout_lines }}"
+
+  - name: Delete cronjob if requested
+    shell: oc delete -f "{{ role_path }}/files/cronjob.yml"
+    when: delete_cronjob

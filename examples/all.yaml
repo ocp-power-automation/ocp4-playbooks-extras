@@ -258,3 +258,12 @@ fio_git_username: ""
 fio_git_token: ""
 fio_git_branch: ""
 fio_cleanup: true
+
+#cron-job vars
+enable_cronjob: false  # Set true to enable the cronjob
+cronjob_schedule: "* * * * *"
+cronjob_concurrencyPolicy: "Allow"
+cronjob_startingDeadlineSeconds:
+cronjob_suspend:      
+cronjob_successfulJobsHistoryLimit:
+cronjob_failedJobsHistoryLimit:
