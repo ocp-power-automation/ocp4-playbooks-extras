@@ -1,0 +1,15 @@
+---
+# defaults file for playbooks/roles/ocp-cronjob
+# all these values can be updated as needed
+container_name: "busybox"
+container_image: "busybox" 
+cronjob_namespace: "openshift-cronjob"
+delete_cronjob: false
+job_name: "cronjob"
+enable_cronjob: false
+cronjob_schedule: "*/1 * * * *"
+cronjob_concurrencyPolicy: "Allow"
+cronjob_startingDeadlineSeconds: 200
+cronjob_suspend: false      
+cronjob_successfulJobsHistoryLimit: 4
+cronjob_failedJobsHistoryLimit: 2
