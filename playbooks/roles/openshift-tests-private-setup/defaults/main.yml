@@ -1,0 +1,8 @@
+---
+
+## init-setup default vars
+golang_install_tarball: "https://go.dev/dl/go1.19.4.linux-ppc64le.tar.gz"
+openshift_tests_private_basedir: "~/ocp-validation" 
+openshift_tests_private_clone_url: "https://github.com/openshift/openshift-tests-private" 
+openshift_tests_private_branch: "master"
+openshift_tests_private_make_build_target: "~/ocp-validation/openshift-tests-private"
