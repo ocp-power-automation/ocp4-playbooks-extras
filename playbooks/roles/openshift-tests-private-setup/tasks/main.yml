@@ -1,0 +1,64 @@
+---
+
+## Test initialization setup playbook
+
+- set_fact:
+    github_username: "{{ lookup('ansible.builtin.env','GITHUB_USERNAME') }}"
+    github_personal_access_token: "{{ lookup('ansible.builtin.env','GITHUB_ACCESS_TOKEN') }}"
+
+# Check the environment vars for git username and personal access token
+- fail:
+    msg: "Please ensure that you have been set the environment variables GITHUB_USERNAME and GITHUB_ACCESS_TOKEN"
+  when: github_username == "" or github_personal_access_token == ""
+
+- name: Install the development tools
+  yum:
+    name:
+    - git 
+    - "@Development tools"
+    state: present
+  when: |
+    (ansible_distribution == "CentOS") or
+    (ansible_distribution == "RedHat") or
+    (ansible_distribution == "Fedora")
+
+- name: Include a golang installation role
+  include_role:
+    name: golang-installation
+  vars:
+    go_tarball: "{{ golang_install_tarball }}"
+    golang_path: "/usr/local/"
+
+- name: Check if the given base-directory path already exists
+  stat:
+    path: "{{ openshift_tests_private_basedir }}"
+  register: basedir_path_status
+
+- name: Create a base directory for openshift-test-private 
+  file:
+    path: "{{ openshift_tests_private_basedir }}"
+    state: directory
+    mode: 0755
+  when: not basedir_path_status.stat.exists
+
+- name: Clone the git repo
+  git:
+    repo: "https://{{ github_username }}:{{ github_personal_access_token }}@github.com/{{ openshift_tests_private_clone_url | urlsplit('path') }}"
+    dest: "{{ repo_dest_path }}"
+    version: "{{ openshift_tests_private_branch }}"
+    force: true
+  vars:
+    repo_dest_path: "{{ [openshift_tests_private_basedir, openshift_tests_private_clone_url.split('/')[-1]] | join('/') }}"
+  when: 
+    - openshift_tests_private_clone_url != "" 
+    - openshift_tests_private_branch != ""
+    - github_username != ""
+    - github_personal_access_token != ""
+
+- name: Run make build command at target
+  make:
+    chdir: "{{ openshift_tests_private_make_build_target }}"
+    target: build
+  environment:
+    PATH: "{{ ansible_env.PATH }}:/usr/local/go/bin"
+  when: openshift_tests_private_make_build_target != ""
