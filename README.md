@@ -35,6 +35,7 @@ This repository consists of additional ansible playbooks for the following:
 1. Descheduler deployment and running e2e test
 1. Configure and run verification-tests
 1. Enabling Stream Control Transmission Protocol (SCTP) and run e2e
+1. Deploy Kubernetes NMState Operator and run e2e
 
 ## Assumptions:
 
