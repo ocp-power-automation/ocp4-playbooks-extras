@@ -1,0 +1,81 @@
+---
+- name: Install required packages
+  package:
+    name:
+      - git
+    state: latest
+
+- name: Install Ruby-3 package
+  shell: |
+    sudo dnf module reset ruby -y
+    sudo dnf install -y @ruby:3.0
+
+- name: Create user with username testuser
+  include_role:
+    name: ocp-htpasswd-identity-provider
+  vars:
+    htp_idp_username: "testuser"
+    htp_idp_password: "testuser"
+    htp_idp_user_role: "self-provisioner"
+    htp_idp_directory: "/tmp/htpasswd"
+    htp_idp_delete_user: false
+
+- name: Clone verification-tests github repo
+  git:
+    repo: "{{ verification_git_repo }}"
+    dest: "{{ verification_dir }}"
+    version: "{{ verification_git_branch }}"
+    force: yes
+
+- name: Remove azure related lines from Gemfile
+  shell: |
+    sed -i "s/gem 'azure-storage'/#gem 'azure-storage'/g" Gemfile
+    sed -i "s/gem 'azure_mgmt_storage'/#gem 'azure_mgmt_storage'/g" Gemfile
+    sed -i "s/gem 'azure_mgmt_compute'/#gem 'azure_mgmt_compute'/g" Gemfile
+    sed -i "s/gem 'azure_mgmt_resources'/#gem 'azure_mgmt_resources'/g" Gemfile
+    sed -i "s/gem 'azure_mgmt_network'/#gem 'azure_mgmt_network'/g" Gemfile
+  args:
+    chdir: "{{ verification_dir }}"
+
+- name: Set debug mode to false
+  shell: sed -i "s/BUSHSLICER_DEBUG_AFTER_FAIL=true/BUSHSLICER_DEBUG_AFTER_FAIL=false/g" config/cucumber.yml
+  args:
+    chdir: "{{ verification_dir }}"
+
+- name: Create local dev environment
+  shell: |
+    sudo ./tools/install_os_deps.sh
+    ./tools/hack_bundle.rb
+    bundle update
+  args:
+    chdir: "{{ verification_dir }}"
+
+- name: Get the OCP server url
+  shell: oc whoami --show-server | cut -d':' -f2 | tr -d [/]
+  register: server_url
+
+- name: Get the OCP version
+  shell: oc version -o json | jq '.openshiftVersion'
+  register: ocp_cluster_version
+
+- name: Creates directory
+  file:
+    path: "{{ verification_dir }}/result"
+    state: directory
+  when: verification_feature_test != "" or verification_test_tag != ""
+
+- name: Execute a whole feature file
+  shell: bundle exec cucumber {{ verification_feature_test }} | tee result/feature.log
+  args:
+    chdir: "{{ verification_dir }}"
+  environment: "{{ verification_tests_env  }}"
+  when: verification_feature_test != ""
+  ignore_errors: true
+
+- name: Execute tagged tests
+  shell: bundle exec cucumber --tags @{{ verification_test_tag }} | tee result/tag.log
+  args:
+    chdir: "{{ verification_dir }}"
+  environment: "{{ verification_tests_env  }}"
+  when: verification_test_tag != ""
+  ignore_errors: true

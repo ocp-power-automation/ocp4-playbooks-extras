@@ -1,0 +1,19 @@
+---
+# vars file for ocp-verification-tests
+
+verification_tests_env:
+  BUSHSLICER_DEFAULT_ENVIRONMENT: "ocp4"
+  OPENSHIFT_ENV_OCP4_USER_MANAGER_USERS: "testuser:testuser"
+  OPENSHIFT_ENV_OCP4_ADMIN_CREDS_SPEC: "file:///root/openstack-upi/auth/kubeconfig"
+  OPENSHIFT_ENV_OCP4_HOSTS: "{{ server_url.stdout }}:lb"
+  BUSHSLICER_CONFIG:
+    global:
+      browser: firefox
+    environments:
+      ocp4:
+        admin_creds_spec: /root/openstack-upi/auth/kubeconfig
+        version: "{{ ocp_cluster_version.stdout }}"
+        #api_port: 443      # For HA clusters, both 3.x and 4.x
+        api_port: 6443     # For non-HA 4.x clusters
+        #api_port: 8443     # For non-HA 3.x clusters
+        #web_console_url: https://console-openshift-console.apps.*.openshift.com
