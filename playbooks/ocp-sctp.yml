@@ -1,0 +1,5 @@
+---
+- name: Enabling Stream Control Transmission Protocol (SCTP) and run verification tests
+  hosts: bastion
+  roles:
+  - ocp-sctp

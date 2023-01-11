@@ -1,0 +1,7 @@
+---
+# ocp-sctp vars
+sctp_enabled: false
+sctp_workplace: "/tmp/sctp"
+service_type: NodePort
+sctp_verification_tests: false
+sctp_cleanup: true
