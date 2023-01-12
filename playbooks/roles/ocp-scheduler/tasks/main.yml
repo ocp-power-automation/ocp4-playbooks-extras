@@ -1,0 +1,121 @@
+---
+
+- set_fact:
+    github_username: "{{ lookup('ansible.builtin.env','GITHUB_USERNAME') }}"
+    github_personal_access_token: "{{ lookup('ansible.builtin.env','GITHUB_ACCESS_TOKEN') }}"
+
+- name: Invoke the cluster-health role
+  include_role:
+    name: check-cluster-health
+
+- name: Create a working directory structure
+  block:
+    - name: Create a main working directory
+      file:
+        path: "{{ scheduler_workdir }}"
+        state: directory
+        mode: 0755
+    
+    - name: Create sub-directories to the main working directores
+      file:
+        path: "{{ scheduler_workdir }}/{{ item }}"
+        state: directory
+        mode: 0755
+      loop: "{{ scheduler_subdir_list }}" 
+  when: scheduler_workdir != "" and scheduler_subdir_list != []
+
+
+- name: Configure a scheduler profile
+  block:
+    - name: Configure the given scheduler profile by patching the scheduler object
+      kubernetes.core.k8s_json_patch:
+        kind: Scheduler
+        namespace: default
+        name: cluster
+        patch:
+          - op: add
+            path: /spec/profile
+            value: "{{ scheduler_profile }}"
+
+    - name: Wait for 5 mins after setting the schedule profile to get necessary pods up in openshift-kube-scheduler project
+      wait_for:
+        timeout: 300
+
+    - name: Create a pods to test scheduler profile
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Pod
+          metadata:
+            name: "{{ item }}"
+            namespace: default
+          spec:
+            containers:
+            - name: demo
+              image: docker.io/ibmcom/pause-ppc64le:3.1
+              imagePullPolicy: IfNotPresent
+              resources:
+                requests:
+                  memory: "{{ scheduler_pod_memory_resource }}"
+                  cpu: "{{ scheduler_pod_cpu_resource }}"
+                limits:
+                  memory: "{{ scheduler_pod_memory_limit }}"
+                  cpu: "{{ scheduler_pod_cpu_limit }}"
+      with_sequence: start=1 end="{{ scheduler_pod_count }}" format=mypod-%d
+    
+    - name: Wait for 5 mins to get the pods in the Running state
+      wait_for:
+        timeout: 300
+    
+    - name: Verify the pods state
+      shell: oc get pods | grep mypod | grep -v Running | wc -l
+      register: pending_pods
+      until: pending_pods.stdout|int == 0
+      retries: 10
+      delay: 30
+
+    - name: Verify the scheduler profile
+      include_tasks: "{{ role_path }}/tasks/verify_scheduler_profile.yaml"
+
+    - name: Delete the created pods
+      shell: oc get pods | awk '/^mypod-/{system("oc delete pod " $1)}'
+
+    - name: Remove the applied profile configuration to get back the default node scheduling behavior
+      kubernetes.core.k8s_json_patch:
+        kind: Scheduler
+        namespace: default
+        name: cluster
+        patch:
+          - op: remove
+            path: /spec/profile
+
+  when: configure_scheduler_profile
+
+- name: Run the e2e test for openshift-kube-scheduler
+  block:
+    - fail:
+        msg: "Please set the environment variables GITHUB_USERNAME and GITHUB_ACCESS_TOKEN"
+      when: github_username == "" and github_personal_access_token == ""
+
+    - name: Clone the git repo
+      git:
+        repo: "https://{{ github_username }}:{{ github_personal_access_token }}@github.com/{{ scheduler_e2e_github_repo | urlsplit('path') }}"
+        dest: "{{ scheduler_workdir }}/openshift-tests-private"
+        version: "{{ scheduler_e2e_github_branch }}"
+        force: true
+
+    - name: Run make build command at target
+      make:
+        chdir: "{{ scheduler_workdir }}/openshift-tests-private"
+        target: build
+
+    - name: Run the e2e test command
+      shell: "./bin/extended-platform-tests run all --dry-run | 
+        grep '31939\\|44049\\|50931\\|50932' | 
+        ./bin/extended-platform-tests run -f - -o ../e2e-test/scheduler-e2e-test-summary.txt"
+      args:
+        chdir: "{{ scheduler_workdir }}/openshift-tests-private"
+  environment: "{{ scheduler_env_vars }}"
+  when: scheduler_e2e_test_run
+    

@@ -100,3 +100,7 @@
 
 - import_playbook: ocp-nmstate-operator.yml
   when: nmstate_enabled is defined and nmstate_enabled
+
+- import_playbook: ocp-scheduler.yml
+  when: scheduler_role_enable is defined and scheduler_role_enable
+
