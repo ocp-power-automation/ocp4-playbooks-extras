@@ -28,7 +28,7 @@ ipa_user_last_name: "Star"  # IPA user last name to display
 descheduler_role_enable: false
 descheduler_operator_deploy: false
 descheduler_catalogsource_image: "quay.io/openshift-release-dev/ocp-release-nightly:iib-int-index-art-operators-4.12"
-descheduler_catalogsource_name: "kube-descheduler-operator-catalog"
+descheduler_catalogsource_name: "my-operator-catalog"
 descheduler_namespace: "openshift-descheduler"
 descheduler_channel: "4.12"
 descheduler_e2e_tests_run: false
