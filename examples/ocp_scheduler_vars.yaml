@@ -1,0 +1,16 @@
+---
+
+## ocp-scheduler variables
+scheduler_role_enable: false
+configure_scheduler_profile: false
+scheduler_profile: "HighNodeUtilization"
+scheduler_e2e_test_run: false
+scheduler_workdir: ~/ocp-scheduler
+scheduler_subdir_list: ["script", "e2e-test"]
+scheduler_e2e_github_repo: "https://github.com/openshift/openshift-tests-private"
+scheduler_e2e_github_branch: "master" 
+scheduler_pod_cpu_resource: "100m"
+scheduler_pod_cpu_limit: "200m"
+scheduler_pod_memory_resource: "32Mi"
+scheduler_pod_memory_limit: "64Mi"
+scheduler_pod_count: 20

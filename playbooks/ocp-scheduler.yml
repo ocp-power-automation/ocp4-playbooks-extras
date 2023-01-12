@@ -1,0 +1,6 @@
+---
+
+- name: OCP scheduler profile validation and e2e test run 
+  hosts: bastion
+  roles:
+    - ocp-scheduler
