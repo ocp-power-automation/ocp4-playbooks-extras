@@ -1,0 +1,28 @@
+---
+
+##  Scheduler test profile
+
+- name: Get the running pods output
+  shell: oc get pods -o wide
+  register: running_pods_output
+
+- name: Confirm the scheduling pods are running on nodes
+  shell: oc get pods -o wide --no-headers | awk '{ if ($2 ~ /mypod/ && $4 !~ /Running/) print $2}' | wc -l
+  register: not_running_pods
+
+- debug:
+    msg: "{{ running_pods_output.stdout_lines }}"
+
+- fail:
+    msg: "{{ not_running_pods.stdout }} pods are failed to run"
+  when: not_running_pods.stdout|int != 0
+
+- name: Check the configmap object for schdeduler profile
+  block:
+    - name: Check the config.yaml in configmap
+      shell: oc get configmap config -n openshift-kube-scheduler -o json | jq '.data'
+      register: kube_scheduler_configmap
+
+    - debug:
+        msg: "{{ kube_scheduler_configmap.stdout_lines }}"
+
