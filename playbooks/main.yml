@@ -94,3 +94,7 @@
 
 - import_playbook: ocp-sctp.yml
   when: sctp_enabled is defined and sctp_enabled
+
+- import_playbook: ocp-scheduler.yml
+  when: scheduler_role_enable is defined and scheduler_role_enable
+
