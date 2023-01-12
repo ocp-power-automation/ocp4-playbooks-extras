@@ -1,0 +1,6 @@
+---
+
+- name: openshift-tests-private repository setup role
+  hosts: bastion
+  roles:
+  - openshift-tests-private-setup
