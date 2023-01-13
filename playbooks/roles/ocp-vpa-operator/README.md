@@ -61,6 +61,8 @@ Role Variables
 | vpa_e2e | no | false | It executes the VPA e2e |
 | vpa_cleanup | no | false | It is used to clean the VPA resources only |
 
+Note: To set the go lang version and path please use the variables from the `golang-installation` role. Please make sure, value for `golang_installation_path` is `/usr/local/`.
+
 Dependencies
 ------------
 
