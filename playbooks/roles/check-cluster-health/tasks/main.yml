@@ -4,6 +4,10 @@
 - name: Check all co are in 'Available' state and not in 'Progressing' or 'Degraded' state
   shell: oc get co --no-headers | awk '{ print $3 $4 $5 }' | grep -w -v TrueFalseFalse | wc -l
   register: cluster_operator_count
+  until: cluster_operator_count.stdout | int == 0
+  retries: 6
+  delay:  60
+  ignore_errors: true
 
 - name: Check all node are healthy
   shell: oc get nodes --no-headers | grep -v Ready | wc -l
