@@ -1,0 +1,9 @@
+---
+# vars file for playbooks/roles/ocp-nmstate-operator
+nmstate_e2e_env:
+  PATH: "/usr/local/go/bin:{{ ansible_env.PATH }}"
+  KUBECONFIG: "{{ ansible_env.HOME }}/.kube/config"
+  PRIMARY_NIC: env32
+  FIRST_SECONDARY_NIC: env33
+  SECOND_SECONDARY_NIC: env34
+  HANDLER_NAMESPACE: openshift-nmstate
