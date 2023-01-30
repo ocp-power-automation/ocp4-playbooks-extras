@@ -1,0 +1,7 @@
+---
+- name: Start Pod disruption budget
+  hosts: bastion
+  tasks:
+  - name: Enable Pod disruption Budget
+    include_role:
+      name: ocp-pod-disruption-budget

@@ -1,0 +1,11 @@
+---
+# defaults file for playbooks/roles/ocp-pod-disruption-budget
+pdb_enabled: false
+pdb_namespace: "openshift-pdb"
+pdb_name: web-pdb
+pdb_minAvailable: 3
+pdb_maxUnavailable:
+container_name: nginx
+container_image: quay.io/powercloud/nginx-unprivileged:latest
+label_name: web
+delete_pdb: false
