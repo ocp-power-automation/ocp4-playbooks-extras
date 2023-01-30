@@ -1,0 +1,57 @@
+---
+# Creating namespace for pod disruption budget
+- name: Create namespace for pod disruption budget
+  k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: "{{ pdb_namespace }}"
+    
+# create pod disruption budget
+- name: Create pod disruption budget
+  block: 
+  - name: Create pod disruption budget
+    template:
+      src: "{{ role_path }}/templates/pdb-deployment.yml.j2"
+      dest: "{{ role_path }}/pdb.yml"
+
+  - name: Check provided values for pod disruption budget
+    ansible.builtin.fail:
+      msg: You can specify only one of maxUnavailable and minAvailable in a single PodDisruptionBudget. Also you can't keep both as blank on same time.
+    when: (pdb_minAvailable and pdb_maxUnavailable) or
+          (pdb_minAvailable == None and pdb_maxUnavailable == None)
+
+  - name: create pod
+    k8s:
+      state: present
+      src: "{{ role_path }}/pdb.yml"
+  
+  - name: Check pod status
+    shell: oc wait --all --for=condition=Ready pods -n {{ pdb_namespace }} --timeout=100s
+
+  - name: Check created pods
+    shell: oc get pods -n {{ pdb_namespace }} -o wide
+    register: pdb_pods
+
+  - debug:
+      msg: "{{ pdb_pods.stdout_lines }}"
+
+  - name: Get pod disruption budget
+    shell: oc get pdb -n {{ pdb_namespace }}
+    register: get_pdb
+
+  - debug:
+      msg: "{{ get_pdb.stdout_lines }}"
+
+  - name: Describe pod disruption budget
+    shell: oc describe pdb -n {{ pdb_namespace }}
+    register: describe_pdb
+
+  - debug:
+      msg: "{{ describe_pdb.stdout_lines }}"
+
+  - name: Delete pod disruption budget
+    shell: oc delete -f "{{ role_path }}/pdb.yml"
+    when: delete_pdb

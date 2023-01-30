@@ -1,0 +1,45 @@
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ pdb_name }}
+  namespace: "{{ pdb_namespace }}"
+spec:
+{% if pdb_minAvailable %}
+  minAvailable: {{ pdb_minAvailable }}
+{% endif %}
+{% if pdb_maxUnavailable %}
+  maxUnavailable: {{ pdb_maxUnavailable }}
+{% endif %}
+  selector:
+    matchLabels:
+      app: {{ label_name }}
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ label_name }}
+  namespace: "{{ pdb_namespace }}"
+spec:
+  replicas: 4
+  selector:
+    matchLabels:
+      app: {{ label_name }}
+  template:
+    metadata:
+      labels:
+        app: {{ label_name }}
+    spec:
+      containers:
+      - name: {{ container_name }}
+        image: {{ container_image }}
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "3000m"
+          limits:
+            memory: "128Mi"
+            cpu: "3000m"
+        ports:
+        - containerPort: 80
