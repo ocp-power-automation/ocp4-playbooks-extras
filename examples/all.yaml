@@ -274,6 +274,17 @@ service_type: NodePort
 sctp_verification_tests: false
 sctp_cleanup: true
 
+#pod disruption budget
+pdb_enabled: false
+pdb_minAvailable: 3
+pdb_maxUnavailable:
+pdb_namespace: "openshift-pdb"
+pdb_name: web-pdb
+container_name: nginx
+container_image: quay.io/powercloud/nginx-unprivileged:latest
+label_name: web
+delete_pdb: false
+
 # ocp-nmstate-operator vars
 nmstate_enabled: false
 nmstate_install_operator: true
