@@ -1,0 +1,3 @@
+---
+# defaults file for playbooks/roles/ocp-vpa-operator
+nginx_image: quay.io/powercloud/nginx-unprivileged:latest

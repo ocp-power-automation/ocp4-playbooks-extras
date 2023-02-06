@@ -201,7 +201,7 @@
       spec:
         containers:
           - name: nginx-pod-default
-            image: quay.io/varad_ahirwadkar/nginx-unprivileged
+            image: "{{ nginx_image }}"
             ports:
             - containerPort: 80
 
