@@ -30,7 +30,7 @@
               deployment-config.name: deploymentconfig-nginx
           spec:
             containers:
-            - image: quay.io/vahirwad/nginx-unprivileged
+            - image: "{{ nginx_image }}"
               imagePullPolicy: Always
               name: default-container
               resources: 
