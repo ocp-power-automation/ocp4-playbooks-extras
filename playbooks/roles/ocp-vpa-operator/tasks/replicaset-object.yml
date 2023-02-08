@@ -24,7 +24,7 @@
           spec:
             containers:
             - name: replicaset-nginx
-              image: quay.io/vahirwad/nginx-unprivileged
+              image: "{{ nginx_image }}"
               resources:
                 requests:
                   cpu: 100m
@@ -37,7 +37,7 @@
               - containerPort: 80
                 protocol: TCP
             - name: replicaset-nginx-exempt
-              image: quay.io/vahirwad/nginx-unprivileged
+              image: "{{ nginx_image }}"
               resources:
                 requests:
                   cpu: 100m

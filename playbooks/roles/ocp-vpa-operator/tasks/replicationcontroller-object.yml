@@ -19,7 +19,7 @@
           spec:
             containers:
             - name: replicationcontroller-nginx
-              image: quay.io/vahirwad/nginx-unprivileged
+              image: "{{ nginx_image }}"
               resources: 
                 requests:
                   cpu: 100m
@@ -32,7 +32,7 @@
               - containerPort: 80
                 protocol: TCP
             - name: replicationcontroller-nginx-exempt
-              image: quay.io/vahirwad/nginx-unprivileged
+              image: "{{ nginx_image }}"
               resources: 
                 requests:
                   cpu: 100m

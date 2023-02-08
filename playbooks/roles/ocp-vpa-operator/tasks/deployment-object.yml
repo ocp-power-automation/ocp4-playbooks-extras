@@ -20,7 +20,7 @@
           spec:
             containers:
               - name: deployment-nginx
-                image: quay.io/vahirwad/nginx-unprivileged
+                image: "{{ nginx_image }}"
                 resources:
                   requests:
                     cpu: 100m
@@ -30,7 +30,7 @@
                   - "-c"
                   - "while true; do timeout 0.5s yes >/dev/null; sleep 0.5s; done"
               - name: deployment-nginx-exempt
-                image: quay.io/vahirwad/nginx-unprivileged
+                image: "{{ nginx_image }}"
                 resources:
                   requests:
                     cpu: 100m

@@ -23,7 +23,7 @@
               tier: frontend
           spec:
             containers:
-            - image: quay.io/vahirwad/nginx-unprivileged
+            - image: "{{ nginx_image }}"
               name: nginx-rs-app
               resources: 
                 limits:
