@@ -1,0 +1,1 @@
+nginx_image: quay.io/powercloud/nginx-unprivileged:latest
