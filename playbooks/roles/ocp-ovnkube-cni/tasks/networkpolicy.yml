@@ -117,7 +117,7 @@
           spec:
             containers:
               - name: run-pod
-                image: quay.io/varad_ahirwadkar/nginx-unprivileged
+                image: "{{ nginx_image }}"
                 ports:
                 - containerPort: 80
 
@@ -189,7 +189,7 @@
               spec:
                 containers:
                 - name: frontend
-                  image: quay.io/varad_ahirwadkar/nginx-unprivileged
+                  image: "{{ nginx_image }}"
                   ports:
                   - containerPort: 80
 
@@ -245,97 +245,104 @@
       when: item.name.failed
   ignore_errors: yes
 
-- name: Default NetworkPolicy Validation
+- name: Default Network Policy Validation
   block:
-    - name: Generate the default project template
-      shell: |
-        oc project default
-        oc adm create-bootstrap-project-template -o yaml > "{{ ovnkube_setup_directory }}/template.yaml"
+    - name: Generate the custom default project template
+      shell: oc adm create-bootstrap-project-template -n default -o yaml
+      register: project_template
 
-    - name: Edit the default project template
+    - name: Save the custom default project template
+      copy: 
+        content: "{{ project_template.stdout }}"
+        dest: "{{ ovnkube_setup_directory }}/template.yml"
+
+    - name: Add namespace to the template
+      ansible.builtin.lineinfile:
+        path: "{{ ovnkube_setup_directory }}/template.yml"
+        insertafter: 'name: project-request'
+        line: "  namespace: openshift-config"
+
+    - name: Edit the custom default project template
       blockinfile:
         insertbefore: parameters
-        block: "{{ lookup('file', 'default_policy.txt') }}"
-        path: "{{ ovnkube_setup_directory }}/template.yaml"
+        block: "{{ lookup('file', '{{ role_path }}/files/default_policy.txt') }}"
+        path: "{{ ovnkube_setup_directory }}/template.yml"
 
-    - name: Create modified template
-      shell: oc apply -f  "{{ ovnkube_setup_directory }}/template.yaml" -n openshift-config
-      register: create_template
+    - name: Patch the project configuration resource to include the project-request
+      kubernetes.core.k8s:
+        state: patched
+        merge_type: merge
+        definition:
+          apiVersion: config.openshift.io/v1
+          kind: Project
+          metadata:
+            name: cluster
+          spec: 
+            projectRequestTemplate: 
+              name: project-request
 
-    - debug:
-        msg: "{{ create_template.stdout }}"
-
-    - name: Get the project.config.openshift.io/cluster resource
-      shell: oc get project.config.openshift.io/cluster -o yaml > "{{ ovnkube_setup_directory }}/default_policy_config.yaml"
-
-    - name: Edit the project.config.openshift.io/cluster resource
-      lineinfile:
-        path: "{{ ovnkube_setup_directory }}/default_policy_config.yaml"
-        regexp: "spec: {}"
-        state: absent
-
-    - name: Edit the project configuration resource
-      blockinfile:
-        block: "{{ lookup('file', 'default_policy_config.txt') }}"
-        path: "{{ ovnkube_setup_directory }}/default_policy_config.yaml"
-    
-    - name: Apply changes project configuration resource
-      shell: oc apply -f "{{ ovnkube_setup_directory }}/default_policy_config.yaml"
-      register: create_config
-
-    - name: Create a namespace
+    - name: Apply new custom default project template
       kubernetes.core.k8s:
         state: present
+        src: "{{ ovnkube_setup_directory }}/template.yml"
+
+    - name: Pause for 5 minutes to apply default policy
+      pause:
+        minutes: 5
+
+    - name: Create the new project
+      shell: oc new-project test-default-network-policy
+
+    - name: Check if default network policy has been added to the new project
+      shell: oc get networkpolicy -n test-default-network-policy
+      register: network_policy
+      until: '"allow-from-same-namespace" in network_policy.stdout'
+
+    - name: Delete the project test-default-network-policy
+      kubernetes.core.k8s:
+        api_version: project.openshift.io/v1
+        state: absent
+        kind: Project
+        name: test-default-network-policy
+        wait: true
+        wait_sleep: 30
+        wait_timeout: 600
+
+    - name: Delete the template
+      kubernetes.core.k8s:
+        api_version: template.openshift.io/v1
+        state: absent
+        kind: Template
+        name: project-request
+        namespace: openshift-config
+
+    - name: Patch the project configuration resource to remove the project-request
+      kubernetes.core.k8s:
+        state: patched
+        merge_type: merge
         definition:
-          apiVersion: v1
-          kind: Namespace
+          apiVersion: config.openshift.io/v1
+          kind: Project
           metadata:
-            labels:
-              pod-security.kubernetes.io/audit: privileged
-              pod-security.kubernetes.io/enforce: privileged
-              pod-security.kubernetes.io/warn: privileged
-              security.openshift.io/scc.podSecurityLabelSync: "false"
-            name: test-3
+            name: cluster
+          spec: 
+            projectRequestTemplate: null
 
-    - name: Confirm that the network policy objects in the new project template exist in the new project
-      shell: oc get networkpolicy -n test-3
-      register: confim_op
-      failed_when: '"allow-from-same-namespace" not in confim_op.stdout'
- 
-    - debug:
-        msg: "{{ confim_op.stdout_lines }}"
-
-    - name: Delete template
-      shell: oc delete -f "{{ ovnkube_setup_directory }}/template.yaml" -n openshift-config
-      ignore_errors: yes
-
-    - name: Delete namespace
-      shell: |
-        oc delete ns test-3
-        oc project default
-
-    - name: Generate the default project template
-      shell: |
-        oc adm create-bootstrap-project-template -o yaml > "{{ ovnkube_setup_directory }}/template.yaml"
-        oc apply -f  "{{ ovnkube_setup_directory }}/template.yaml" -n openshift-config
-
-    - lineinfile:
-        line: "Default NetworkPolicy Success"
+    - name: Save success result
+      lineinfile:
+        state: present
+        line: "Default network policy has been successfully added to the new project."
         path: /root/result/success.txt
         insertafter: EOF
-      when:
-        - create_template.failed == false and create_config.failed == false
-        - confim_op.failed == false
+      when: not network_policy.failed
 
-    - lineinfile:
-        line: "Default NetworkPolicy Failed {{ item.error }}"
+    - name: Save failure result
+      lineinfile:
+        state: present
+        line: "Fail: Default network policy has not been added to the new project."
         path: /root/result/failed.txt
         insertafter: EOF
-      with_items:
-        - { name: "{{ create_template }}", error: "Template creation Failed" }
-        - { name: "{{ create_config }}", error: "New configuration not applied" }
-        - { name: "{{ confim_op }}", error: "Default Policy not added to new project"}
-      when: item.name.failed
+      when: network_policy.failed
   ignore_errors: yes
 
 - name: Multitenant Validation
