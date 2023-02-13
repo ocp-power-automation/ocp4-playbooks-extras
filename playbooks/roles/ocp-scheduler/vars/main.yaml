@@ -1,0 +1,6 @@
+---
+
+## ocp-scheduler environment variables
+scheduler_env_vars:
+  PATH: "{{ ansible_env.PATH }}:/usr/local/go/bin"
+  KUBECONFIG: "{{ ansible_env.HOME }}/.kube/config"

@@ -37,6 +37,7 @@ This repository consists of additional ansible playbooks for the following:
 1. Enabling Stream Control Transmission Protocol (SCTP) and run e2e
 1. Deploy Kubernetes NMState Operator and run e2e
 1. Enable pod disruption budget (pdb)
+1. Scheduler profile configuration and run e2e tests
 
 ## Assumptions:
 
