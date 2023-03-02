@@ -67,7 +67,7 @@
   register: server_url
 
 - name: Get the OCP version
-  shell: oc version -o json | jq '.openshiftVersion'
+  shell: oc version -o json | jq '.openshiftVersion' | sed 's/-.*//' |  sed 's/"//'
   register: ocp_cluster_version
 
 - name: Creates directory
