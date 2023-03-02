@@ -1,0 +1,189 @@
+---
+
+# cro fact variables
+
+- ansible.builtin.set_fact:
+    cro_e2e_dir: "{{ cro_e2e_repo_url | urlsplit('path') | split('/') | last }}"
+
+- name: Add role cluster-health-check
+  include_role:
+    name: check-cluster-health
+
+# Include the operator cleanup block
+- name: Invoke the operator cleanup task
+  include_tasks: cro_operator_cleanup.yml
+
+## CRO-Operator deployment
+- name: Operator deployment block
+  block:
+    - name: Add a role global-secret-update
+      include_role:
+        name: global-secret-update
+      when: cro_enable_global_secret
+    
+    - name: Add a role set-custom-catalogsource
+      include_role:
+        name: set-custom-catalogsource
+      vars:
+        custom_catalogsource_name: "{{ cro_custom_catalogsource }}"
+        custom_catalogsource_display_name: "Cluster Resource Operator"
+        custom_catalogsource_image: "{{ cro_operator_image }}"
+    
+    - name: Create a target namespace
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: "{{ cro_namespace }}"
+          spec:
+            targetNamespaces:
+            - "{{ cro_namespace }}"
+
+    - name: Create a OperatorGroup into target namespace
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: operators.coreos.com/v1
+          kind: OperatorGroup
+          metadata:
+            name: clusterresourceoverride-operator
+            namespace: "{{ cro_namespace }}"
+          spec:
+            targetNamespaces:
+            - "{{ cro_namespace }}"
+
+    - name: Create a subscription for descheduler operator
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: operators.coreos.com/v1alpha1
+          kind: Subscription
+          metadata:
+            name: clusterresourceoverride-operator
+            namespace: "{{ cro_namespace }}"
+          spec:
+            channel: "{{ cro_channel }}"
+            installPlanApproval: Automatic
+            name: clusterresourceoverride 
+            source: "{{ cro_custom_catalogsource }}"
+            sourceNamespace: openshift-marketplace
+
+    - name: Verify operator installation
+      block:
+        - name: Check the operator cluster service version
+          shell: oc get csv -n {{ cro_namespace }} --no-headers | awk '{ if (($1 ~ /clusterresourceoverride-operator/) && ($NF ~ /Succeeded/)) print $1 }' | wc -l
+          register: csv_count 
+          until: csv_count.stdout|int != 0
+          retries: 15
+          delay: 30
+
+        - name: Check if the pod is running
+          shell: oc get pods -n {{ cro_namespace }} --no-headers | grep clusterresourceoverride-operator | wc -l
+          register: pod_count
+          until: pod_count.stdout|int != 0
+          retries: 15
+          delay: 30
+
+    # Configure cluster level overcommit for node resources via creating a custom resource
+    - name: Create a custom ClusterResourceOverride operator instance to set the overcommit limit
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: operator.autoscaling.openshift.io/v1
+          kind: ClusterResourceOverride
+          metadata:
+            name: cluster
+            namespace: "{{ cro_namespace }}"
+          spec:
+            podResourceOverride:
+              spec:
+                memoryRequestToLimitPercent: 50 
+                cpuRequestToLimitPercent: 25
+                limitCPUToMemoryPercent: 200
+    
+    - name: Check the status custom resource
+      shell: oc get clusterresourceoverride cluster -n {{ cro_namespace }} -o json | jq '.status.resources.mutatingWebhookConfigurationRef'
+      register: cro_admission_webhook_state
+
+    - debug:
+        msg: "{{ cro_admission_webhook_state.stdout_lines }}"
+
+    - name: Check the clusterresourceoverride enablement label to the namespace
+      shell: oc get ns {{ cro_namespace }} -ojsonpath='{.metadata.labels.clusterresourceoverrides\.admission\.autoscaling\.openshift\.io/enabled}' 
+      register: cro_namespace_label
+
+    - name: Add label to the namespace to enabling the CRO for controlling the resource overcommit
+      shell: oc patch ns {{ cro_namespace }} -p '{"metadata":{"labels":{"clusterresourceoverrides.admission.autoscaling.openshift.io/enabled":"true"}}}'
+      when: cro_namespace_label.stdout == "" or cro_namespace_label.stdout == None
+    
+    - name: Deploy an app to test the ClusterResourceOverride
+      kubernetes.core.k8s:
+        state: present
+        template: "{{ role_path }}/templates/cro_test.yaml.j2"
+
+    - name: Check if the deployed pod is running
+      shell: oc get pods {{ cro_test_deployment }} -n {{ cro_namespace }} --no-headers | awk '{ if ($3 ~ /Running/) print $1 }' | wc -l
+      register: deploy_pod
+      until: deploy_pod.stdout|int != 0
+      retries: 15
+      delay: 30
+    
+    - name: Get the pod resources usage
+      shell: oc get pod {{ cro_test_deployment }} -n {{ cro_namespace }} -ojsonpath={.spec.containers[0].resources}
+      register: pod_resource_usage
+    
+    - debug:
+        msg: "{{ pod_resource_usage.stdout_lines }}"
+  when: cro_install_operator
+
+- name: Running e2e test suite for ClusterResourceOverride operator
+  block:
+
+    - name: Create a directory to store e2e results
+      file:
+        state: directory
+        path: "{{ cro_workdir }}/e2e-test-result"
+        mode: 0755
+
+    - name: Install the developer tools
+      yum:
+        name: '@Development tools' 
+        state: present
+    
+    - name: Install the latest version of go
+      include_role: 
+        name: golang-installation
+      vars:
+        golang_tarball_url: "{{ cro_go_tarball }}"
+        golang_installation_path: "/usr/local"
+
+    - name: Clone the openshift-tests-private repo
+      git:
+        repo: "{{ cro_e2e_repo_url }}"
+        dest: "{{ cro_workdir }}/{{ cro_e2e_dir }}"
+        version: "{{ cro_e2e_test_repo_branch }}"
+        force: true
+      when: cro_e2e_repo_url != ""
+
+    - name: Compile the go modules using make command
+      make:
+        chdir: "{{ cro_workdir }}/{{ cro_e2e_dir }}"
+        target: e2e
+      register: e2e_output
+
+    - debug:
+        msg: "{{ e2e_output.stdout_lines }}"
+
+    - name: Save the output to the file
+      copy:
+        content: "{{ e2e_output.stdout_lines }}"
+        dest: "{{ cro_workdir }}/e2e-test-result/cro-e2e-test-summary.txt"
+
+    - name: Invoke the operator cleanup task
+      include_tasks: cro_operator_cleanup.yml
+
+  when: cro_e2e
+
+  environment: "{{ cro_e2e_env }}"
