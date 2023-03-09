@@ -22,6 +22,12 @@
         version: main
       when: oc_mirror_path.stat.exists == false
 
+    - name: Updating Dockerfile with Power specific go version
+      replace:
+          path: ~/plugins/oc-mirror/Dockerfile
+          regexp: "amd64"
+          replace: "ppc64le"
+
     - name: Get the pull-secret location status
       stat:
         path: ~/.openshift/pull-secret
@@ -33,11 +39,13 @@
         chdir: /root
       when: pull_secret_path.stat.exists
 
-    - name: Run the make build command from oc-mirror repository
-      make:
+    - name: Execute the Podman build command
+      shell: podman build -f Dockerfile -t local/go-toolset .
+      args:
         chdir: ~/plugins/oc-mirror/
-        target: build
-      register: make_build_output
+    
+    - name: Execute the Podman run command
+      shell: podman run --rm --privileged -v /root/plugins/oc-mirror:/build:z local/go-toolset
 
     - name: Copy the oc-mirror executatble to /usr/bin
       copy:
