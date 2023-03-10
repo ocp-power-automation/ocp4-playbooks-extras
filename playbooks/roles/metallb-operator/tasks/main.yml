@@ -1,0 +1,178 @@
+---
+
+# metallb fact variables
+
+- ansible.builtin.set_fact:
+    metallb_e2e_dir: "{{ metallb_e2e_repo | urlsplit('path') | split('/') | last }}"
+    github_username: "{{ lookup('ansible.builtin.env', 'GITHUB_USERNAME') }}"
+    github_access_token: "{{ lookup('ansible.builtin.env', 'GITHUB_ACCESS_TOKEN') }}"
+
+- name: Add role cluster-health-check
+  include_role:
+    name: check-cluster-health
+
+# Include the operator cleanup block
+- name: Invoke the cleanup task
+  include_tasks: metallb_operator_cleanup.yml
+  vars:
+    metallb_subscription: "metallb-operator-sub"
+    metallb_operatorgroup: "metallb-operator"
+    metallb_custom_resource: "metallb"
+
+## metallb-Operator deployment
+- name: Operator deployment block
+  block:
+    - name: Add a role global-secret-update
+      include_role:
+        name: global-secret-update
+
+    - name: Add a role set-custom-catalogsource
+      include_role:
+        name: set-custom-catalogsource
+      vars:
+        custom_catalogsource_name: "{{ metallb_custom_catalogsource }}"
+        custom_catalogsource_display_name: "MetalLB Operator Catalog"
+        custom_catalogsource_image: "{{ metallb_operator_image }}"
+
+    - name: Create a target namespace
+      kubernetes.core.k8s:
+        api_version: v1
+        kind: Namespace
+        name: "{{ metallb_namespace }}"
+        state: present
+        
+    - name: Create a OperatorGroup into target namespace
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: operators.coreos.com/v1
+          kind: OperatorGroup
+          metadata:
+            name: metallb-operator
+            namespace: "{{ metallb_namespace }}"
+
+    - name: Create a subscription for MetalLB operator
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: operators.coreos.com/v1alpha1
+          kind: Subscription
+          metadata:
+            name: metallb-operator-sub
+            namespace: "{{ metallb_namespace }}"
+          spec:
+            channel: "{{ metallb_channel }}"
+            installPlanApproval: Automatic
+            name: metallb-operator
+            source: "{{ metallb_custom_catalogsource }}"
+            sourceNamespace: openshift-marketplace
+
+    - name: Verify operator installation
+      block:
+        - name: Check the operator inastallation plan
+          shell: oc get ip -n {{ metallb_namespace }} --no-headers | awk '{ if ($2 ~ /metallb-operator/ && $NF ~ /true/) print $1 }' | wc -l
+          register: ip_count
+          until: ip_count.stdout|int != 0
+          retries: 15
+          delay: 30
+
+        - name: Check the operator cluster service version
+          shell: oc get csv -n {{ metallb_namespace }} --no-headers | awk '{ if (($1 ~ /metallb-operator/) && ($NF ~ /Succeeded/)) print $1 }' | wc -l
+          register: csv_count 
+          until: csv_count.stdout|int != 0
+          retries: 15
+          delay: 30
+
+        - name: Check if the pod is running
+          shell: oc get pods -n {{ metallb_namespace }} --no-headers | grep metallb-operator | wc -l
+          register: pod_count
+          until: pod_count.stdout|int != 0
+          retries: 15
+          delay: 30
+    
+    # Create a metallb custom resource instance
+    - name: Create a MetalLB custom resource instance
+      kubernetes.core.k8s:
+        state: present
+        definition: "{{ lookup('ansible.builtin.file', role_path + '/files/metallb_cr.yaml') | from_yaml }}"
+
+    - name: Verify the components are running for MetalLB deployments 
+      block:
+        - name: Verify the deployment for controller is running
+          shell: oc get deployment -n {{ metallb_namespace }} controller --no-headers | awk '{ if($1 == "controller" && $2 == "1/1") print $1 }' | wc -l
+          register: controller_deploy
+          until: controller_deploy.stdout|int != 0
+          retries: 15
+          delay: 30
+
+        - name: Verify the deamonset for speaker is running
+          shell: oc get daemonset -n {{ metallb_namespace }} speaker --no-headers | awk '{ print $6 }'
+          register: speaker_deamonset_count
+          until: speaker_deamonset_count.stdout|int != 0
+          retries: 15
+          delay: 30
+  when: metallb_operator_deploy
+
+## Run e2e tests from the openshift private repo for MetalLB
+
+- name: Run e2e tests from openshift tests private repo
+  block:
+    - fail:
+        msg: "Please set environment varaibles GITHUB_USERNAME and GITHUB_ACCESS_TOKEN !"
+      when: github_username == "" or github_access_token == ""
+      
+    - name: Add a operator cleanup block
+      include_tasks: metallb_operator_cleanup.yml
+      vars:
+        metallb_subscription: "metallb-operator-sub"
+        metallb_operatorgroup: "metallb-operator"
+        metallb_custom_resource: "metallb"
+    
+    - name: Create a working directory
+      file:
+        state: directory
+        path: "{{ metallb_work_dir }}/e2e-test"
+        mode: 0755
+    
+    - name: Install the development tools
+      block:
+        - name: Install the development tools
+          ansible.builtin.yum:
+            name: "@Development tools"
+            state: present
+
+        - name: Install the latest golang version
+          include_role:
+            name: golang-installation
+          vars:
+            go_tarball: "{{ metallb_golang_tarball }}"
+            golang_path: "/usr/local/"
+
+    - name: Clone the openshift tests private e2e repo
+      git:
+        repo: "https://{{ github_username }}:{{ github_access_token }}@github.com{{ metallb_e2e_repo | urlsplit('path') }}"
+        dest: "{{ metallb_work_dir }}/{{ metallb_e2e_dir }}"
+        version: "{{ metallb_e2e_repo_branch }}"
+        force: true
+      when: metallb_e2e_repo != ""
+
+    - name: Replace the catalogsource with the custom catalogsource in the test suite
+      ansible.builtin.replace:
+        path: "{{ metallb_work_dir }}/{{ metallb_e2e_dir }}/test/extended/networking/metallb.go"
+        regexp: 'catalog\:\s*\"[a-zA-Z0-9\-]*\"'
+        replace: "catalog:    \"{{ metallb_custom_catalogsource }}\""
+
+    - name: Compile the go packages
+      make:
+        chdir: "{{ metallb_work_dir }}/{{ metallb_e2e_dir }}"
+        target: build
+
+    - name: Run the e2e tests from the extended tests
+      shell: "./bin/extended-platform-tests run all --dry-run |
+        grep '43074\\|46560\\|43075\\|53333' |
+        ./bin/extended-platform-tests run --timeout={{ metallb_e2e_timeout }} -f - -o ../e2e-test/metallb-e2e-test.txt"
+      args:
+        chdir: "{{ metallb_work_dir }}/{{ metallb_e2e_dir }}"
+
+  environment: "{{ metallb_env_vars }}"
+  when: metallb_run_e2e

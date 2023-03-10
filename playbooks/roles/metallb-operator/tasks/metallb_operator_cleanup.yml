@@ -1,0 +1,94 @@
+---
+
+# operator cleanup task
+
+- name: Check whether the given namespace is exist
+  shell: oc get namespaces --no-headers | grep {{ metallb_namespace }} | wc -l
+  register: namespace_count
+
+# Operator clenaup block
+- name: Operator cleanup block
+  block:
+    - name: Get the operator ClusterServiceVersion
+      shell: oc get subscription {{ metallb_subscription }} -n {{ metallb_namespace }} -o=jsonpath="{.status.currentCSV}"
+      register: current_csv
+    
+    # Delete MetalLB custom resource
+    - name: Delete MetalLB custom resource
+      kubernetes.core.k8s:
+        kind: MetalLB
+        api_version: metallb.io/v1beta1
+        name: "{{ metallb_custom_resource }}"
+        namespace: "{{ metallb_namespace }}"
+        state: absent
+
+    # verify the MetalLB custom resource component cleanup
+    - name: Verify the MetalLB custom resource components cleanup
+      block:
+        - name: Check the controller
+          shell: oc get deploy -n {{ metallb_namespace }} controller --no-headers | wc -l
+          register: controller_count
+          until: controller_count.stdout|int == 0
+          retries: 10
+          delay: 30
+
+        - name: Check the speaker
+          shell: oc get daemonset -n {{ metallb_namespace }} speaker --no-headers | wc -l
+          register: speaker_count
+          until: speaker_count.stdout|int == 0
+          retries: 10
+          delay: 30
+
+    - name: Delete the Subscription
+      kubernetes.core.k8s:
+        api_version: operators.coreos.com/v1alpha1
+        kind: Subscription
+        name: "{{ metallb_subscription }}"
+        namespace: "{{ metallb_namespace }}"
+        state: absent
+
+    - name: Delete the OperatorGroup
+      kubernetes.core.k8s:
+        api_version: operators.coreos.com/v1
+        kind: OperatorGroup
+        name: "{{ metallb_operatorgroup }}"
+        namespace: "{{ metallb_namespace }}"
+        state: absent
+
+    - name: Delete the ClusterServiceVersion
+      kubernetes.core.k8s:
+        api_version: operators.coreos.com/v1alpha1
+        kind: ClusterServiceVersion
+        name: "{{ current_csv.stdout }}"
+        namespace: "{{ metallb_namespace }}"
+        state: absent
+      when: current_csv.stdout != ""
+
+    - name: Verify the MetalLB operator deletion
+      block:
+        - name: Check the operator ClusterServiceVersion after deletion
+          shell: oc get csv -A | grep "metallb-opertor" | wc -l
+          register: csv_count
+          until: csv_count.stdout|int == 0
+          retries: 10
+          delay: 30
+        
+        - name: Check the operator installtion plan after deletion
+          shell: oc get ip -A | grep "metallb-operator" | wc -l
+          register: csv_count
+          until: csv_count.stdout|int == 0
+          retries: 10
+          delay: 30
+          
+    - name: Delete the Namespace
+      kubernetes.core.k8s:
+        api_version: v1
+        kind: Namespace
+        name: "{{ metallb_namespace }}"
+        state: absent
+  when:
+  - namespace_count.stdout|int != 0
+  - metallb_subscription != ""
+  - metallb_operatorgroup != ""
+  - metallb_custom_resource != ""
+  ignore_errors: true

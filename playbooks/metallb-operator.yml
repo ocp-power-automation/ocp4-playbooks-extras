@@ -1,0 +1,8 @@
+---
+
+# Added metallb-operator role 
+- name: MetalLB Operator installation and e2e run
+  hosts: bastion
+  roles:
+  - metallb-operator
+

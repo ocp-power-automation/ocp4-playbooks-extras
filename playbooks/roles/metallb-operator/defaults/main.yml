@@ -1,0 +1,15 @@
+---
+
+## metallb-operator role variables
+metallb_role_enable: false
+metallb_operator_deploy: false
+metallb_run_e2e: false
+metallb_namespace: "metallb-system"  # Do not change the namespace name, it should be named as "metallb-system"
+metallb_operator_image: "quay.io/openshift-release-dev/ocp-release-nightly:iib-int-index-art-operators-4.13"
+metallb_channel: "stable"
+metallb_custom_catalogsource: "my-operator-catalog"
+metallb_work_dir: "/tmp/metallb-operator"
+metallb_e2e_repo: "https://github.com/openshift/openshift-tests-private"
+metallb_e2e_repo_branch: "master"
+metallb_golang_tarball: "https://go.dev/dl/go1.20.2.linux-ppc64le.tar.gz"
+metallb_e2e_timeout: "60m"  # This timeout is provided in minutes

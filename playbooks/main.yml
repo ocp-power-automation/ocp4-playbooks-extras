@@ -104,3 +104,6 @@
 - import_playbook: ocp-scheduler.yml
   when: scheduler_role_enable is defined and scheduler_role_enable
 
+- import_playbook: metallb-operator.yml
+  when: metallb_role_enable is defined and metallb_role_enable
+
