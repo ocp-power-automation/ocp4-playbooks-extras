@@ -265,7 +265,7 @@ target_IP: ""
 compliance_enabled: false
 compliance_directory: "/tmp/compliance"
 compliance_catalogsource_image: ""         # "brew.registry.redhat.io/rh-osbs/iib:327237"
-compliance_upgrade_channel: "release-0.1"
+compliance_upgrade_channel: "stable"
 compliance_e2e: false
 compliance_e2e_github_repo: ""
 compliance_e2e_github_branch: ""
