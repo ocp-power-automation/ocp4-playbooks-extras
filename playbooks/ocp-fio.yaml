@@ -1,6 +1,6 @@
 ---
 - name: Run File Integrity Operator
-  hosts: localhost
+  hosts: bastion
   tasks:
   - name: Deploy File Integrity Operator
     include_role:
