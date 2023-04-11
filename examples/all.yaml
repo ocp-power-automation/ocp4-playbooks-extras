@@ -266,7 +266,7 @@ fio_config_max_backups: ""
 fio_default_config: true
 fio_node_selector: ""
 fio_debug: false
-fio_golang_tarball: "https://dl.google.com/go/go1.18.2.linux-ppc64le.tar.gz"
+fio_golang_tarball: "https://dl.google.com/go/go1.19.6.linux-ppc64le.tar.gz"
 fio_e2e: false
 fio_e2e_git_repository: ""
 fio_git_username: ""
