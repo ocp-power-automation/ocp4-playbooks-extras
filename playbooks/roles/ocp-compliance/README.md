@@ -12,6 +12,7 @@ Requirements
 
 - Access to the cluster as a user with the cluster-admin role.
 - The cluster is in a known good state, without any errors.
+- Default StorageClass must be configured
 - OCP secret with name ***podman-secret*** in the default namespace which is used for global secret update and has following keys: ***username***, ***password*** and ***registry***
 
 Role Variables
