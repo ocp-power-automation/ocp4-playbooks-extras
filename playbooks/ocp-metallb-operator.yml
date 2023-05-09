@@ -1,0 +1,7 @@
+---
+- name: Installation of the MetalLB Operator and run e2e
+  hosts: bastion
+  tasks:
+    - name: Deploy MetalLB Operator
+      include_role:
+        name: ocp-metallb-operator

@@ -1,0 +1,231 @@
+---
+# tasks file for playbooks/roles/ocp-metallb-operator
+
+- set_fact:
+    github_username: "{{ lookup('ansible.builtin.env','GITHUB_USERNAME') }}"
+    github_personal_access_token: "{{ lookup('ansible.builtin.env','GITHUB_ACCESS_TOKEN') }}"
+
+- name: Check if cluster operators and nodes are healthy
+  include_role:
+    name: check-cluster-health
+
+- name: Deploy the MetalLB Operator
+  block:
+  - name: Setup custom catalog source
+    block:
+      - name: Include the global-secret-update role
+        include_role:
+          name: global-secret-update
+        when: metallb_enable_global_secret
+
+      - name: Set fact variable for catalog source name
+        set_fact:
+          metallb_catalogsource: "metallb-custom-catalogsource"
+
+      - name: Include role to create image content source policy and catalog source
+        include_role:
+          name: set-custom-catalogsource
+        vars:
+          custom_catalogsource_name: "{{ metallb_catalogsource }}"
+          custom_catalogsource_display_name: "MetalLB Operator catalog source"
+          custom_catalogsource_image: "{{ metallb_catalogsource_image }}"
+    when: metallb_catalogsource_image != '' and metallb_catalogsource_image != None
+
+  - name: Create namespace for metallb operator
+    kubernetes.core.k8s:
+      state: present
+      definition:
+        apiVersion: v1
+        kind: Namespace
+        metadata:
+          labels:
+            pod-security.kubernetes.io/audit: privileged
+            pod-security.kubernetes.io/enforce: privileged
+            pod-security.kubernetes.io/warn: privileged
+            security.openshift.io/scc.podSecurityLabelSync: "false"
+            kubernetes.io/metadata.name: metallb-system
+            name: metallb-system
+          name: metallb-system
+        spec:
+          finalizers:
+            - kubernetes
+
+  - name: Create operator group for metallb operator
+    kubernetes.core.k8s:
+      state: present
+      definition:
+        apiVersion: operators.coreos.com/v1
+        kind: OperatorGroup
+        metadata:
+          generateName: metallb-system-
+          name: metallb-system
+          namespace: metallb-system
+
+  - name: Create subscription for metallb operator
+    kubernetes.core.k8s:
+      state: present
+      definition:
+        apiVersion: operators.coreos.com/v1alpha1
+        kind: Subscription
+        metadata:
+          labels:
+            operators.coreos.com/metallb-operator.metallb-system: ""
+          name: metallb-operator-sub
+          namespace: metallb-system
+        spec:
+          channel: "{{ metallb_upgrade_channel }}"
+          installPlanApproval: Automatic
+          name: metallb-operator
+          source: "{{ metallb_catalogsource }}"
+          sourceNamespace: openshift-marketplace
+  when: metallb_install_operator
+
+- name: Validate operator deployment and deploy instance of the metallb operator
+  block:
+    - name: Check if the subscription has created
+      shell: oc get subscription metallb-operator-sub -n metallb-system | wc -l
+      register: metallb_operators_subscription
+      until: metallb_operators_subscription.stdout|int == 2
+
+    - name: Check if the cluster service version has succeeded
+      shell: oc get clusterserviceversion -n metallb-system | awk '{ if (($1 ~ /metallb/) && $NF=="Succeeded") print $1 }' | wc -l
+      register: metallb_operators_csv
+      until: metallb_operators_csv.stdout|int == 1
+      retries: 15
+      delay: 120
+
+    - name: Check if operator pod is running
+      shell: oc get pod -n metallb-system | grep "Running" | wc -l
+      register: metallb_operator_pods
+      until: metallb_operator_pods.stdout|int == 2
+      retries: 10
+      delay: 60
+
+    - name: Check if the install plan is in the namespace
+      shell: oc get installplan -n metallb-system | grep "install" | grep "metallb" | wc -l
+      register: metallb_install_plan
+      until: metallb_install_plan.stdout|int == 1
+
+    - name: Create instance of the metallb operator
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: metallb.io/v1beta1
+          kind: MetalLB
+          metadata:
+            name: metallb
+            namespace: metallb-system
+
+    - name: Check if all the pods are running
+      shell: oc get pods -n metallb-system --no-headers | grep -v "Running\|Completed" | wc -l
+      register: metallb_pods
+      until: metallb_pods.stdout|int == 0 and metallb_pods.stderr == ""
+      retries: 10
+      delay: 60
+
+    - name: Check if the deployment for the controller is running
+      shell: oc get deployment -n metallb-system controller | awk '{if ($1 ~ /controller/) print $4}'
+      register: metallb_controller
+      until: metallb_controller.stdout|int == 1
+      retries: 10
+      delay: 40
+
+    - name: Check the number of nodes running
+      shell: oc get node | grep "Ready" | wc -l
+      register: metallb_nodes
+
+    - name: Check if the daemon set for the speaker is running
+      shell: oc get daemonset -n metallb-system speaker | awk '{if ($1 ~ /speaker/) print $6}'
+      register: metallb_speaker
+      until: metallb_speaker.stdout|int == metallb_nodes.stdout|int
+      retries: 10
+      delay: 60
+
+  when: metallb_install_operator
+
+- name: Run e2e test cases from openshift-tests-private repository
+  block:
+  - fail:
+      msg: "Please set the environment variables GITHUB_USERNAME and GITHUB_ACCESS_TOKEN"
+    when: github_username == "" and github_personal_access_token == ""
+
+  - name: Install dependencies for running e2e tests
+    dnf:
+      name: make
+      state: present
+
+  - name: Include role for installation of Go lang
+    include_role:
+      name: golang-installation
+    vars:
+      go_tarball: "{{ metallb_golang_tarball }}"
+      golang_path: "/usr/local"
+
+  - name: Setup catalog source for qe-app-registry
+    block:
+    - name: Include the global-secret-update role
+      include_role:
+        name: global-secret-update
+      when: metallb_enable_global_secret
+
+    - name: Include role to create image content source policy and catalog source
+      include_role:
+        name: set-custom-catalogsource
+      vars:
+        custom_catalogsource_name: "{{ qe_catalog_source }}"
+        custom_catalogsource_display_name: "MetalLB Operator QE catalog source"
+        custom_catalogsource_image: "{{ qe_catalog_source_image }}"
+    when: qe_catalog_source_image != '' and qe_catalog_source_image != None
+
+  - name: Clone the git repo
+    git:
+      repo: "https://{{ github_username }}:{{ github_personal_access_token }}@github.com/{{ openshift_tests_private_repository | urlsplit('path') }}"
+      dest: "{{ metallb_directory }}/openshift-tests-private"
+      version: "{{ openshift_tests_private_git_branch }}"
+      force: true
+
+  - name: Run make build command at target
+    shell: make
+    args:
+      chdir: "{{ metallb_directory }}/openshift-tests-private"
+
+  - name: Check if the binary is created
+    shell: ls -hl {{ metallb_directory }}/openshift-tests-private/bin/extended-platform-tests | wc -l
+    args:
+      chdir: "{{ metallb_directory }}/openshift-tests-private"
+    register: bin_output
+    failed_when: bin_output.stdout|int != 1
+
+  - name: Run the e2e test command
+    shell: "./bin/extended-platform-tests run all --dry-run | 
+      grep '43074\\|46560\\|43075\\|53333' | 
+      ./bin/extended-platform-tests run -f - -o ../metallb-e2e-test-summary.txt"
+    args:
+      chdir: "{{ metallb_directory }}/openshift-tests-private"
+    environment: "{{ metallb_e2e_env }}"
+  when: metallb_e2e
+
+- name: Run e2e test cases from metallb-operator repository
+  block:
+    - name: Delete the instance of metallb operator
+      include_tasks: operator-cleanup.yml
+
+    - name: Clone the metallb-operator repository
+      git:
+        repo: "{{ metallb_e2e_git_repository }}"
+        dest: "{{ metallb_directory }}/metallb-operator"
+        version: "{{ metallb_e2e_git_branch }}"
+
+    - name: Run metallb-operator e2e tests
+      shell: make test-e2e > {{ metallb_directory }}/metallb_e2e_output.txt
+      args:
+        chdir: "{{ metallb_directory }}/metallb-operator"
+      ignore_errors: false
+      environment: "{{ metallb_e2e_env }}"
+
+    - name: Removing the color codes from output
+      ansible.builtin.replace:
+        path: "{{ metallb_directory }}/metallb_e2e_output.txt"
+        regexp: '\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])'
+        replace: ""
+  when: metallb_e2e
