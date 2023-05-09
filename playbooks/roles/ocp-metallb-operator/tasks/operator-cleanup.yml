@@ -1,0 +1,17 @@
+---
+# Delete the instance of metallb operator
+- name: MetalLB instance deletion
+  block:
+  - name: Get the instance of the metallb operator
+    shell: oc get metallb -n metallb-system -ojsonpath="{.items[].metadata.name}"
+    register: metallb_instance
+    ignore_errors: true
+
+  - name: Delete the instance of the metallb operator
+    kubernetes.core.k8s:
+      state: absent
+      api_version: metallb.io/v1beta1
+      kind: MetalLB
+      name: "{{ metallb_instance.stdout }}"
+      namespace: metallb-system
+    when: metallb_instance.stdout|length > 0
