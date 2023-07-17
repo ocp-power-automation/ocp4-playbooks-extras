@@ -33,6 +33,25 @@
       custom_catalogsource_image: "{{ compliance_catalogsource_image }}"
   when: compliance_catalogsource_image != '' and compliance_catalogsource_image != None
 
+- name: Search for the StorageClass
+  kubernetes.core.k8s_info:
+    kind: StorageClass
+  register: storage_class
+
+- name: Check for default StorageClass annotations
+  set_fact:
+    default_storage_class: "{{ storage_class.resources[0].metadata.annotations }}"
+  when:
+  - storage_class.resources|length != 0 and storage_class.resources[0].metadata.annotations is defined
+  - "'storageclass.kubernetes.io/is-default-class' in storage_class.resources[0].metadata.annotations"
+
+- name: Fail if default StorageClass does not exist
+  fail:
+    msg: 'Default StorageClass does not exist'
+  when: >
+    (default_storage_class is undefined) or
+    (default_storage_class is defined and not default_storage_class["storageclass.kubernetes.io/is-default-class"]|bool)
+
 - name: Deploy Compliance Operator
   block:
   - name: Create namespace for Compliance Operator

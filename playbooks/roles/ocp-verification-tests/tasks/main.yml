@@ -5,10 +5,22 @@
       - git
     state: latest
 
-- name: Install Ruby-3 package
-  shell: |
-    sudo dnf module reset ruby -y
-    sudo dnf install -y @ruby:3.0
+- name: Uninstall Ruby
+  ansible.builtin.dnf:
+    name: ruby
+    state: absent
+
+- name: Reset the Ruby module
+  shell: sudo dnf module reset ruby -y
+
+- name: Get latest stream for Ruby
+  shell: dnf module list ruby | grep ruby | awk 'END {print $2}'
+  register: latest_stream
+
+- name: Install latest Ruby module
+  ansible.builtin.dnf:
+    name: '@ruby:{{ latest_stream.stdout }}'
+    state: present
 
 - name: Create user with username testuser
   include_role:
@@ -55,7 +67,7 @@
   register: server_url
 
 - name: Get the OCP version
-  shell: oc version -o json | jq '.openshiftVersion'
+  shell: oc version -o json | jq '.openshiftVersion' | sed 's/-.*//' |  sed 's/"//'
   register: ocp_cluster_version
 
 - name: Creates directory

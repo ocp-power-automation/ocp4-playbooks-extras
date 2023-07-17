@@ -1,9 +1,9 @@
 ---
 # tasks file for playbooks/roles/ocp-fio
 
-#- name: Check if cluster operators and nodes are healthy
-#  include_role:
-#    name: check-cluster-health
+- name: Check if cluster operators and nodes are healthy
+  include_role:
+    name: check-cluster-health
 
 - name: Clean up
   block:
