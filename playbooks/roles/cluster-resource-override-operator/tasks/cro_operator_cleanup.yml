@@ -1,0 +1,76 @@
+---
+
+## cluster-resource-override operator cleanup task
+
+- name: Check whether the given namespace exists
+  shell: oc get namespaces --no-headers | grep "{{ cro_namespace }}" | wc -l
+  register: namespace_count
+  when: cro_namespace != ""
+
+# Operator clenaup block
+- name: Operator cleanup block
+  block:
+    - name: Get the operator ClusterServiceVersion
+      shell: oc get clusterserviceversion -n {{ cro_namespace }} | awk '{ if ($1 ~ /clusterresourceoverride/) print $1 }'
+      register: cro_csv
+
+    - name: Get the operator subscription
+      shell: oc get subscription -n {{ cro_namespace }} | awk '{ if ($1 ~ /clusterresourceoverride/) print $1 }'
+      register: cro_subscription
+
+    - name: Get the name of operator group
+      shell: oc get operatorgroup -n {{ cro_namespace }} | awk '{ if ($1 ~ /clusterresourceoverride/) print $1 }'
+      register: cro_operatorgroup
+
+    - name: Get the instance of the CRO operator
+      shell: oc get clusterresourceoverride -n {{ cro_namespace }} -ojsonpath='{.items[].metadata.name}'
+      register: cro_instance
+
+    - name: Delete the test app pod create to test cluster overcommit
+      shell: oc delete pod {{ cro_test_deployment }} -n {{ cro_namespace }}
+    
+    - name: Delete the CRO operator instance
+      kubernetes.core.k8s:
+        api_version: operator.autoscaling.openshift.io/v1
+        kind: ClusterResourceOverride
+        name: "{{ cro_instance.stdout }}"
+        namespace: "{{ cro_namespace }}"
+        state: absent
+      
+    - name: Delete the Subscription
+      kubernetes.core.k8s:
+        api_version: operators.coreos.com/v1alpha1
+        kind: Subscription
+        name: "{{ cro_subscription.stdout }}"
+        namespace: "{{ cro_namespace }}"
+        state: absent
+
+    - name: Delete the OperatorGroup
+      kubernetes.core.k8s:
+        api_version: operators.coreos.com/v1
+        kind: OperatorGroup
+        name: "{{ cro_operatorgroup.stdout }}"
+        namespace: "{{ cro_namespace }}"
+        state: absent
+    
+    - name: Delete the ClusterServiceVersion
+      kubernetes.core.k8s:
+        api_version: operators.coreos.com/v1alpha1
+        kind: ClusterServiceVersion
+        name: "{{ cro_csv.stdout }}"
+        namespace: "{{ cro_namespace }}"
+        state: absent
+      when: cro_csv.stdout != ""
+    
+    - name: Delete the Namespace
+      kubernetes.core.k8s:
+        api_version: v1
+        kind: Namespace
+        name: "{{ cro_namespace }}"
+        state: absent
+    
+  when:
+  - namespace_count.stdout|int != 0
+  - cro_test_deployment != ""
+  - cro_namespace != ""
+  ignore_errors: true

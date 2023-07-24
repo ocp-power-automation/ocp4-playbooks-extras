@@ -1,0 +1,8 @@
+---
+
+## cro environment variables
+
+cro_e2e_env:
+  KUBECONFIG: "/root/.kube/config" 
+  PATH: "{{ lookup('ansible.builtin.env', 'PATH') }}:/usr/local/go/bin"
+  OPERATOR_NAMESPACE: "{{ cro_namespace }}"

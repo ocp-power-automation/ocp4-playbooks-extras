@@ -1,0 +1,21 @@
+---
+
+# clusterresourceoverride-operator default vars
+cro_role_enable: false
+cro_e2e: false
+cro_install_operator: false
+cro_enable_global_secret: false
+cro_ocp_version: "4.14"
+cro_namespace: "clusterresourceoverride-operator" 
+cro_operator_image: "quay.io/openshift-release-dev/ocp-release-nightly:iib-int-index-art-operators-{{ cro_ocp_version }}"
+cro_channel: "stable"
+cro_custom_catalogsource: "redhat-operators-stage"
+cro_e2e_repo_url: "https://github.com/openshift/cluster-resource-override-admission-operator"
+cro_e2e_test_repo_branch: "master"
+cro_workdir: "/tmp/cro-operator"
+cro_go_tarball: "https://go.dev/dl/go1.20.linux-ppc64le.tar.gz"
+cro_test_deployment: "cro-test"
+cro_test_container_label: "nginx" 
+cro_test_container_image: "quay.io/powercloud/nginx-unprivileged:latest"
+cro_test_resource_cpu_limit: "512Mi"
+cro_test_resource_memory_limit: "2000m"
