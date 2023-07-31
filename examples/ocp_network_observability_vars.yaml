@@ -1,0 +1,14 @@
+---
+# defaults file for ocp-network-observability
+noo_role_enable: false
+noo_deploy: false
+noo_directory: "/tmp/network-observability"
+noo_catalogsource_image: ""    # Set the brew registry image "brew.registry.redhat.io/rh-osbs/iib:<iib-image-index>" for pre-released operator builds when the "noo_installation_source: Internal"  
+noo_installation_source: "Official"    # The values can be set to "Internal"- for installing the pre-released internal operator build version from brew registry, "Official"- for installing the latest GA-released downstream operator version, "OperatorHub"- for installing latest officially-released upstream operator community version
+noo_catalogsource_name: "qe-app-reigstry" 
+noo_loki_operator: "Released"
+noo_lokistack_size: "1x.extra-small"
+noo_e2e_repo_branch: "main"    # Set the specific OCP "release-4.x" branch for running e2e tests from "openshift-tests-private" repository e.g. for OCP 4.14 the branch set to be "release-4.14"    
+noo_go_tarball: "https://go.dev/dl/go1.20.10.linux-ppc64le.tar.gz"
+noo_backend_e2e: false
+noo_e2e_github_repo: "https://github.com/openshift/openshift-tests-private"
