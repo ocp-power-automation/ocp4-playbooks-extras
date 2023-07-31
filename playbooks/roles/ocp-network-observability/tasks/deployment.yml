@@ -1,0 +1,126 @@
+---
+
+- name: Global pull-secret update
+  include_role:
+    name: global-secret-update
+
+- name: Check the awscli installed
+  shell: pip3 list | grep awscli | wc -l
+  register: awscli_exists
+
+- name: Install awscli
+  shell: pip3 install awscli
+  when: awscli_exists.stdout|int == 0
+
+- name: Configure AWS access credentials for S3 bucket
+  block:
+  - fail:
+      msg: "Please set the environent vars AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY and AWS_DEFAULT_REGION !!!"
+    when: noo_aws_access_key_id == "" or noo_aws_secret_access_key == "" or noo_aws_default_region == ""
+
+  - name: Configure the AWS credentials 
+    shell: |
+      aws configure set aws_access_key_id ${AWS_ACCESS_KEY_ID}
+      aws configure set aws_secret_access_key ${AWS_SECRET_ACCESS_KEY}
+      aws configure set default.region ${AWS_DEFAULT_REGION}
+
+- name: Clean up the old deployment resources
+  include_tasks: "{{ role_path }}/tasks/cleanup.yaml"
+
+- name: Deploy Loki Operator and LokiStack
+  shell: source netobserv.sh ; deploy_lokistack
+  args:
+    chdir: "{{ noo_directory }}/ocp-qe-perfscale-ci/scripts"
+    executable: /bin/bash
+  async: 600
+  poll: 10
+  register: loki_deployment_output
+
+- name: Save the loki deployment logs
+  template:
+    src: "{{ role_path }}/templates/loki_deployment_log.txt.j2"
+    dest: "{{ noo_directory }}/loki_deployment_log.txt"
+
+- name: Validate if all loki pods are running
+  shell: oc get pods -n netobserv --no-headers| grep -v Running | wc -l
+  register: loki_pods
+  until: loki_pods.stdout|int == 0
+  retries: 15
+  delay: 60
+  ignore_errors: true
+
+- name: Fail if lokistack resources are not running
+  fail:
+    msg: "All loki pods are not running"
+  when: loki_pods.stdout|int != 0
+
+- name: Check the operator image is set if INSTALLATION_SOURCE is Internal
+  fail:
+    msg: "Please set the image from registry to install the pre-released version !!!"
+  when: noo_installation_source == "Internal" and noo_catalogsource_image == ""
+
+- name: Deploy Network Observability Operator
+  shell: source netobserv.sh ; deploy_netobserv
+  args:
+    chdir: "{{ noo_directory }}/ocp-qe-perfscale-ci/scripts"
+    executable: /bin/bash
+  async: 600
+  poll: 10
+  register: noo_deployment_output
+
+- name: Save the Network Observability deployment logs
+  template:
+    src: "{{ role_path }}/templates/noo_deployment_log.txt.j2"
+    dest: "{{ noo_directory }}/noo_deployment_log.txt"
+
+- name: Validate if all resource pods are up and running
+  shell: oc get pods -n netobserv --no-headers | grep -v Running | wc -l
+  register: netobserv_resource_pods
+  until: netobserv_resource_pods.stdout|int == 0
+  retries: 15
+  delay: 60
+  ignore_errors: true
+
+- name: Fail if the resource pods are not in READY state
+  fail:
+    msg: "FlowCollector pods are not running"
+  when: netobserv_resource_pods.stdout|int != 0
+
+- name: Validate if all eBPF pods are up and running
+  shell: oc get pods -n netobserv-privileged --no-headers | grep -v Running | wc -l
+  register: ebpf_pods
+
+- name: Fail if eBPF pods are not in READY state
+  fail:
+    msg: "FlowCollector's privileged pods are not running"
+  when: ebpf_pods.stdout|int != 0
+
+- name: Save the operator installation status output
+  block:
+  - name: Operator CSV status
+    shell: oc -n netobserv get csv
+    register: operator_csv_status
+
+  - name: Resource components pods status
+    shell: oc -n netobserv get po
+    register: resource_pods_status
+
+  - name: eBPF pods status in privileged namespace
+    shell: oc -n netobserv-privileged get po
+    register: ebpf_pods_status
+
+  - name: Save the output in the log
+    blockinfile:
+      state: present
+      insertafter: EOF
+      dest: "{{ noo_directory }}/netobserv-resource-status-log.txt"
+      marker: "---------------------------------------------------------------------------------"
+      content: "{{ item }}"
+      create: true
+    with_items:
+      - "Operator CSV status:"
+      - "{{ operator_csv_status.stdout }}"
+      - "Netobserv resource pods status:" 
+      - "{{ resource_pods_status.stdout }}"
+      - "eBPF agent pods status"
+      - "{{ ebpf_pods_status.stdout }}"

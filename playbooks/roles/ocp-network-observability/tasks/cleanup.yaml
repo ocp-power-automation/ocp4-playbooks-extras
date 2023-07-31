@@ -1,0 +1,25 @@
+---
+
+- name: Network Observability operator clean up
+  block:
+  - name: Check if the netobserv namespace exists
+    shell: oc get ns netobserv --no-headers | wc -l
+    register: netobserv_exists
+
+  - name: Run the clean up script if namespace exists
+    shell: source netobserv.sh ; nukeobserv
+    args:
+      chdir: "{{ noo_directory }}/ocp-qe-perfscale-ci/scripts"
+      executable: "/bin/bash"
+    async: 600
+    poll: 10
+    when: netobserv_exists.stdout|int > 0
+
+  - name: Verify the operator clean up
+    shell: oc get ns netobserv --no-headers | wc -l
+    register: netobserv_exists
+    
+  - fail:
+      msg: "Operator not cleaned up properly, please re-try !"
+    when: netobserv_exists.stdout|int != 0
+  environment: "{{ noo_deployment_env }}"

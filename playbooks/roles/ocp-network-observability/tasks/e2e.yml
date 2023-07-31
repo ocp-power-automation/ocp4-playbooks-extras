@@ -1,0 +1,70 @@
+---
+
+- name: Check whether the enviroment vars are set for GitHub username and access token
+  fail:
+    msg: "Please set the GITHUB_USERNAME and GITHUB_ACCESS_TOKEN environment vars !!!"
+  when: noo_git_username == "" or noo_git_access_token == ""
+
+- name: Check whether the environment vars are set for aws_access_key_id and aws_secret_access_key 
+  fail:
+    msg: "AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY evironment vars !!!"
+  when: noo_aws_access_key_id == "" or noo_aws_secret_access_key == "" 
+
+- name: Clean up the lokistack and other resources
+  include_tasks: "{{ role_path }}/tasks/cleanup.yaml"
+
+- name: Install dependencies for running e2e tests
+  dnf: 
+    name: make
+    state: present
+
+- name: Include role for installation of Go lang
+  include_role:
+    name: golang-installation
+  vars:
+    go_tarball: "{{ noo_go_tarball }}"
+    golang_path: "/usr/local"
+
+- name: Clone the opeshift-test-private repository
+  git:
+    repo: "https://{{ noo_git_username }}:{{ noo_git_access_token }}@github.com{{ noo_e2e_github_repo | urlsplit('path') }}"
+    dest: "{{ noo_directory }}/openshift-tests-private"
+    version: "{{ noo_e2e_repo_branch }}"
+    force: true
+  when: noo_git_username != "" and noo_git_access_token != ""
+
+- name: Create a secret containing the AWS secret access key
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: aws-creds
+        namespace: default
+      data:
+        aws_access_key_id: "{{ noo_aws_access_key_id | ansible.builtin.b64encode }}"
+        aws_secret_access_key: "{{ noo_aws_secret_access_key | ansible.builtin.b64encode }}"
+      type: Opaque
+  when: noo_aws_access_key_id != "" and noo_aws_secret_access_key != ""
+
+- name: Apply a custom changes patch for netobserv e2e tests
+  shell:
+    cmd: git apply --ignore-whitespace --reject "{{ noo_directory }}/patch-files/openshift-tests-private-changes.patch"
+    chdir: "{{ noo_directory }}/openshift-tests-private"
+
+- name: Update the binddata.go in case any YAML file have been changed
+  make:
+    chdir: "{{ noo_directory }}/openshift-tests-private"
+    target: update
+
+- name: Run make target
+  make:
+    chdir: "{{ noo_directory }}/openshift-tests-private"
+    target: build
+
+- name: Run Network Observability backend e2e tests
+  shell: |
+    ./bin/extended-platform-tests run all --dry-run | grep 'netobserv' | ./bin/extended-platform-tests run --timeout 120m -f - -o ../noo-e2e-tests-result-{{ '%Y%m%d' | strftime(ansible_date_time.epoch) }}.txt
+  args:
+    chdir: "{{ noo_directory }}/openshift-tests-private"

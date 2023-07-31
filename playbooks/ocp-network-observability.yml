@@ -1,0 +1,7 @@
+---
+- name: Installation  and validation of the Network Observability Operator
+  hosts: bastion
+  tasks:
+  - name: Deploy Network Observability Operator
+    include_role:
+      name: ocp-network-observability

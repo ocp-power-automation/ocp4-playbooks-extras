@@ -1,0 +1,69 @@
+diff --git a/scripts/catalogsources/netobserv-downstream-testing.yaml b/scripts/catalogsources/netobserv-downstream-testing.yaml
+index bd19eb3..31f1f64 100644
+--- a/scripts/catalogsources/netobserv-downstream-testing.yaml
++++ b/scripts/catalogsources/netobserv-downstream-testing.yaml
+@@ -1,12 +1,12 @@
+ apiVersion: operators.coreos.com/v1alpha1
+ kind: CatalogSource
+ metadata:
+-  name: netobserv-downstream-testing
++  name: qe-app-registry
+   namespace: openshift-marketplace
+ spec:
+   sourceType: grpc
+   image: ${DOWNSTREAM_IMAGE}
+-  displayName: NetObserv Downstream Testing
++  displayName: Production Operators
+   publisher: NetObserv QE
+   updateStrategy:
+     registryPoll:
+diff --git a/scripts/deploy-loki-aws-secret.sh b/scripts/deploy-loki-aws-secret.sh
+index d44ad3f..4d811e7 100755
+--- a/scripts/deploy-loki-aws-secret.sh
++++ b/scripts/deploy-loki-aws-secret.sh
+@@ -3,7 +3,7 @@
+ LOKI_BUCKET_NAME=${1:-netobserv-ocpqe-default}
+ NAMESPACE="netobserv"
+ SECRETNAME="s3-secret"
+-AWS_DEFAULT_REGION="us-east-2"
++AWS_DEFAULT_REGION="us-east-1"
+ ENDPOINT="https://s3.${AWS_DEFAULT_REGION}.amazonaws.com"
+ AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID}"
+ AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY}"
+@@ -63,7 +63,7 @@ create_s3_bucket() {
+         sleep 30
+         aws s3 rb s3://$LOKI_BUCKET_NAME --force
+     fi
+-    aws s3api create-bucket --bucket $LOKI_BUCKET_NAME --region $AWS_DEFAULT_REGION --create-bucket-configuration LocationConstraint=$AWS_DEFAULT_REGION
++    aws s3api create-bucket --bucket $LOKI_BUCKET_NAME --region $AWS_DEFAULT_REGION
+     if [[ $? == 0 ]]; then
+         echo "bucket: created new bucket $LOKI_BUCKET_NAME"
+     else
+diff --git a/scripts/netobserv.sh b/scripts/netobserv.sh
+index f03cb82..a5e974a 100755
+--- a/scripts/netobserv.sh
++++ b/scripts/netobserv.sh
+@@ -172,10 +172,10 @@ deploy_downstream_catalogsource() {
+   TMP_CATALOGCONFIG=/tmp/catalogconfig.yaml
+   envsubst <$CatalogSource_CONFIG >$TMP_CATALOGCONFIG
+ 
+-  echo "====> Creating netobserv-downstream-testing CatalogSource"
++  echo "====> Creating qe-app-registry CatalogSource"
+   oc apply -f $TMP_CATALOGCONFIG
+   sleep 30
+-  oc wait --timeout=180s --for=condition=ready pod -l olm.catalogSource=netobserv-downstream-testing -n openshift-marketplace
++  oc wait --timeout=180s --for=condition=ready pod -l olm.catalogSource=qe-app-registry -n openshift-marketplace
+ }
+ 
+ deploy_upstream_catalogsource() {
+diff --git a/scripts/netobserv/netobserv-internal-subscription.yaml b/scripts/netobserv/netobserv-internal-subscription.yaml
+index d6dfcf7..96e267d 100644
+--- a/scripts/netobserv/netobserv-internal-subscription.yaml
++++ b/scripts/netobserv/netobserv-internal-subscription.yaml
+@@ -8,5 +8,5 @@ metadata:
+ spec:
+   channel: stable
+   name: netobserv-operator
+-  source: netobserv-downstream-testing
++  source: qe-app-registry
+   sourceNamespace: openshift-marketplace 
