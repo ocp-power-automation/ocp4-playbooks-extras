@@ -107,3 +107,5 @@
 - import_playbook: cro.yml
   when: cro_role_enable is defined and cro_role_enable
 
+- import_playbook: ocp-metallb-operator.yml
+  when: metallb_enabled is defined and metallb_enabled
