@@ -1,0 +1,456 @@
+---
+
+# e2e testcases metallb-operator
+- debug:
+    msg: Print the value in vars {{ metallb_test_image }}
+
+- name: Validate the controller and speaker pods can be scheduled on the tainted nodes based on the tolerations in metallb CR
+  block:
+  - name: Check the number of nodes running
+    shell: oc get node | grep "Ready" | wc -l
+    register: metallb_nodes
+
+  - name: Get the master node name
+    shell: oc get nodes | grep master | head -1 | awk '{if ($1 ~ /master/) print $1}'
+    register: master_node
+    failed_when: master_node.stdout_lines|length < 1
+
+  - name: Get the worker node name
+    shell: oc get nodes | grep worker | head -1 | awk '{if ($1 ~ /worker/) print $1}'
+    register: worker_node
+    failed_when: worker_node.stdout_lines|length < 1
+
+  - name: Taint master and worker nodes
+    shell: |
+      oc adm taint node {{ master_node.stdout }} master-group=infra:NoSchedule
+      oc adm taint node {{ worker_node.stdout }} worker-group=infra:NoSchedule
+    register: taint_output
+    ignore_errors: true
+
+  - name: Create a metalLB CR with tolerations for worker-group in both controller and speaker pods
+    kubernetes.core.k8s:
+      state: present
+      definition:
+        apiVersion: metallb.io/v1beta1
+        kind: MetalLB
+        metadata:
+          name: metallb
+          namespace: "{{ metallb_namespace }}"
+        spec:
+          controllerTolerations:
+            - effect: NoSchedule
+              key: worker-group
+              operator: Equal
+              value: infra
+          logLevel: debug
+          speakerTolerations:
+            - effect: NoSchedule
+              key: worker-group
+              operator: Equal
+              value: infra
+
+  - name: Check if all the pods are running
+    shell: oc get pods -n "{{ metallb_namespace }}" --no-headers | grep -v "Running\|Completed" | wc -l
+    register: metallb_pods
+    until: metallb_pods.stdout|int == 0 and metallb_pods.stderr == ""
+    retries: 10
+    delay: 30
+
+  - name: Check if the deployment for the controller is running
+    shell: oc get deployment -n "{{ metallb_namespace }}" controller | awk '{if ($1 ~ /controller/) print $4}'
+    register: metallb_controller
+    until: metallb_controller.stdout|int == 1
+    retries: 10
+    delay: 40
+
+  - name: Check if the daemon set are created properly
+    shell: oc get daemonset -n "{{ metallb_namespace }}" speaker | awk '{if ($1 ~ /speaker/) print $6}'
+    register: metallb_speaker
+    until: metallb_speaker.stdout|int == metallb_nodes.stdout|int-1
+    retries: 10
+    delay: 40
+
+  - name: Get the instance of the metallb operator
+    shell: oc get metallb -n "{{ metallb_namespace }}" -ojsonpath="{.items[].metadata.name}"
+    register: metallb_instance
+    ignore_errors: true
+
+  - name: Delete the MetalLB CR which has toleration for worker group
+    kubernetes.core.k8s:
+      state: absent
+      api_version: metallb.io/v1beta1
+      kind: MetalLB
+      name: "{{ metallb_instance.stdout }}"
+      namespace: "{{ metallb_namespace }}"
+    when: metallb_instance.stdout|length > 0
+
+  - name: Check if the speakers are deleted
+    shell: oc get daemonset -n "{{ metallb_namespace }}" speaker
+    register: metallb_speaker
+    ignore_errors: true
+    failed_when: "'NotFound' not in metallb_speaker.stderr"
+
+  - name: Create a metalLB CR with tolerations for master-group in both controller and speaker pods
+    kubernetes.core.k8s:
+      state: present
+      definition:
+        apiVersion: metallb.io/v1beta1
+        kind: MetalLB
+        metadata:
+          name: metallb
+          namespace: "{{ metallb_namespace }}"
+        spec:
+          controllerTolerations:
+            - effect: NoSchedule
+              key: master-group
+              operator: Equal
+              value: infra
+          logLevel: debug
+          speakerTolerations:
+            - effect: NoSchedule
+              key: master-group
+              operator: Equal
+              value: infra
+
+  - name: Check if the daemon set are created properly
+    shell: oc get daemonset -n "{{ metallb_namespace }}" speaker | awk '{if ($1 ~ /speaker/) print $6}'
+    register: metallb_speaker
+    until: metallb_speaker.stdout|int == metallb_nodes.stdout|int-1
+    retries: 10
+    delay: 40
+
+  - name: Verify that no speaker pod is running on tainted worker node
+    shell: oc get pod -n "{{ metallb_namespace }}" -o wide | awk '{if (($1 ~ /speaker/) && ($7=="{{ worker_node.stdout }}")) print $7}' | wc -l
+    register: metallb_speaker
+    failed_when: metallb_speaker.stdout|int > 0
+
+  - name: Untaint master and worker nodes
+    shell: |
+      oc adm taint node {{ master_node.stdout }} master-group=infra:NoSchedule-
+      oc adm taint node {{ worker_node.stdout }} worker-group=infra:NoSchedule-
+    register: taint_output
+    ignore_errors: true
+
+  - name: Delete the instance of metallb operator
+    include_tasks: operator-cleanup.yml
+  when: metallb_e2e
+
+- name: Validate controller and pod can be scheduled based on node selectors
+  block:
+  - name: Check if the pods are running properly
+    shell: oc get pods -n "{{ metallb_namespace }}" --no-headers | grep "Running\|Completed" | wc -l
+    register: metallb_pods
+    failed_when: metallb_pods.stdout|int != 2
+
+  - name: Get the worker node name
+    shell: oc get nodes | grep worker | head -1 | awk '{if ($1 ~ /worker/) print $1}'
+    register: worker_node
+    failed_when: worker_node.stdout_lines|length < 1
+
+  - name: Create a node selector CR
+    kubernetes.core.k8s:
+      state: present
+      definition:
+        apiVersion: metallb.io/v1beta1
+        kind: MetalLB
+        metadata:
+          name: metallb
+          namespace: "{{ metallb_namespace }}"
+        spec:
+          controllerNodeSelector:
+            kubernetes.io/hostname: "{{ worker_node.stdout }}"
+          nodeSelector:
+            node-role.kubernetes.io/worker: "{{ worker_node.stdout }}"
+
+  - name: Check if the controller pod is getting created only on the mentioned worker based on node selector
+    shell: oc get pods -n "{{ metallb_namespace }}" -o wide --no-headers | awk '{if ($1 ~ /^controller/) print $7}'
+    register: metallb_controller_pod
+    failed_when: worker_node.stdout not in metallb_controller_pod.stdout
+
+  - name: Delete the instance of metallb operator
+    include_tasks: operator-cleanup.yml
+  when: metallb_e2e
+
+- name: Validate controller and speaker pods can be scheduled based on affinity
+  block:
+
+  - name: Get the worker node name
+    shell: oc get nodes | grep worker | head -2 | awk '{if ($1 ~ /worker/) print $1}'
+    register: worker_nodes
+    failed_when: worker_nodes.stdout_lines|length != 2
+
+  - name: Label two worker nodes with labels zone=east and zone west respectively
+    shell: |
+      oc label node {{ worker_nodes.stdout_lines[0] }} zone=east
+      oc label node {{ worker_nodes.stdout_lines[1] }} zone=west
+
+  - name: Create a metallb CR with controller and speaker pod based on (required) node affinity matchExpression
+    kubernetes.core.k8s:
+      state: present
+      definition:
+        apiVersion: metallb.io/v1beta1
+        kind: MetalLB
+        metadata:
+          name: metallb
+          namespace: "{{ metallb_namespace }}"
+        spec:
+          controllerConfig:
+            affinity:
+              nodeAffinity:
+                requiredDuringSchedulingIgnoredDuringExecution:
+                  nodeSelectorTerms:
+                    - matchExpressions:
+                        - key: zone
+                          operator: In
+                          values:
+                            - east
+            speakerConfig:
+              affinity:
+                nodeAffinity:
+                  requiredDuringSchedulingIgnoredDuringExecution:
+                    nodeSelectorTerms:
+                      - matchExpressions:
+                          - key: zone
+                            operator: In
+                            values:
+                              - west
+
+  - name: Check if the controller is getting created on worker 0
+    shell: oc get pods -n "{{ metallb_namespace }}" -o wide --no-headers | awk '{if ($1 ~ /^controller/) print $7}'
+    register: metallb_controller_pod
+    until: worker_nodes.stdout_lines[0] in metallb_controller_pod.stdout
+    retries: 5
+    delay: 20
+
+  - name: Check if the speaker pod is getting created on worker 1
+    shell: oc get pods -n "{{ metallb_namespace }}" -o wide --no-headers | awk '{if ($1 ~ /^speaker/) print $7}'
+    register: metallb_speaker_pod
+    until: worker_nodes.stdout_lines[1] in metallb_speaker_pod.stdout
+    retries: 5
+    delay: 20
+
+  - name: Delete the instance of metallb operator
+    include_tasks: operator-cleanup.yml
+
+  # Create a metalLB CR based on node affinity using matchFields
+  - name: Create a metallb CR with controller and speaker pod based on ( required) node affinity using matchFields
+    kubernetes.core.k8s:
+      state: present
+      definition:
+        apiVersion: metallb.io/v1beta1
+        kind: MetalLB
+        metadata:
+          name: metallb
+          namespace: "{{ metallb_namespace }}"
+        spec:
+          controllerConfig:
+            affinity:
+              nodeAffinity:
+                requiredDuringSchedulingIgnoredDuringExecution:
+                  nodeSelectorTerms:
+                    - matchFields:
+                        - key: metadata.name
+                          operator: In
+                          values:
+                            - "{{ worker_nodes.stdout_lines[0] }}"
+            speakerConfig:
+              affinity:
+                nodeAffinity:
+                  requiredDuringSchedulingIgnoredDuringExecution:
+                    nodeSelectorTerms:
+                      - matchFields:
+                          - key: metadata.name
+                            operator: In
+                            values:
+                              - "{{ worker_nodes.stdout_lines[1] }}"
+
+  # Verification of node affinity using matchFields
+  - name: Check if the controller is getting created on worker 0
+    shell: oc get pods -n "{{ metallb_namespace }}" -o wide --no-headers | awk '{if ($1 ~ /^controller/) print $7}'
+    register: metallb_controller_pod
+    until: worker_nodes.stdout_lines[0] in metallb_controller_pod.stdout
+    retries: 5
+    delay: 20
+
+  - name: Check if the speaker pod is getting created on worker 1
+    shell: oc get pods -n "{{ metallb_namespace }}" -o wide --no-headers | awk '{if ($1 ~ /^speaker/) print $7}'
+    register: metallb_speaker_pod
+    until: worker_nodes.stdout_lines[1] in metallb_speaker_pod.stdout
+    retries: 5
+    delay: 20
+
+  - name: Delete the instance of metallb operator
+    include_tasks: operator-cleanup.yml
+
+  # Create a metalLB CR to ensure pod affinity is honored for controller and speaker
+  - name: Create a sample nginx pod in same namespace
+    kubernetes.core.k8s:
+      state: present
+      definition:
+        apiVersion: v1
+        kind: Pod
+        metadata:
+          name: nginx-test
+          namespace: "{{ metallb_namespace }}"
+          labels:
+            name: test-only-pod
+        spec:
+          containers:
+            - name: nginx-test
+              image: nginx
+
+  - name: Create a metallb CR with controller and speaker pod based on ( required) node affinity using matchFields
+    kubernetes.core.k8s:
+      state: present
+      definition:
+        apiVersion: metallb.io/v1beta1
+        kind: MetalLB
+        metadata:
+          name: metallb
+          namespace: "{{ metallb_namespace }}"
+        spec:
+          controllerConfig:
+            affinity:
+              podAffinity:
+                requiredDuringSchedulingIgnoredDuringExecution:
+                  - labelSelector:
+                      matchExpressions:
+                        - key: name
+                          operator: In
+                          values:
+                            - test-only-pod
+                    topologyKey: kubernetes.io/hostname
+
+          logLevel: debug
+          speakerConfig:
+            affinity:
+              podAffinity:
+                requiredDuringSchedulingIgnoredDuringExecution:
+                  - labelSelector:
+                      matchExpressions:
+                        - key: name
+                          operator: In
+                          values:
+                            - test-only-pod
+                    topologyKey: kubernetes.io/hostname
+
+  # Verification of pod affinity
+  - name: Get the node on where nginx is run
+    shell: oc get pods -n "{{ metallb_namespace }}" -o wide --no-headers | awk '{if ($1 ~ /nginx/) print $7}'
+    register: nginx_node
+
+  - name: Check if the controller is getting created on same node as per the label mentioned in CR
+    shell: oc get pods -n "{{ metallb_namespace }}" -o wide --no-headers | awk '{if (($1 ~ /^controller/) && ($3=="Running")) print $7}'
+    register: metallb_controller_node
+    until: metallb_controller_node.stdout == nginx_node.stdout
+    retries: 5
+    delay: 20
+
+  - name: Check if the speaker pod is getting created on same node as per the label mentioned in CR
+    shell: oc get pods -n "{{ metallb_namespace }}" -o wide --no-headers | awk '{if (($1 ~ /^speaker/) && ($3=="Running")) print $7}'
+    register: metallb_speaker_node
+    until: metallb_speaker_node.stdout == nginx_node.stdout
+    retries: 5
+    delay: 20
+
+  - name: Delete the instance of metallb operator
+    include_tasks: operator-cleanup.yml
+
+  # Create metalLB CR with pod anti affinity rule
+  - name: Create a metallb CR with with pod anti affinity rule
+    kubernetes.core.k8s:
+      state: present
+      definition:
+        apiVersion: metallb.io/v1beta1
+        kind: MetalLB
+        metadata:
+          name: metallb
+          namespace: "{{ metallb_namespace }}"
+        spec:
+          controllerConfig:
+            affinity:
+              podAntiAffinity:
+                requiredDuringSchedulingIgnoredDuringExecution:
+                  - labelSelector:
+                      matchExpressions:
+                        - key: name
+                          operator: In
+                          values:
+                            - test-only-pod
+                    topologyKey: kubernetes.io/hostname
+          speakerConfig:
+            nodeSelector:
+              node-role.kubernetes.io/worker: ''
+            affinity:
+              podAntiAffinity:
+                requiredDuringSchedulingIgnoredDuringExecution:
+                  - labelSelector:
+                      matchExpressions:
+                        - key: name
+                          operator: In
+                          values:
+                            - test-only-pod
+                    topologyKey: kubernetes.io/hostname
+
+  # Verification
+  - name: Check if the controller is getting created on a different node than the pod with label
+    shell: oc get pods -n "{{ metallb_namespace }}" -o wide --no-headers | awk '{if (($1 ~ /^controller/) && ($3=="Running")) print $7}'
+    register: metallb_controller_node
+    until: metallb_controller_node.stdout != nginx_node.stdout
+    retries: 5
+    delay: 20
+
+  - name: Check if the speakers are getting created on a different node than the pod with label
+    shell: oc get pods -n "{{ metallb_namespace }}" -o wide --no-headers | awk '{if (($1 ~ /^speaker/) && ($3=="Running")) print $7}'
+    register: metallb_speaker_node
+    failed_when: nginx_node.stdout in metallb_speaker_node.stdout
+
+  - name: Delete the instance of metallb operator
+    include_tasks: operator-cleanup.yml
+
+  - name: Delete the nginx pod created during the test
+    kubernetes.core.k8s:
+      state: absent
+      api_version: v1
+      kind: Pod
+      name: nginx-test
+      namespace: "{{ metallb_namespace }}"
+  when: metallb_e2e
+
+# Validate Community creation and update
+- name: Validate Community creation and update
+  block:
+  - name: Create a community name community1
+    kubernetes.core.k8s:
+      state: present
+      definition:
+        apiVersion: metallb.io/v1beta1
+        kind: Community
+        metadata:
+          name: community1
+          namespace: "{{ metallb_namespace }}"
+        spec:
+          communities:
+            - name: NO_ADVERTISE
+              value: 65535:65282
+
+  # Edit the community1 to add same entry of community to see error
+  - name: Add same entry of community
+    kubernetes.core.k8s:
+      state: present
+      definition:
+        apiVersion: metallb.io/v1beta1
+        kind: Community
+        metadata:
+          name: community1
+          namespace: "{{ metallb_namespace }}"
+        spec:
+          communities:
+            - name: NO_ADVERTISE
+              value: 65535:65282
+            - name: NO_ADVERTISE
+              value: 65535:65282
+    register: community_output
+    failed_when: "'duplicate definition of community' not in community_output.msg"
+    ignore_errors: true
+  when: metallb_e2e

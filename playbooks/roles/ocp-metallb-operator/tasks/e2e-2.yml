@@ -1,0 +1,549 @@
+---
+
+# Verify L2 LoadBalancer service type are created on non cloud clusters
+- name: Verify L2 LoadBalancer service type are created on non cloud clusters
+  block:
+  - name: Create CR for metallb on worker node
+    kubernetes.core.k8s:
+      state: present
+      definition:
+        apiVersion: metallb.io/v1beta1
+        kind: MetalLB
+        metadata:
+          name: metallb
+          namespace: "{{ metallb_namespace }}"
+        spec:
+          nodeSelector:
+            node-role.kubernetes.io/worker: ''
+
+  - name: Check if all the pods are running
+    shell: oc get pods -n "{{ metallb_namespace }}" --no-headers | grep -v "Running\|Completed" | wc -l
+    register: metallb_pods
+    until: metallb_pods.stdout|int == 0 and metallb_pods.stderr == ""
+    retries: 10
+    delay: 30
+
+  - name: Delete the project if it exists already
+    shell: oc delete project test1
+    ignore_errors: true
+
+  - name: Create a project
+    shell: oc new-project test1
+
+  - name: Configure an address pool in the namespace where metallb is installed
+    kubernetes.core.k8s:
+      state: present
+      definition:
+        apiVersion: metallb.io/v1beta1
+        kind: IPAddressPool
+        metadata:
+          name: address-pool-silver
+          namespace: "{{ metallb_namespace }}"
+        spec:
+          protocol: layer2
+          addresses:
+            - "{{ l2_address[0] }}-{{ l2_address[0] }}"
+            - "{{ l2_address[1] }}-{{ l2_address[1] }}"
+
+  - name: Create a replica set and service of type LoadBalanncer
+    kubernetes.core.k8s:
+      state: present
+      definition:
+        apiVersion: apps/v1
+        kind: ReplicaSet
+        metadata:
+          name: hello-world
+          namespace: test1
+          labels:
+            app: hello-world
+        spec:
+          selector:
+            matchLabels:
+              app: hello-world
+          replicas: 2
+          template:
+            metadata:
+              labels:
+                app: hello-world
+            spec:
+              containers:
+                - name: hello-world
+                  image: "{{ metallb_test_image }}"
+                  imagePullPolicy: Always
+                  ports:
+                    - containerPort: 8080
+                      protocol: TCP
+
+  - name: Create a replica set and service of type LoadBalanncer
+    kubernetes.core.k8s:
+      state: present
+      definition:
+        apiVersion: v1
+        kind: Service
+        metadata:
+          name: hello-world
+          namespace: test1
+          annotations:
+            metallb.universe.tf/address-pool: address-pool-silver
+        spec:
+          selector:
+            app: hello-world
+          ports:
+            - port: 80
+              targetPort: 8080
+              protocol: TCP
+          type: LoadBalancer
+
+  - name: Check if all the pods are running
+    shell: oc get pods -n test1 --no-headers | grep "Running\|Completed" | wc -l
+    register: metallb_pods
+    until: metallb_pods.stdout|int == 2
+    retries: 5
+    delay: 20
+
+  - name: Check if the replicaset is proper
+    shell: oc get rs -n test1 --no-headers | awk '{if ($1 ~ /^hello/) print $4}'
+    register: metallb_rs
+    failed_when: metallb_rs.stdout|int != 2
+
+  - name: Check if the loadbalancer service is proper
+    shell: oc get svc -n test1 --no-headers | awk '{if ($2 ~ /LoadBalancer/)  print $4}'
+    register: metallb_svc
+    until: metallb_svc.stdout != "<pending>"
+    retries: 10
+    delay: 40
+
+  # Verification
+  - name: Check if the service is reachable
+    shell: oc debug node/master-0 -- chroot /host curl -I http://{{ metallb_svc.stdout }}
+    register: metallb_svc
+    failed_when: "'200 OK' not in metallb_svc.stdout"
+
+  #Delete the service and replication controllers
+  - name: Delete the IP address pool
+    kubernetes.core.k8s:
+      state: absent
+      api_version: metallb.io/v1beta1
+      kind: IPAddressPool
+      name: address-pool-silver
+      namespace: "{{ metallb_namespace }}"
+
+  - name: Delete the replication controllers
+    kubernetes.core.k8s:
+      state: absent
+      api_version: apps/v1
+      kind: ReplicaSet
+      name: hello-world
+      namespace: test1
+
+  - name: Delete the Service
+    kubernetes.core.k8s:
+      state: absent
+      api_version: v1
+      kind: Service
+      name: hello-world
+      namespace: test1
+
+  - name: Delete the project
+    shell: oc delete project test1
+
+  - name: Delete the instance of metallb operator
+    include_tasks: operator-cleanup.yml
+  when: metallb_e2e
+
+# Validate controller and speaker pods are scheduled on nodes based priority class and run time class
+- name: Validate controller and speaker pods are scheduled on nodes based priority class and run time class
+  block:
+  - name: Check if all the pods are running
+    shell: oc get pods -n "{{ metallb_namespace }}" --no-headers | grep -v "Running\|Completed" | wc -l
+    register: metallb_pods
+    until: metallb_pods.stdout|int == 0 and metallb_pods.stderr == ""
+    retries: 10
+    delay: 60
+
+  # Create a metalLB CR with priority class set
+  - name: Create a metalLB CR with priority class set
+    kubernetes.core.k8s:
+      state: present
+      definition:
+        apiVersion: metallb.io/v1beta1
+        kind: MetalLB
+        metadata:
+          name: metallb
+          namespace: "{{ metallb_namespace }}"
+        spec:
+          controllerConfig:
+            priorityClassName: high-priority
+          speakerConfig:
+            priorityClassName: high-priority
+
+  # Verify that the speaker and controller pods are not created as the priority class doesnt exist yet
+  - name: Check if all the pods are running
+    shell: oc get pods -n "{{ metallb_namespace }}" --no-headers | grep "speaker\|^controller" | wc -l
+    register: metallb_pods
+    failed_when: metallb_pods.stdout|int != 0
+
+  # Create the priority class to see controller and speaker pods are created
+  - name: Create the priority class to see controller and speaker pods are created
+    kubernetes.core.k8s:
+      state: present
+      definition:
+        apiVersion: scheduling.k8s.io/v1
+        kind: PriorityClass
+        metadata:
+          name: high-priority
+        value: 1000000
+        globalDefault: false
+        description: "This priority class should be used for metallb controller and speaker pods only."
+
+  - name: Get the priority class
+    shell: oc get priorityclass --no-headers | grep "high-priority" | wc -l
+    register: priorityclass_op
+    failed_when: priorityclass_op.stdout|int != 1
+
+  - name: Check if the speaker and controller pods are running
+    shell: oc get pods -n "{{ metallb_namespace }}" --no-headers | grep "speaker\|^controller" | wc -l
+    register: metallb_pods
+    failed_when: metallb_pods.stdout|int < 0
+
+  - name: Delete the instance of metallb operator
+    include_tasks: operator-cleanup.yml
+
+  - name: Delete the priority class
+    kubernetes.core.k8s:
+      state: absent
+      api_version: scheduling.k8s.io/v1
+      kind: PriorityClass
+      name: high-priority
+  when: metallb_e2e
+
+# Verify static address is associated with LoadBalancer service if it is specified in YAML
+- name: Verify static address is associated with LoadBalancer service if it is specified in YAML
+  block:
+  - name: Create a metalLB CR
+    kubernetes.core.k8s:
+      state: present
+      definition:
+        apiVersion: metallb.io/v1beta1
+        kind: MetalLB
+        metadata:
+          name: metallb
+          namespace: "{{ metallb_namespace }}"
+
+  - name: Create a address pool with set of IP addresses intended to be used as static IP using autoAssign False
+    kubernetes.core.k8s:
+      state: present
+      definition:
+        apiVersion: metallb.io/v1beta1
+        kind: IPAddressPool
+        metadata:
+          name: address-pool-static
+          namespace: "{{ metallb_namespace }}"
+        spec:
+          protocol: layer2
+          addresses:
+            - "{{ l2_address[0] }}-{{ l2_address[0] }}"
+          autoAssign: false
+
+  - name: Check if the addresspool is proper
+    shell: oc get IPaddresspool -n "{{ metallb_namespace }}" | grep "address-pool-static" | wc -l
+    register: metallb_adpool
+    failed_when: metallb_adpool.stdout|int != 1
+
+  - name: Delete the project if it exists already
+    shell: oc delete project test
+    ignore_errors: true
+
+  - name: Create a new project test
+    shell: oc new-project test
+
+  - name: Create a service of type LoadBalancer using one of the IP addresses of node for EXTERNAL_IP
+    kubernetes.core.k8s:
+      state: present
+      definition:
+        apiVersion: v1
+        kind: List
+        items:
+          - apiVersion: v1
+            kind: ReplicationController
+            metadata:
+              labels:
+                name: hello-idle
+              name: hello-idle
+              namespace: test
+            spec:
+              replicas: 2
+              selector:
+                name: hello-idle
+              template:
+                metadata:
+                  labels:
+                    name: hello-idle
+                spec:
+                  containers:
+                    - image: "{{ metallb_test_image }}"
+                      name: hello-idle
+                      ports:
+                        - containerPort: 8080
+                          protocol: TCP
+                      resources:
+                        limits:
+                          cpu: 200m
+                          memory: 256Mi
+                        requests:
+                          cpu: 100m
+                          memory: 256Mi
+                      terminationMessagePath: /dev/termination-log
+                  dnsPolicy: ClusterFirst
+                  restartPolicy: Always
+                  securityContext: { }
+                  terminationGracePeriodSeconds: 30
+          - apiVersion: v1
+            kind: Service
+            metadata:
+              name: hello-idle
+              namespace: test
+              annotations:
+                metallb.universe.tf/address-pool: address-pool-static
+            spec:
+              ports:
+                - port: 80
+                  targetPort: 8080
+                  protocol: TCP
+              selector:
+                name: hello-idle
+              type: LoadBalancer
+              loadBalancerIP: "{{ l2_address[0] }}"
+
+  - name: Check the service EXTERNAL_IP
+    shell: oc get svc --no-headers | awk '{if ($1 ~ /^hello/) print $4}'
+    register: svc_ip
+    until: svc_ip.stdout == "{{ l2_address[0] }}"
+    retries: 10
+    delay: 40
+
+  #Delete the service and replication controllers
+  - name: Delete the IP address pool
+    kubernetes.core.k8s:
+      state: absent
+      api_version: metallb.io/v1beta1
+      kind: IPAddressPool
+      name: address-pool-static
+      namespace: "{{ metallb_namespace }}"
+
+  - name: Delete the replication controllers
+    kubernetes.core.k8s:
+      state: absent
+      api_version: v1
+      kind: ReplicationController
+      name: hello-idle
+      namespace: test
+
+  - name: Delete the Service
+    kubernetes.core.k8s:
+      state: absent
+      api_version: v1
+      kind: Service
+      name: hello-idle
+      namespace: test
+
+  - name: Delete the project
+    shell: oc delete project test
+
+  when: metallb_e2e
+
+# Verify the logging level of MetalLB can be changed for debugging
+- name: Verify the logging level of MetalLB can be changed for debugging
+  block:
+  - name: Create a metalLB CR
+    kubernetes.core.k8s:
+      state: present
+      definition:
+        apiVersion: metallb.io/v1beta1
+        kind: MetalLB
+        metadata:
+          name: metallb
+          namespace: "{{ metallb_namespace }}"
+
+  - name: Check if all the pods are running
+    shell: oc get pods -n "{{ metallb_namespace }}" --no-headers | grep -v "Running\|Completed" | wc -l
+    register: metallb_pods
+    until: metallb_pods.stdout|int == 0 and metallb_pods.stderr == ""
+    retries: 10
+    delay: 60
+
+  - name: Check the clusterserviceversion
+    shell: oc get csv -n "{{ metallb_namespace }}" --no-headers | grep "metallb" | wc -l
+    register: metallb_csv
+    failed_when: metallb_csv.stdout|int != 1
+
+  - name: Fetch one speaker pod name
+    shell: oc get pods -n "{{ metallb_namespace }}" --no-headers | awk '{if ($1 ~ /^speaker/) {print$1;exit;}}'
+    register: speaker_pod
+
+  - name: Check the current log level
+    shell: oc get pods {{ speaker_pod.stdout }} -n "{{ metallb_namespace }}" -oyaml | grep log-level
+    register: log_level
+    failed_when: "'info' not in log_level.stdout"
+
+  - name: Update log level to debug
+    shell: oc patch --type=merge metallbs.metallb.io metallb -p '{"spec":{"logLevel":"debug"}}' -n "{{ metallb_namespace }}"
+
+  - name: Sleep for 120 seconds for the speaker pods to be recreated
+    wait_for:
+      delay: 120
+      timeout: 0
+
+  - name: Wait for the speaker pods to be recreated
+    shell: oc get pods -n "{{ metallb_namespace }}" --no-headers | awk '{if ($1 ~ /^speaker/) {print$1;exit;}}'
+    register: speaker_pod
+
+  - name: Check if the log level is changed to debug
+    shell: oc get pods {{ speaker_pod.stdout }} -n "{{ metallb_namespace }}" -oyaml | grep log-level
+    register: log_level
+    failed_when: "'debug' not in log_level.stdout"
+
+  - name: Check the logs in 'speaker' container of speaker pod to see log level debug
+    shell: oc logs {{ speaker_pod.stdout }} -n "{{ metallb_namespace }}" | grep "debug" | tail -10 | wc -l
+    register: log_output
+    failed_when: log_output.stdout|int < 0
+  when: metallb_e2e
+
+# The L2 service with externalTrafficPolicy Local continues to service requests even when node with endpoints goes down
+# Can't add this testcase in CI as this involves rebooting of worker node while continuously sending requests to master node
+
+# Verify one address can be associated with more than one service using annotation metallb.universe.tf/allow-shared-ip
+- name: Verify one address can be associated with more than one service using annotation metallb.universe.tf/allow-shared-ip
+  block:
+  - name: Create IP Address pool
+    kubernetes.core.k8s:
+      state: present
+      definition:
+        apiVersion: metallb.io/v1beta1
+        kind: IPAddressPool
+        metadata:
+          name: address-pool-static
+          namespace: "{{ metallb_namespace }}"
+        spec:
+          protocol: layer2
+          addresses:
+            - "{{ l2_address[0] }}-{{ l2_address[0] }}"
+
+  - name: Delete the project if it exists already
+    shell: oc delete project test
+    ignore_errors: true
+
+  - name: Create new project
+    shell: oc new-project test
+
+  - name: Create two services with same set of backend pods and same IP address but different protocol in project test
+    kubernetes.core.k8s:
+      state: present
+      definition:
+        apiVersion: v1
+        kind: List
+        items:
+          - apiVersion: v1
+            kind: ReplicationController
+            metadata:
+              labels:
+                name: web-server-rc
+              name: web-server-rc
+              namespace: test
+            spec:
+              replicas: 2
+              template:
+                metadata:
+                  labels:
+                    name: web-server-rc
+                spec:
+                  containers:
+                    - image: "{{ metallb_test_image }}"
+                      name: nginx
+          - apiVersion: v1
+            kind: Service
+            metadata:
+              labels:
+                name: service-secure
+              name: service-secure
+              namespace: test
+              annotations:
+                metallb.universe.tf/IPAddress-pool: address-pool-static
+                metallb.universe.tf/allow-shared-ip: "web-server-svc"
+            spec:
+              ports:
+                - name: https
+                  port: 27443
+                  protocol: TCP
+                  targetPort: 8443
+              selector:
+                name: web-server-rc
+              type: LoadBalancer
+              loadBalancerIP: "{{ l2_address[0] }}"
+          - apiVersion: v1
+            kind: Service
+            metadata:
+              labels:
+                name: service-unsecure
+              name: service-unsecure
+              namespace: test
+              annotations:
+                metallb.universe.tf/IPAddress-pool: address-pool-static
+                metallb.universe.tf/allow-shared-ip: "web-server-svc"
+            spec:
+              ports:
+                - name: http
+                  port: 27017
+                  protocol: TCP
+                  targetPort: 8080
+              selector:
+                name: web-server-rc
+              type: LoadBalancer
+              loadBalancerIP: "{{ l2_address[0] }}"
+
+  - name: Check if the services are created
+    shell: oc get svc -n test | grep {{ l2_address[0] }} | wc -l
+    register: svc_count
+    failed_when: svc_count.stdout|int != 2
+
+  # verify reachability using curl command from master node
+  - name: Check if the service is reachable
+    shell: oc debug node/master-0 -- chroot /host curl -I http://{{ l2_address[0] }}:27017
+    register: metallb_svc
+    failed_when: "'200 OK' not in metallb_svc.stdout"
+
+  - name: Delete the IP address pool
+    kubernetes.core.k8s:
+      state: absent
+      api_version: metallb.io/v1beta1
+      kind: IPAddressPool
+      name: address-pool-static
+      namespace: "{{ metallb_namespace }}"
+
+  - name: Delete the replication controller
+    kubernetes.core.k8s:
+      state: absent
+      api_version: v1
+      kind: ReplicationController
+      name: web-server-rc
+      namespace: test
+
+  - name: Delete the secure service
+    kubernetes.core.k8s:
+      state: absent
+      api_version: v1
+      kind: Service
+      name: service-secure
+      namespace: test
+
+  - name: Delete the unsecure service
+    kubernetes.core.k8s:
+      state: absent
+      api_version: v1
+      kind: Service
+      name: service-unsecure
+      namespace: test
+
+  - name: Delete the project test
+    shell: oc delete project test
+  when: metallb_e2e

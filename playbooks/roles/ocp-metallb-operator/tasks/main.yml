@@ -2,4 +2,6 @@
 # tasks file for playbooks/roles/ocp-metallb-operator
 - include_tasks: cleanup.yml
 - include_tasks: install.yml
-- include_tasks: e2e.yml
+- include_tasks: e2e-1.yml
+- include_tasks: e2e-2.yml
+- include_tasks: e2e-3.yml
