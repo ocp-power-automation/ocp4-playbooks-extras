@@ -66,7 +66,7 @@
   - name: Run the e2e test command
     shell: "./bin/extended-platform-tests run all --dry-run | 
       grep '43074\\|46560\\|43075\\|53333' | 
-      ./bin/extended-platform-tests run -f - -o ../e2e-openshift-private-logs.txt"
+      ./bin/extended-platform-tests run -f - -o ../e2e-metallb-private-logs.txt"
     args:
       chdir: "{{ metallb_directory }}/openshift-tests-private"
     environment: "{{ metallb_e2e_env }}"
