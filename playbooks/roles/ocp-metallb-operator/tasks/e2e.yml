@@ -1,7 +1,8 @@
 ---
+
 # e2e testcases metallb-operator
 - debug:
-    msg: Print the value in vars {{ test_image }}
+    msg: Print the value in vars {{ metallb_test_image }}
 
 - name: Validate the controller and speaker pods can be scheduled on the tainted nodes based on the tolerations in metallb CR
   block:
@@ -34,7 +35,7 @@
         kind: MetalLB
         metadata:
           name: metallb
-          namespace: metallb-system
+          namespace: "{{ metallb_namespace }}"
         spec:
           controllerTolerations:
             - effect: NoSchedule
@@ -49,28 +50,30 @@
               value: infra
 
   - name: Check if all the pods are running
-    shell: oc get pods -n metallb-system --no-headers | grep -v "Running\|Completed" | wc -l
+
+    shell: oc get pods -n "{{ metallb_namespace }}" --no-headers | grep -v "Running\|Completed" | wc -l
     register: metallb_pods
     until: metallb_pods.stdout|int == 0 and metallb_pods.stderr == ""
     retries: 10
     delay: 30
 
   - name: Check if the deployment for the controller is running
-    shell: oc get deployment -n metallb-system controller | awk '{if ($1 ~ /controller/) print $4}'
+
+    shell: oc get deployment -n "{{ metallb_namespace }}" controller | awk '{if ($1 ~ /controller/) print $4}'
     register: metallb_controller
     until: metallb_controller.stdout|int == 1
     retries: 10
     delay: 40
 
   - name: Check if the daemon set are created properly
-    shell: oc get daemonset -n metallb-system speaker | awk '{if ($1 ~ /speaker/) print $6}'
+    shell: oc get daemonset -n "{{ metallb_namespace }}" speaker | awk '{if ($1 ~ /speaker/) print $6}'
     register: metallb_speaker
     until: metallb_speaker.stdout|int == metallb_nodes.stdout|int-1
     retries: 10
     delay: 40
 
   - name: Get the instance of the metallb operator
-    shell: oc get metallb -n metallb-system -ojsonpath="{.items[].metadata.name}"
+    shell: oc get metallb -n "{{ metallb_namespace }}" -ojsonpath="{.items[].metadata.name}"
     register: metallb_instance
     ignore_errors: true
 
@@ -80,11 +83,11 @@
       api_version: metallb.io/v1beta1
       kind: MetalLB
       name: "{{ metallb_instance.stdout }}"
-      namespace: metallb-system
+      namespace: "{{ metallb_namespace }}"
     when: metallb_instance.stdout|length > 0
 
   - name: Check if the speakers are deleted
-    shell: oc get daemonset -n metallb-system speaker
+    shell: oc get daemonset -n "{{ metallb_namespace }}" speaker
     register: metallb_speaker
     ignore_errors: true
     failed_when: "'NotFound' not in metallb_speaker.stderr"
@@ -97,7 +100,7 @@
         kind: MetalLB
         metadata:
           name: metallb
-          namespace: metallb-system
+          namespace: "{{ metallb_namespace }}"
         spec:
           controllerTolerations:
             - effect: NoSchedule
@@ -112,14 +115,14 @@
               value: infra
 
   - name: Check if the daemon set are created properly
-    shell: oc get daemonset -n metallb-system speaker | awk '{if ($1 ~ /speaker/) print $6}'
+    shell: oc get daemonset -n "{{ metallb_namespace }}" speaker | awk '{if ($1 ~ /speaker/) print $6}'
     register: metallb_speaker
     until: metallb_speaker.stdout|int == metallb_nodes.stdout|int-1
     retries: 10
     delay: 40
 
   - name: Verify that no speaker pod is running on tainted worker node
-    shell: oc get pod -n metallb-system -o wide | awk '{if (($1 ~ /speaker/) && ($7=="{{ worker_node.stdout }}")) print $7}' | wc -l
+    shell: oc get pod -n "{{ metallb_namespace }}" -o wide | awk '{if (($1 ~ /speaker/) && ($7=="{{ worker_node.stdout }}")) print $7}' | wc -l
     register: metallb_speaker
     failed_when: metallb_speaker.stdout|int > 0
 
@@ -137,7 +140,7 @@
 - name: Validate controller and pod can be scheduled based on node selectors
   block:
   - name: Check if the pods are running properly
-    shell: oc get pods -n metallb-system --no-headers | grep "Running\|Completed" | wc -l
+    shell: oc get pods -n "{{ metallb_namespace }}" --no-headers | grep "Running\|Completed" | wc -l
     register: metallb_pods
     failed_when: metallb_pods.stdout|int != 2
 
@@ -154,7 +157,7 @@
         kind: MetalLB
         metadata:
           name: metallb
-          namespace: metallb-system
+          namespace: "{{ metallb_namespace }}"
         spec:
           controllerNodeSelector:
             kubernetes.io/hostname: "{{ worker_node.stdout }}"
@@ -162,7 +165,7 @@
             node-role.kubernetes.io/worker: "{{ worker_node.stdout }}"
 
   - name: Check if the controller pod is getting created only on the mentioned worker based on node selector
-    shell: oc get pods -n metallb-system -o wide --no-headers | awk '{if ($1 ~ /^controller/) print $7}'
+    shell: oc get pods -n "{{ metallb_namespace }}" -o wide --no-headers | awk '{if ($1 ~ /^controller/) print $7}'
     register: metallb_controller_pod
     failed_when: worker_node.stdout not in metallb_controller_pod.stdout
 
@@ -191,7 +194,7 @@
         kind: MetalLB
         metadata:
           name: metallb
-          namespace: metallb-system
+          namespace: "{{ metallb_namespace }}"
         spec:
           controllerConfig:
             affinity:
@@ -215,14 +218,14 @@
                               - west
 
   - name: Check if the controller is getting created on worker 0
-    shell: oc get pods -n metallb-system -o wide --no-headers | awk '{if ($1 ~ /^controller/) print $7}'
+    shell: oc get pods -n "{{ metallb_namespace }}" -o wide --no-headers | awk '{if ($1 ~ /^controller/) print $7}'
     register: metallb_controller_pod
     until: worker_nodes.stdout_lines[0] in metallb_controller_pod.stdout
     retries: 5
     delay: 20
 
   - name: Check if the speaker pod is getting created on worker 1
-    shell: oc get pods -n metallb-system -o wide --no-headers | awk '{if ($1 ~ /^speaker/) print $7}'
+    shell: oc get pods -n "{{ metallb_namespace }}" -o wide --no-headers | awk '{if ($1 ~ /^speaker/) print $7}'
     register: metallb_speaker_pod
     until: worker_nodes.stdout_lines[1] in metallb_speaker_pod.stdout
     retries: 5
@@ -240,7 +243,7 @@
         kind: MetalLB
         metadata:
           name: metallb
-          namespace: metallb-system
+          namespace: "{{ metallb_namespace }}"
         spec:
           controllerConfig:
             affinity:
@@ -265,14 +268,14 @@
 
   # Verification of node affinity using matchFields
   - name: Check if the controller is getting created on worker 0
-    shell: oc get pods -n metallb-system -o wide --no-headers | awk '{if ($1 ~ /^controller/) print $7}'
+    shell: oc get pods -n "{{ metallb_namespace }}" -o wide --no-headers | awk '{if ($1 ~ /^controller/) print $7}'
     register: metallb_controller_pod
     until: worker_nodes.stdout_lines[0] in metallb_controller_pod.stdout
     retries: 5
     delay: 20
 
   - name: Check if the speaker pod is getting created on worker 1
-    shell: oc get pods -n metallb-system -o wide --no-headers | awk '{if ($1 ~ /^speaker/) print $7}'
+    shell: oc get pods -n "{{ metallb_namespace }}" -o wide --no-headers | awk '{if ($1 ~ /^speaker/) print $7}'
     register: metallb_speaker_pod
     until: worker_nodes.stdout_lines[1] in metallb_speaker_pod.stdout
     retries: 5
@@ -290,7 +293,7 @@
         kind: Pod
         metadata:
           name: nginx-test
-          namespace: metallb-system
+          namespace: "{{ metallb_namespace }}"
           labels:
             name: test-only-pod
         spec:
@@ -306,7 +309,7 @@
         kind: MetalLB
         metadata:
           name: metallb
-          namespace: metallb-system
+          namespace: "{{ metallb_namespace }}"
         spec:
           controllerConfig:
             affinity:
@@ -335,18 +338,18 @@
 
   # Verification of pod affinity
   - name: Get the node on where nginx is run
-    shell: oc get pods -n metallb-system -o wide --no-headers | awk '{if ($1 ~ /nginx/) print $7}'
+    shell: oc get pods -n "{{ metallb_namespace }}" -o wide --no-headers | awk '{if ($1 ~ /nginx/) print $7}'
     register: nginx_node
 
   - name: Check if the controller is getting created on same node as per the label mentioned in CR
-    shell: oc get pods -n metallb-system -o wide --no-headers | awk '{if (($1 ~ /^controller/) && ($3=="Running")) print $7}'
+    shell: oc get pods -n "{{ metallb_namespace }}" -o wide --no-headers | awk '{if (($1 ~ /^controller/) && ($3=="Running")) print $7}'
     register: metallb_controller_node
     until: metallb_controller_node.stdout == nginx_node.stdout
     retries: 5
     delay: 20
 
   - name: Check if the speaker pod is getting created on same node as per the label mentioned in CR
-    shell: oc get pods -n metallb-system -o wide --no-headers | awk '{if (($1 ~ /^speaker/) && ($3=="Running")) print $7}'
+    shell: oc get pods -n "{{ metallb_namespace }}" -o wide --no-headers | awk '{if (($1 ~ /^speaker/) && ($3=="Running")) print $7}'
     register: metallb_speaker_node
     until: metallb_speaker_node.stdout == nginx_node.stdout
     retries: 5
@@ -364,7 +367,7 @@
         kind: MetalLB
         metadata:
           name: metallb
-          namespace: metallb-system
+          namespace: "{{ metallb_namespace }}"
         spec:
           controllerConfig:
             affinity:
@@ -393,14 +396,14 @@
 
   # Verification
   - name: Check if the controller is getting created on a different node than the pod with label
-    shell: oc get pods -n metallb-system -o wide --no-headers | awk '{if (($1 ~ /^controller/) && ($3=="Running")) print $7}'
+    shell: oc get pods -n "{{ metallb_namespace }}" -o wide --no-headers | awk '{if (($1 ~ /^controller/) && ($3=="Running")) print $7}'
     register: metallb_controller_node
     until: metallb_controller_node.stdout != nginx_node.stdout
     retries: 5
     delay: 20
 
   - name: Check if the speakers are getting created on a different node than the pod with label
-    shell: oc get pods -n metallb-system -o wide --no-headers | awk '{if (($1 ~ /^speaker/) && ($3=="Running")) print $7}'
+    shell: oc get pods -n "{{ metallb_namespace }}" -o wide --no-headers | awk '{if (($1 ~ /^speaker/) && ($3=="Running")) print $7}'
     register: metallb_speaker_node
     failed_when: nginx_node.stdout in metallb_speaker_node.stdout
 
@@ -413,7 +416,7 @@
       api_version: v1
       kind: Pod
       name: nginx-test
-      namespace: metallb-system
+      namespace: "{{ metallb_namespace }}"
   when: metallb_e2e
 
 # Validate Community creation and update
@@ -427,7 +430,7 @@
         kind: Community
         metadata:
           name: community1
-          namespace: metallb-system
+          namespace: "{{ metallb_namespace }}"
         spec:
           communities:
             - name: NO_ADVERTISE
@@ -442,7 +445,7 @@
         kind: Community
         metadata:
           name: community1
-          namespace: metallb-system
+          namespace: "{{ metallb_namespace }}"
         spec:
           communities:
             - name: NO_ADVERTISE
@@ -465,13 +468,13 @@
         kind: MetalLB
         metadata:
           name: metallb
-          namespace: metallb-system
+          namespace: "{{ metallb_namespace }}"
         spec:
           nodeSelector:
             node-role.kubernetes.io/worker: ''
 
   - name: Check if all the pods are running
-    shell: oc get pods -n metallb-system --no-headers | grep -v "Running\|Completed" | wc -l
+    shell: oc get pods -n "{{ metallb_namespace }}" --no-headers | grep -v "Running\|Completed" | wc -l
     register: metallb_pods
     until: metallb_pods.stdout|int == 0 and metallb_pods.stderr == ""
     retries: 10
@@ -492,7 +495,7 @@
         kind: IPAddressPool
         metadata:
           name: address-pool-silver
-          namespace: metallb-system
+          namespace: "{{ metallb_namespace }}"
         spec:
           protocol: layer2
           addresses:
@@ -522,7 +525,7 @@
             spec:
               containers:
                 - name: hello-world
-                  image: "{{ test_image }}"
+                  image: "{{ metallb_test_image }}"
                   imagePullPolicy: Always
                   ports:
                     - containerPort: 8080
@@ -580,7 +583,7 @@
       api_version: metallb.io/v1beta1
       kind: IPAddressPool
       name: address-pool-silver
-      namespace: metallb-system
+      namespace: "{{ metallb_namespace }}"
 
   - name: Delete the replication controllers
     kubernetes.core.k8s:
@@ -609,7 +612,7 @@
 - name: Validate controller and speaker pods are scheduled on nodes based priority class and run time class
   block:
   - name: Check if all the pods are running
-    shell: oc get pods -n metallb-system --no-headers | grep -v "Running\|Completed" | wc -l
+    shell: oc get pods -n "{{ metallb_namespace }}" --no-headers | grep -v "Running\|Completed" | wc -l
     register: metallb_pods
     until: metallb_pods.stdout|int == 0 and metallb_pods.stderr == ""
     retries: 10
@@ -624,7 +627,7 @@
         kind: MetalLB
         metadata:
           name: metallb
-          namespace: metallb-system
+          namespace: "{{ metallb_namespace }}"
         spec:
           controllerConfig:
             priorityClassName: high-priority
@@ -633,7 +636,7 @@
 
   # Verify that the speaker and controller pods are not created as the priority class doesnt exist yet
   - name: Check if all the pods are running
-    shell: oc get pods -n metallb-system --no-headers | grep "speaker\|^controller" | wc -l
+    shell: oc get pods -n "{{ metallb_namespace }}" --no-headers | grep "speaker\|^controller" | wc -l
     register: metallb_pods
     failed_when: metallb_pods.stdout|int != 0
 
@@ -656,7 +659,7 @@
     failed_when: priorityclass_op.stdout|int != 1
 
   - name: Check if the speaker and controller pods are running
-    shell: oc get pods -n metallb-system --no-headers | grep "speaker\|^controller" | wc -l
+    shell: oc get pods -n "{{ metallb_namespace }}" --no-headers | grep "speaker\|^controller" | wc -l
     register: metallb_pods
     failed_when: metallb_pods.stdout|int < 0
 
@@ -682,7 +685,7 @@
         kind: MetalLB
         metadata:
           name: metallb
-          namespace: metallb-system
+          namespace: "{{ metallb_namespace }}"
 
   - name: Create a address pool with set of IP addresses intended to be used as static IP using autoAssign False
     kubernetes.core.k8s:
@@ -692,7 +695,7 @@
         kind: IPAddressPool
         metadata:
           name: address-pool-static
-          namespace: metallb-system
+          namespace: "{{ metallb_namespace }}"
         spec:
           protocol: layer2
           addresses:
@@ -700,7 +703,7 @@
           autoAssign: false
 
   - name: Check if the addresspool is proper
-    shell: oc get IPaddresspool -n metallb-system | grep "address-pool-static" | wc -l
+    shell: oc get IPaddresspool -n "{{ metallb_namespace }}" | grep "address-pool-static" | wc -l
     register: metallb_adpool
     failed_when: metallb_adpool.stdout|int != 1
 
@@ -735,7 +738,7 @@
                     name: hello-idle
                 spec:
                   containers:
-                    - image: "{{ test_image }}"
+                    - image: "{{ metallb_test_image }}"
                       name: hello-idle
                       ports:
                         - containerPort: 8080
@@ -783,7 +786,7 @@
       api_version: metallb.io/v1beta1
       kind: IPAddressPool
       name: address-pool-static
-      namespace: metallb-system
+      namespace: "{{ metallb_namespace }}"
 
   - name: Delete the replication controllers
     kubernetes.core.k8s:
@@ -817,31 +820,31 @@
         kind: MetalLB
         metadata:
           name: metallb
-          namespace: metallb-system
+          namespace: "{{ metallb_namespace }}"
 
   - name: Check if all the pods are running
-    shell: oc get pods -n metallb-system --no-headers | grep -v "Running\|Completed" | wc -l
+    shell: oc get pods -n "{{ metallb_namespace }}" --no-headers | grep -v "Running\|Completed" | wc -l
     register: metallb_pods
     until: metallb_pods.stdout|int == 0 and metallb_pods.stderr == ""
     retries: 10
     delay: 60
 
   - name: Check the clusterserviceversion
-    shell: oc get csv -n metallb-system --no-headers | grep "metallb" | wc -l
+    shell: oc get csv -n "{{ metallb_namespace }}" --no-headers | grep "metallb" | wc -l
     register: metallb_csv
     failed_when: metallb_csv.stdout|int != 1
 
   - name: Fetch one speaker pod name
-    shell: oc get pods -n metallb-system --no-headers | awk '{if ($1 ~ /^speaker/) {print$1;exit;}}'
+    shell: oc get pods -n "{{ metallb_namespace }}" --no-headers | awk '{if ($1 ~ /^speaker/) {print$1;exit;}}'
     register: speaker_pod
 
   - name: Check the current log level
-    shell: oc get pods {{ speaker_pod.stdout }} -n metallb-system -oyaml | grep log-level
+    shell: oc get pods {{ speaker_pod.stdout }} -n "{{ metallb_namespace }}" -oyaml | grep log-level
     register: log_level
     failed_when: "'info' not in log_level.stdout"
 
   - name: Update log level to debug
-    shell: oc patch --type=merge metallbs.metallb.io metallb -p '{"spec":{"logLevel":"debug"}}' -n metallb-system
+    shell: oc patch --type=merge metallbs.metallb.io metallb -p '{"spec":{"logLevel":"debug"}}' -n "{{ metallb_namespace }}"
 
   - name: Sleep for 120 seconds for the speaker pods to be recreated
     wait_for:
@@ -849,16 +852,16 @@
       timeout: 0
 
   - name: Wait for the speaker pods to be recreated
-    shell: oc get pods -n metallb-system --no-headers | awk '{if ($1 ~ /^speaker/) {print$1;exit;}}'
+    shell: oc get pods -n "{{ metallb_namespace }}" --no-headers | awk '{if ($1 ~ /^speaker/) {print$1;exit;}}'
     register: speaker_pod
 
   - name: Check if the log level is changed to debug
-    shell: oc get pods {{ speaker_pod.stdout }} -n metallb-system -oyaml | grep log-level
+    shell: oc get pods {{ speaker_pod.stdout }} -n "{{ metallb_namespace }}" -oyaml | grep log-level
     register: log_level
     failed_when: "'debug' not in log_level.stdout"
 
   - name: Check the logs in 'speaker' container of speaker pod to see log level debug
-    shell: oc logs {{ speaker_pod.stdout }} -n metallb-system | grep "debug" | tail -10 | wc -l
+    shell: oc logs {{ speaker_pod.stdout }} -n "{{ metallb_namespace }}" | grep "debug" | tail -10 | wc -l
     register: log_output
     failed_when: log_output.stdout|int < 0
   when: metallb_e2e
@@ -877,7 +880,7 @@
         kind: IPAddressPool
         metadata:
           name: address-pool-static
-          namespace: metallb-system
+          namespace: "{{ metallb_namespace }}"
         spec:
           protocol: layer2
           addresses:
@@ -912,7 +915,7 @@
                     name: web-server-rc
                 spec:
                   containers:
-                    - image: "{{ test_image }}"
+                    - image: "{{ metallb_test_image }}"
                       name: nginx
           - apiVersion: v1
             kind: Service
@@ -972,7 +975,7 @@
       api_version: metallb.io/v1beta1
       kind: IPAddressPool
       name: address-pool-static
-      namespace: metallb-system
+      namespace: "{{ metallb_namespace }}"
 
   - name: Delete the replication controller
     kubernetes.core.k8s:
@@ -1006,7 +1009,7 @@
 - name: Validate L2 advertisement creation and update
   block:
   - name: Check if all the pods are running
-    shell: oc get pods -n metallb-system --no-headers | grep -v "Running\|Completed" | wc -l
+    shell: oc get pods -n "{{ metallb_namespace }}" --no-headers | grep -v "Running\|Completed" | wc -l
     register: metallb_pods
     until: metallb_pods.stdout|int == 0 and metallb_pods.stderr == ""
     retries: 10
@@ -1025,7 +1028,7 @@
         kind: IPAddressPool
         metadata:
           name: ip-addresspool-l2
-          namespace: metallb-system
+          namespace: "{{ metallb_namespace }}"
         spec:
           protocol: layer2
           addresses:
@@ -1042,7 +1045,7 @@
           labels:
             zone: east
           name: ip-addresspool-l2-a
-          namespace: metallb-system
+          namespace: "{{ metallb_namespace }}"
         spec:
           protocol: layer2
           addresses:
@@ -1050,7 +1053,7 @@
           autoAssign: true
 
   - name: Verify the IP Address pool created
-    shell: oc get ipaddresspool -n metallb-system --no-headers | grep "ip-addresspool" | wc -l
+    shell: oc get ipaddresspool -n "{{ metallb_namespace }}" --no-headers | grep "ip-addresspool" | wc -l
     register: address_pool
     failed_when: address_pool.stdout|int != 2
 
@@ -1062,7 +1065,7 @@
         kind: L2Advertisement
         metadata:
           name: l2-adv
-          namespace: metallb-system
+          namespace: "{{ metallb_namespace }}"
         spec:
           ipAddressPoolSelectors:
             - matchExpressions:
@@ -1072,7 +1075,7 @@
                     - east
 
   - name: Validate if the L2Advertisement is successfully created
-    shell: oc get l2advertisement -n metallb-system --no-headers | grep l2-adv | wc -l
+    shell: oc get l2advertisement -n "{{ metallb_namespace }}" --no-headers | grep l2-adv | wc -l
     register: l2adv
     failed_when: l2adv.stdout|int != 1
 
@@ -1084,7 +1087,7 @@
         kind: L2Advertisement
         metadata:
           name: l2-adv
-          namespace: metallb-system
+          namespace: "{{ metallb_namespace }}"
         spec:
           ipAddressPoolSelectors:
             - matchExpressions:
@@ -1103,7 +1106,7 @@
         kind: L2Advertisement
         metadata:
           name: l2-adv
-          namespace: metallb-system
+          namespace: "{{ metallb_namespace }}"
         spec:
           ipAddressPoolSelectors:
             - matchExpressions:
@@ -1126,7 +1129,7 @@
         kind: L2Advertisement
         metadata:
           name: l2-adv
-          namespace: metallb-system
+          namespace: "{{ metallb_namespace }}"
         spec:
           ipAddressPoolSelectors:
             - matchExpressions:
@@ -1151,7 +1154,7 @@
         kind: L2Advertisement
         metadata:
           name: l2-adv
-          namespace: metallb-system
+          namespace: "{{ metallb_namespace }}"
         spec:
           ipAddressPoolSelectors:
             - matchExpressions:
@@ -1181,7 +1184,7 @@
         kind: L2Advertisement
         metadata:
           name: l2-adv
-          namespace: metallb-system
+          namespace: "{{ metallb_namespace }}"
 
   - name: Delete L2 address pool
     kubernetes.core.k8s:
@@ -1191,7 +1194,7 @@
         kind: IPAddressPool
         metadata:
           name: ip-addresspool-l2
-          namespace: metallb-system
+          namespace: "{{ metallb_namespace }}"
 
   - name: Delete L2 address pool
     kubernetes.core.k8s:
@@ -1201,7 +1204,7 @@
         kind: IPAddressPool
         metadata:
           name: ip-addresspool-l2-a
-          namespace: metallb-system
+          namespace: "{{ metallb_namespace }}"
 
   - name: Delete the instance of metallb operator
     include_tasks: operator-cleanup.yml
@@ -1218,12 +1221,12 @@
         kind: MetalLB
         metadata:
           name: metallb
-          namespace: metallb-system
+          namespace: "{{ metallb_namespace }}"
         spec:
           nodeSelector:
             node-role.kubernetes.io/worker: ""
   - name: Verify the speakers and controller pods running
-    shell: oc get pods -n metallb-system --no-headers | grep -v "Running\|Completed" | wc -l
+    shell: oc get pods -n "{{ metallb_namespace }}" --no-headers | grep -v "Running\|Completed" | wc -l
     register: metallb_pods
     until: metallb_pods.stdout|int == 0 and metallb_pods.stderr == ""
     retries: 10
@@ -1248,7 +1251,7 @@
   # Add conf and zebra files
   # Get the speaker pods ip address
   - name: Verify the speakers and controller pods running
-    shell: oc get pods -n metallb-system -o wide | awk '{if ($1 ~ /^speaker/) print $6}'
+    shell: oc get pods -n "{{ metallb_namespace }}" -o wide | awk '{if ($1 ~ /^speaker/) print $6}'
     register: speaker_pods
     failed_when: speaker_pods.stdout_lines|length != 2
 
@@ -1299,7 +1302,7 @@
         kind: IPAddressPool
         metadata:
           name: address-pool-silver-l2
-          namespace: metallb-system
+          namespace: "{{ metallb_namespace }}"
         spec:
           protocol: layer2
           addresses:
@@ -1313,7 +1316,7 @@
         kind: IPAddressPool
         metadata:
           name: address-pool-silver-bgp
-          namespace: metallb-system
+          namespace: "{{ metallb_namespace }}"
         spec:
           protocol: bgp
           autoAssign: true
@@ -1328,14 +1331,14 @@
         kind: BGPPeer
         metadata:
           name: peer-no-bfd
-          namespace: metallb-system
+          namespace: "{{ metallb_namespace }}"
         spec:
           myASN: 65500
           peerASN: 64521
           peerAddress: "{{ ansible_default_ipv4.address }}"
 
   - name: Check if the bgppeer is created successfully
-    shell: oc get bgppeer -n metallb-system --no-headers | wc -l
+    shell: oc get bgppeer -n "{{ metallb_namespace }}" --no-headers | wc -l
     register: bgppeer
     failed_when: bgppeer.stdout|int != 1
 
@@ -1369,7 +1372,7 @@
             spec:
               containers:
                 - name: hello-world
-                  image: "{{ test_image }}"
+                  image: "{{ metallb_test_image }}"
                   imagePullPolicy: Always
                   ports:
                     - containerPort: 8080
@@ -1401,18 +1404,18 @@
     delay: 40
 
   - name: Fetch the speaker pod name
-    shell: oc get pods -n metallb-system -o wide | awk '{if ($1 ~ /^speaker/) print $1}'
+    shell: oc get pods -n "{{ metallb_namespace }}" -o wide | awk '{if ($1 ~ /^speaker/) print $1}'
     register: speaker_pods
     failed_when: speaker_pods.stdout_lines|length != 2
 
   # check show-running-config
   - name: check show-running-config
-    shell: oc exec -n metallb-system {{ speaker_pods.stdout_lines[0] }} -c frr -- vtysh -c "show running-config"
+    shell: oc exec -n "{{ metallb_namespace }}" {{ speaker_pods.stdout_lines[0] }} -c frr -- vtysh -c "show running-config"
     register: running_config
     failed_when: running_config.stderr != ""
 
   - name: check show bgp neighbor
-    shell: oc exec -n metallb-system {{ speaker_pods.stdout_lines[0] }} -c frr -- vtysh -c "show bgp neighbor"
+    shell: oc exec -n "{{ metallb_namespace }}" {{ speaker_pods.stdout_lines[0] }} -c frr -- vtysh -c "show bgp neighbor"
     register: bgp_neighbor
     failed_when: bgp_neighbor.stderr != ""
 
@@ -1439,7 +1442,7 @@
             spec:
               containers:
                 - name: hello-world-new
-                  image: "{{ test_image }}"
+                  image: "{{ metallb_test_image }}"
                   imagePullPolicy: Always
                   ports:
                     - containerPort: 8080
@@ -1494,7 +1497,7 @@
             spec:
               containers:
                 - name: hello-world-new-1
-                  image: "{{ test_image }}"
+                  image: "{{ metallb_test_image }}"
                   imagePullPolicy: Always
                   ports:
                     - containerPort: 8080
@@ -1580,7 +1583,7 @@
         kind: IPAddressPool
         metadata:
           name: address-pool-silver-bgp
-          namespace: metallb-system
+          namespace: "{{ metallb_namespace }}"
 
   - name: Delete IP Address pool for layer2
     kubernetes.core.k8s:
@@ -1590,7 +1593,7 @@
         kind: IPAddressPool
         metadata:
           name: address-pool-silver-l2
-          namespace: metallb-system
+          namespace: "{{ metallb_namespace }}"
 
   - name: Delete the instance of metallb operator
     include_tasks: operator-cleanup.yml
