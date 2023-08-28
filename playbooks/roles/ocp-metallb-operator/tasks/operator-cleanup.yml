@@ -3,7 +3,7 @@
 - name: MetalLB instance deletion
   block:
   - name: Get the instance of the metallb operator
-    shell: oc get metallb -n metallb-system -ojsonpath="{.items[].metadata.name}"
+    shell: oc get metallb -n "{{ metallb_namespace }}" -ojsonpath="{.items[].metadata.name}"
     register: metallb_instance
     ignore_errors: true
 
@@ -13,5 +13,5 @@
       api_version: metallb.io/v1beta1
       kind: MetalLB
       name: "{{ metallb_instance.stdout }}"
-      namespace: metallb-system
+      namespace: "{{ metallb_namespace }}"
     when: metallb_instance.stdout|length > 0

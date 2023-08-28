@@ -337,22 +337,21 @@ metallb_enabled: false
 metallb_install_operator: true
 metallb_enable_global_secret: true
 ocp_version: "4.13"
-metallb_catalogsource_image: "quay.io/openshift-release-dev/ocp-release-nightly:iib-int-index-art-operators-{{ ocp_version }}"
-metallb_catalogsource: "redhat-operators-stage"
-qe_catalog_source_image: "quay.io/openshift-release-dev/ocp-release-nightly:iib-int-index-art-operators-{{ ocp_version }}"
-qe_catalog_source: "qe-app-registry"
+metallb_catalog_source_image: "quay.io/openshift-release-dev/ocp-release-nightly:iib-int-index-art-operators-{{ ocp_version }}"
+metallb_catalog_source: "qe-app-registry"
 metallb_upgrade_channel: "stable"
 metallb_directory: "/tmp/metallb"
+metallb_namespace: "metallb-system"
 metallb_golang_tarball: "https://go.dev/dl/go1.18.6.linux-ppc64le.tar.gz"
 metallb_e2e: true
 metallb_e2e_git_repository: "https://github.com/openshift/metallb-operator.git"
 metallb_e2e_git_branch: "main"
-openshift_tests_private_repository: "https://github.com/openshift/openshift-tests-private.git"
-openshift_tests_private_git_branch: "master"
+metallb_openshift_tests_private_repository: "https://github.com/openshift/openshift-tests-private.git"
+metallb_openshift_tests_private_git_branch: "master"
 metallb_cleanup: true
 metallb_frr_ver: "frr-8"
 metallb_frr_rpm: "https://rpm.frrouting.org/repo/{{metallb_frr_ver}}-repo-1-0.el9.noarch.rpm"
-test_image: "quay.io/openshifttest/hello-openshift:1.2.0"
+metallb_test_image: "quay.io/openshifttest/hello-openshift:1.2.0"
 l2_address:
   - "9.47.90.117"
   - "9.47.90.118"

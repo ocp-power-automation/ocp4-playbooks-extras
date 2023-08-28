@@ -23,7 +23,7 @@
       api_version: operators.coreos.com/v1alpha1
       kind: Subscription
       name: "{{ metallb_subscription.stdout }}"
-      namespace: metallb-system
+      namespace: "{{ metallb_namespace }}"
     when: metallb_subscription.stdout|length > 0
 
   - name: Delete the operator group if exists
@@ -32,7 +32,7 @@
       api_version: operators.coreos.com/v1
       kind: OperatorGroup
       name: "{{ metallb_operator_group.stdout }}"
-      namespace: metallb-system
+      namespace: "{{ metallb_namespace }}"
     when: metallb_operator_group.stdout|length > 0
 
   - name: Delete the cluster service version if exists
@@ -41,7 +41,7 @@
       api_version: operators.coreos.com/v1alpha1
       kind: ClusterServiceVersion
       name: "{{ metallb_csv.stdout }}"
-      namespace: metallb-system
+      namespace: "{{ metallb_namespace }}"
     when: metallb_csv.stdout|length > 0
 
   - name: Check if all the pods has been deleted
@@ -71,7 +71,7 @@
     kubernetes.core.k8s:
       state: absent
       kind: Namespace
-      name: metallb-system
+      name: "{{ metallb_namespace }}"
 
   - name: Check if the namespace gets deleted
     shell: oc get namespace --no-headers | grep metallb | wc -l
