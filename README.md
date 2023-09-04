@@ -85,6 +85,14 @@ Once you have configured the vars & inventory file, run the specific playbook us
 ansible-playbook  -i inventory -e @<playbook_vars.yaml> playbooks/main.yml
 ```
 
+**Note:**  
+The Ansible playbook fails when a role requires the `make` module or when running all playbooks using `playbooks/main.yaml`, as described in [Issue 42](https://github.com/ocp-power-automation/ocp4-playbooks-extras/issues/42). 
+
+Install collection community.general:
+```
+ansible-galaxy collection install community.general
+```
+
 License
 -------
 
