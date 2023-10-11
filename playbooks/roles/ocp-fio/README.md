@@ -19,7 +19,7 @@ Role Variables
 | fio_enabled              | no       | false       | Set it to true to run this playbook                   |
 | fio_install_operator     | no       | true        | Set it to true to install the File Integrity Operator |
 | fio_catalogsource_image  | no       | ""          | Custom catalog source index image for File Integrity Operator. If not defined, default `redhat-operators` catalog source will be used      |
-| fio_upgrade_channel      | no       | release-0.1 | Operator upgrade channel |
+| fio_upgrade_channel      | no       | stable      | Operator upgrade channel |
 | fio_directory            | no       | `/tmp/fio`  | Working directory for File Integrity Operator |
 | fio_config_name          | no       | ""          | Point to a ConfigMap containing an AIDE configuration to use instead of the CoreOS optimized default |
 | fio_config_key           | no       | ""          | The key points to a key inside that config map. Use the key attribute to specify a custom key that contains the actual config and defaults to aide.conf |
