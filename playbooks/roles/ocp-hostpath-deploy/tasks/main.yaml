@@ -5,7 +5,9 @@
     state: directory
     mode: '0755'
   become: yes
-  delegate_to:  "{{ hostpath_node | default('worker-0', true) }}"
+  delegate_to: "{{ hostpath_node | default('worker-0', true) }}"
+  vars:
+    ansible_user: core
 
 - name: Create setup directory
   file:
