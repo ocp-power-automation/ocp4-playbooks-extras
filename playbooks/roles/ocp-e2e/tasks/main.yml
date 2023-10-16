@@ -143,6 +143,13 @@
     msg: "Unhealthy PODS: {{ pods_status.stdout_lines }}"
   when: 0 != pods_status.stdout|length
 
+- name: Get OCP pull-secret and set auth file in the default location
+  shell: |
+    oc get secret/pull-secret -n openshift-config -o json | jq -r '.data.".dockerconfigjson"' | base64 -d > authfile
+    mkdir -p /run/user/0/containers/
+    cp authfile /run/user/0/containers/auth.json
+  when: e2e_tests_git_branch == 'release-4.15'  
+
 # Running E2E
 - name: Prepare test suites and run e2e tests
   shell: |
