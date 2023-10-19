@@ -1,0 +1,63 @@
+---
+# check if Cluster Health is good
+- name: Check all Cluster Operators are available
+  shell: oc get co | awk 'NR>1 {if($3=="False" ||  $4=="True" || $5=="True" ){print $1}}' | wc -l
+  register: co
+
+- name: Fail when Cluster Operators are not available
+  fail: 
+    msg: " {{ co.stdout }} Cluster Operators is/are not available."
+  when: co.stdout | int !=  0
+
+- name: Check all nodes are Ready
+  shell: oc wait --all --for=condition=Ready nodes --timeout=10s
+
+
+# Verify the encryption status of Openshift api server, Kubernetes api server and Openshift OAuth api server
+- name: Verify encryption of OpenShift API server
+  shell: oc get openshiftapiserver -o=jsonpath='{range .items[0].status.conditions[?(@.type=="Encrypted")]}{.reason}{"\n"}{.message}{"\n"}'
+  register: openshift_api_server_encryption_status
+
+- name: Fail if Openshift API server is not encrypted
+  fail:
+    msg: "OpenShift API server is not encrypted"
+  when: openshift_api_server_encryption_status.failed
+
+- name: Verify encryption of Kubernetes API server
+  shell: oc get kubeapiserver -o=jsonpath='{range .items[0].status.conditions[?(@.type=="Encrypted")]}{.reason}{"\n"}{.message}{"\n"}'
+  register: kubeapiserver_encryption_status
+
+- name: Fail if Kubernetes API server is not encrypted
+  fail:
+    msg: "Kubernetes API server is not encrypted"
+  when: kubeapiserver_encryption_status.failed
+
+- name: Verify encryption of OpenShift OAuth API server
+  shell: oc get authentication.operator.openshift.io -o=jsonpath='{range .items[0].status.conditions[?(@.type=="Encrypted")]}{.reason}{"\n"}{.message}{"\n"}'
+  register: oauth_apiserver_encryption_status
+ 
+- name: Fail if Openshift OAuth API server is not encrypted
+  fail:
+    msg: "OpenShift OAuth API server is not encrypted"
+  when: oauth_apiserver_encryption_status.failed
+
+
+#Rotate encryption keys     
+- name: Rotate encryption key for Openshift API server
+  shell: |
+    oc patch openshiftapiserver cluster --type merge -p "
+    spec:
+      unsupportedConfigOverrides:
+        encryption:
+          reason: force OAS rotation `date` 
+    "
+
+- name: Rotate encryption key for Kubernetes API server
+  shell: |
+    oc patch kubeapiserver cluster --type merge -p "
+    spec:
+      unsupportedConfigOverrides:
+        encryption:
+          reason: force KAS rotation `date`
+    "
+
