@@ -127,7 +127,7 @@
     include_role:
       name: golang-installation
     vars:
-      go_tarball: "https://go.dev/dl/go1.19.3.linux-ppc64le.tar.gz"
+      go_tarball: "{{ compliance_go_tarball }}"
       golang_path: "/usr/local"
 
   - name: Include role for installing oc compliance plugin
@@ -141,15 +141,17 @@
       dest: "{{ compliance_directory }}/openshift-tests-private"
       version: "{{ compliance_e2e_github_branch }}"
 
-  - name: Copy test cases to the working directory
-    ansible.builtin.copy:
-      src: "{{ role_path }}/files/tests-cases.txt"
-      dest: "{{ compliance_directory }}/openshift-tests-private/tests.txt"
-
   - name: Run make target
     make:
       chdir: "{{ compliance_directory }}/openshift-tests-private"
       target: build
+
+  - name: Generate Compliance Operators test cases list
+    shell: |
+      ./bin/extended-platform-tests run all --dry-run | grep "Compliance" | grep -v "FIO\|hosted\|HyperShiftMGMT\|upgrade\|42663\|Security_Profiles_Operator" > tests.txt
+    args:
+      chdir: "{{ compliance_directory }}/openshift-tests-private"
+    ignore_errors: true
 
   - name: Run Compliance Operator and oc-compliance e2e tests
     shell: |

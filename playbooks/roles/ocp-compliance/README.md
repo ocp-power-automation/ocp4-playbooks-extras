@@ -25,7 +25,7 @@ Role Variables
 | compliance_enabled             | no       |    false    | Set it to true to run this playbook            |
 | compliance_directory           | no       | `/tmp/compliance` | Working directory for compliance         |
 | compliance_catalogsource_image | no       |             | Catlog source index image. If not defined, default `redhat-operators` catalog source will be used |
-| compliance_upgrade_channel     | no       | release-0.1 | Channel version for the compliance operator    |
+| compliance_upgrade_channel     | no       |    stable   | Channel version for the compliance operator    |
 | compliance_e2e                 | no       |    false    | Set it true for running e2e tests              |
 | compliance_e2e_github_repo     | no       |     ""      | github repository for running e2e tests        |
 | compliance_e2e_github_branch   | no       |    master   | github repository branch for running e2e tests |
