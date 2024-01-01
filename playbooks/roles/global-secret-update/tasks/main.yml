@@ -13,19 +13,8 @@
     msg: "Secret podman-secret doesnot exist in current namespace"
   when: login_secret.stdout|int!=2
 
-# set disableAllDefaultSources to true
-- name: Setting disableAllDefaultSources to true
-  shell: oc patch operatorhub.config.openshift.io/cluster -p='{"spec":{"disableAllDefaultSources":true}}' --type=merge
-  register: output 
-  ignore_errors: yes
-
-- name: Fail if unable to set disableAllDefaultSources to true
-  fail:
-    msg: "Unable to set disableAllDefaultSources to true : {{  output.stderr }}"
-  when: output.failed
-
-# get pull seret and store it in root location
-- name: Getting PULL Secret
+# Get pull seret and store it in root location
+- name: Getting pull Secret
   shell: |
     oc get secret/pull-secret -n openshift-config -o json | jq -r '.data.".dockerconfigjson"' | base64 -d > /root/authfile
   register: output
@@ -39,7 +28,7 @@
 # Get username and password from secret
 - name: Get username from Secret
   shell: |
-    oc get secret podman-secret  -o jsonpath="{.data.username}"|base64 --decode
+    oc get secret podman-secret -o jsonpath="{.data.username}"| base64 --decode
   register: podman_username
   ignore_errors: yes
 
@@ -48,9 +37,9 @@
     msg: "Unable to get username from secret please check secret. {{ podman_username.stderr }}"
   when: podman_username.failed or podman_username == "" or podman_username == None
 
-- name:  Get password from Secret
+- name: Get password from Secret
   shell: |
-    oc get secret podman-secret  -o jsonpath="{.data.password}"|base64 --decode
+    oc get secret podman-secret -o jsonpath="{.data.password}" | base64 --decode
   register: podman_password
   ignore_errors: yes
 
@@ -59,9 +48,9 @@
     msg: "Unable to get password from secret please check secret. {{ podman_password.stderr }}"
   when: podman_password.failed or podman_password == "" or podman_password == None
 
-- name:  Get registry from Secret
+- name: Get registry from Secret
   shell: |
-    oc get secret podman-secret  -o jsonpath="{.data.registry}"|base64 --decode
+    oc get secret podman-secret -o jsonpath="{.data.registry}" | base64 --decode
   register: podman_registry
   ignore_errors: yes
 
@@ -93,4 +82,3 @@
   fail:
     msg: "Set data/pullsecret failed : {{  output.stderr }}"
   when: output.failed
-
