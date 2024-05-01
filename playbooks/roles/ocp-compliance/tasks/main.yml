@@ -112,7 +112,7 @@
     - name: Check if pods are running
       shell: oc get pods -n openshift-compliance --no-headers | grep "Running" | wc -l
       register: compliance_pods
-      until: compliance_pods.stdout|int == 3
+      until: compliance_pods.stdout|int == 2
       retries: 15
       delay: 60
 
