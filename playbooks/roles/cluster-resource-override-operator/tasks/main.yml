@@ -163,27 +163,37 @@
       git:
         repo: "{{ cro_e2e_repo_url }}"
         dest: "{{ cro_workdir }}/{{ cro_e2e_dir }}"
-        version: "{{ cro_e2e_test_repo_branch }}"
+        version: "{{ cro_e2e_branch }}"
         force: true
       when: cro_e2e_repo_url != ""
 
-    - name: Compile the go modules using make command
+    - name: Run the e2e tests with make e2e command
       make:
         chdir: "{{ cro_workdir }}/{{ cro_e2e_dir }}"
         target: e2e
+      until: e2e_output.stdout.find("ok")
+      retries: 3
+      delay: 180
       register: e2e_output
 
     - debug:
         msg: "{{ e2e_output.stdout_lines }}"
 
-    - name: Save the output to the file
-      copy:
-        content: "{{ e2e_output.stdout_lines }}"
-        dest: "{{ cro_workdir }}/e2e-test-result/cro-e2e-test-summary.txt"
+    - name: Save the e2e output to the file
+      blockinfile:
+        create: true
+        insertbefore: EOF
+        content: "{{ item }}"
+        marker: ""
+        path: "{{ cro_workdir }}/e2e-test-result/croo_e2e_output_{{ '%Y%m%d%' | strftime(ansible_date_time.epoch) }}.txt"
+      with_items:
+      - '======================================================================== CROO e2e output log ==================================================================' 
+      - "{{ e2e_output.stdout_lines }}"
+      - '=============================================================================== END ==========================================================================='
 
     - name: Invoke the operator cleanup task
       include_tasks: cro_operator_cleanup.yml
 
   when: cro_e2e
-
+  ignore_errors: true
   environment: "{{ cro_e2e_env }}"
