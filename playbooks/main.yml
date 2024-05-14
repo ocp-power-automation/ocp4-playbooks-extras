@@ -109,3 +109,7 @@
 
 - import_playbook: ocp-metallb-operator.yml
   when: metallb_enabled is defined and metallb_enabled
+
+- import_playbook: ocp-network-observability.yml
+  when: noo_role_enable is defined and noo_role_enable
+

@@ -1,0 +1,13 @@
+---
+# vars file for ocp-network-observability
+noo_deployment_env:
+  KUBECONFIG: "{{ ansible_env.HOME }}/.kube/config"
+  INSTALLATION_SOURCE: "{{ noo_installation_source }}"
+  DOWNSTREAM_IMAGE: "{{ noo_catalogsource_image }}"
+  LOKI_OPERATOR: "{{ noo_loki_operator }}"
+  LOKISTACK_SIZE: "{{ noo_lokistack_size }}"
+  CATALOG_SOURCE_NAME: "{{ noo_catalogsource_name }}"
+
+noo_e2e_env:
+  PATH: "/usr/local/go/bin:{{ ansible_env.PATH }}"
+  KUBECONFIG: "{{ ansible_env.HOME }}/.kube/config"

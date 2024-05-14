@@ -1,0 +1,47 @@
+---
+# tasks file for ocp-network-observability
+- set_fact:
+    noo_git_username: "{{ lookup('ansible.builtin.env', 'GITHUB_USERNAME') }}"
+    noo_git_access_token: "{{ lookup('ansible.builtin.env', 'GITHUB_ACCESS_TOKEN') }}"
+    noo_aws_access_key_id: "{{ lookup('ansible.builtin.env', 'AWS_ACCESS_KEY_ID') }}"
+    noo_aws_secret_access_key: "{{ lookup('ansible.builtin.env', 'AWS_SECRET_ACCESS_KEY') }}"
+    noo_aws_default_region: "{{ lookup('ansible.builtin.env', 'AWS_DEFAULT_REGION') }}"
+
+- name: Create a working directory
+  file:
+    state: "directory"
+    path: "{{ noo_directory }}/patch-files"
+
+- name: Clone the Network Observability QE CI repository
+  block:
+  - name: Clone the Network Observability QE CI repository
+    git:
+      repo: "https://github.com/openshift-qe/ocp-qe-perfscale-ci.git"
+      dest: "{{ noo_directory }}/ocp-qe-perfscale-ci"
+      version: "netobserv-perf-tests"
+      force: true
+
+  - name: Copy the patch files to working directory
+    copy:
+      src: "{{ role_path }}/files/{{ item }}"
+      dest: "{{ noo_directory }}/patch-files"
+    with_items: ["openshift-tests-private-changes.patch","ocp-qe-perfscale-ci-changes.patch"]
+
+  - name: Apply the patch on ocp-qe-perfscale-ci repo
+    shell: git apply --ignore-whitespace --reject "{{ noo_directory }}/patch-files/ocp-qe-perfscale-ci-changes.patch"
+    args:
+      chdir: "{{ noo_directory }}/ocp-qe-perfscale-ci"
+
+- name: Deploying custom resources for Network Observability Operator
+  block:
+    - include_tasks: "{{ role_path }}/tasks/deployment.yml"
+  when: noo_deploy
+  environment: "{{ noo_deployment_env }}"
+  ignore_errors: true
+
+- name: Run e2e test cases
+  block:
+    - include_tasks: "{{ role_path }}/tasks/e2e.yml"
+  environment: "{{ noo_e2e_env }}"
+  ignore_errors: true
+  when: noo_backend_e2e
