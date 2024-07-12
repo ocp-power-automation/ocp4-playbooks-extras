@@ -1,12 +1,12 @@
 ---
 - name: Migrate from OpenShiftSDN to OVN-Kubernetes
-  include: sdn_to_ovnkube.yml
+  include_tasks: sdn_to_ovnkube.yml
   when: 
     - sdn_to_ovnkube == true
     - ovnkube_to_sdn == false
 
 - name: Migrate from OVN-Kubernetes to OpenShiftSDN
-  include: ovnkube_to_sdn.yml
+  include_tasks: ovnkube_to_sdn.yml
   when: 
     - sdn_to_ovnkube == false
     - ovnkube_to_sdn == true

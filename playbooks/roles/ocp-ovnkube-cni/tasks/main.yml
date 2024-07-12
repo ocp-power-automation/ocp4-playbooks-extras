@@ -24,7 +24,7 @@
   - directory
 
 - name: OVNKube CNI 
-  include: "{{ cni }}"
+  include_tasks: "{{ cni }}"
   loop:
     - egress-firewall.yml
     - egress-ip.yml
