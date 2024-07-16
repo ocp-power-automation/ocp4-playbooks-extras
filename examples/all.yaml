@@ -373,3 +373,13 @@ l2_address:
   - "9.47.90.118"
 bgp_address:
   - "9.47.90.202"
+
+# ocp-coo vars
+coo_role_enable: false
+coo_operator_deploy: true
+coo_cleanup: true
+coo_namespace: openshift-observability-operator
+coo_catalogsource_name: coo-catalog 
+coo_catalogsource_image: brew.registry.redhat.io/rh-osbs/iib:760399
+coo_channel: development
+ 
