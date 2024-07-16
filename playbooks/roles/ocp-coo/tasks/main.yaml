@@ -1,0 +1,5 @@
+---
+
+# tasks file for playbooks/roles/ocp-coo
+- include_tasks: cleanup.yaml
+- include_tasks: install.yaml

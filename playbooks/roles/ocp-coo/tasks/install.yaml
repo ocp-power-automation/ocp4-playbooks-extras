@@ -1,0 +1,102 @@
+# Cluster health check
+
+- name: Invoke the role check-cluster-health to check cluster status
+  include_role:
+    name: check-cluster-health
+
+- name: Cluster Observability Operator deployment
+  block:
+    - name: Setup a catalogsource for installing cluster observability operator
+      block:
+        - name: Include the global pull-secret update role to extract podman-secret
+          include_role:
+            name: global-secret-update
+
+        - name: Create ImageContentSourcePolicy
+          k8s:
+            state: present
+            definition:
+              apiVersion: operator.openshift.io/v1alpha1
+              kind: ImageContentSourcePolicy
+              metadata:
+                name: brew-registry
+              spec:
+                repositoryDigestMirrors:
+                - mirrors:
+                  - brew.registry.redhat.io
+                  source: registry.redhat.io
+                - mirrors:
+                  - brew.registry.redhat.io
+                  source: registry-proxy.engineering.redhat.com
+
+        # Create custom CatalogSource
+        - name: Create a custom CatalogSource
+          k8s:
+            state: present
+            definition:
+              apiVersion: operators.coreos.com/v1alpha1
+              kind: CatalogSource
+              metadata:
+                name: "{{ coo_catalogsource_name }}"
+                namespace: openshift-marketplace
+              spec:
+                displayName: coo-catalog
+                icon:
+                  base64data: ""
+                  mediatype: ""
+                image: "{{ coo_catalogsource_image }}"
+                sourceType: grpc
+                grpcPodConfig:
+                  securityContextConfig: restricted
+                updateStrategy:
+                  registryPoll:
+                    interval: 1m0s
+      when: coo_catalogsource_image != '' or coo_catalogsource_image == None
+
+    - name: Create a target namespace
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: "{{ coo_namespace }}"
+    
+    - name: Create a OperatorGroup into target namespace
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: operators.coreos.com/v1
+          kind: OperatorGroup
+          metadata:
+            name: coo-og
+            namespace: "{{ coo_namespace }}"
+            labels:
+              og_label: openshift-observability-operator
+    
+    - name: Create a subscription for cluster observability operator
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: operators.coreos.com/v1alpha1
+          kind: Subscription
+          metadata:
+            name: cluster-observability-subscription
+            namespace: "{{ coo_namespace }}"
+            labels:
+              operators.coreos.com/observability-operator.openshift-operators: ""
+          spec:
+            channel: "{{ coo_channel }}"
+            installPlanApproval: Automatic
+            name: cluster-observability-operator
+            source: "{{ coo_catalogsource_name }}"
+            sourceNamespace: openshift-marketplace
+
+    - name: Verfiy cluster observability operator installation
+      shell: oc get pods -n "{{ coo_namespace }}" --no-headers | grep -v "Running\|Completed" | wc -l
+      register: coo_pods
+      until: coo_pods.stdout|int == 0 and coo_pods.stderr == ""
+      retries: 10
+      delay: 30
+  environment: "{{ coo_e2e_env }}"
+  when: coo_operator_deploy
