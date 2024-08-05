@@ -1,0 +1,229 @@
+---
+# tasks file for ocp4 e2e
+- name: Install required packages
+  package:
+    name:
+      - git
+    state: latest
+
+- name: install the 'Development tools' package group
+  package: name="@Development tools" state=latest
+  when:  ansible_distribution == 'CentOS' or
+         ansible_distribution == 'RedHat' or
+         ansible_distribution == 'Fedora'
+
+- name: install the 'Build Essential' package group
+  package: name="build-essential" state=latest
+  when: ansible_distribution == 'Debian' or
+        ansible_distribution == 'Ubuntu'
+
+- name: Set test and results directory path
+  set_fact:
+    test_dir: "{{ ocp_tests_private_e2e_dir }}/src/github.com/openshift-tests-private"
+    results_dir: "{{ ansible_env.HOME }}/ocp_tests_private_e2e_results"
+    bin_path: "{{ ocp_tests_private_e2e_dir }}/src/github.com/openshift/openshift-tests-private"
+    repository_command: ""
+
+- name: Set repository command -{4.7, 4.8, 4.9, 4.10}
+  set_fact:
+    repository_command: "--from-repository quay.io/multi-arch/community-e2e-images"
+  when: ocp_tests_private_e2e_git_branch == "release-4.7" or ocp_tests_private_e2e_git_branch == "release-4.8" or ocp_tests_private_e2e_git_branch == "release-4.9" or ocp_tests_private_e2e_git_branch == "release-4.10"
+
+- name: Create test directory
+  file:
+    path: "{{ test_dir }}"
+    state: "{{ item }}"
+    mode: '0755'
+  with_items:
+  - absent
+  - directory
+
+- name: Remove existing directory
+  file:
+    path: "/usr/local/go"
+    state: absent
+
+- name: Download and untar golang
+  unarchive:
+    src: "{{ golang_tarball }}"
+    dest: "/usr/local/"
+    remote_src: yes
+
+- name: Clone e2e tests repo
+  git:
+    repo: "{{ ocp_tests_private_e2e_git }}"
+    dest: "{{ test_dir }}/origin"
+    version: "{{ ocp_tests_private_e2e_git }}"
+
+- name: Run make target
+  make:
+    chdir: "{{ test_dir }}/origin"
+    target: build
+  environment: "{{ e2e_env }}"
+
+- name: Copy openshift-tests-private binary
+  copy:
+   src: "{{ bin_path }}"
+   remote_src: true
+   dest: "/usr/local/bin/"
+   mode: '0755'
+
+- name: Copy kube test repo list
+  template:
+    src: ../files/kube-test-repo-list
+    dest: /tmp/kube-test-repo-list
+    mode: '0755'
+
+# - name: Download exclude e2e tests list file
+#   when: e2e_tests_exclude_list_url != "" and github_token != ""
+#   get_url:
+#     url: "{{ e2e_tests_exclude_list_url }}"
+#     dest: "{{ test_dir }}/origin/excluded_tests"
+#     headers:
+#       Authorization: "token {{ github_token }}"
+#       Accept: application/vnd.github.v3.raw
+
+# - name: Create exclude e2e tests list
+#   when: e2e_tests_exclude_list_url == ""
+#   file:
+#     path: "{{ test_dir }}/origin/excluded_tests"
+#     state: touch
+#     mode: u=rw,g=r,o=r
+
+- name: Create results directory
+  file:
+    path: "{{ results_dir }}"
+    state: "{{ item }}"
+    mode: '0755'
+  with_items:
+  - absent
+  - directory
+
+# Check Nodes status
+- name: Check all nodes are Ready
+  shell: oc wait --all --for=condition=Ready nodes --timeout=300s
+
+# Check CO status
+- name: Check if all co are in AVAILABLE state and check no any co are in PROGRESSING state and DEGRADED state
+  shell: oc get co -n default --no-headers | awk '{ print $3 $4 $5 }' | grep -w -v TrueFalseFalse | wc -l
+  register: co_status
+  until: co_status.stdout|int == 0
+  retries: 30
+  delay: 120
+  ignore_errors: true
+
+- name: Fail if Cluster operators are not in good status
+  fail:
+    msg: "Cluster operators are not in good status. Skipping E2E tests !!"
+  when: 0 != co_status.stdout|int
+
+# Check PODS
+- name: Verify all PODS are Running or Completed
+  shell: oc get pods -A | awk 'NR>1 {if($4!="Running" && $4!="Completed" ){print $2" "$4}}'
+  register: pods_status
+  until: pods_status.stdout|length == 0
+  retries: 30
+  delay: 60
+  ignore_errors: true
+
+- debug:
+    msg: "Unhealthy PODS: {{ pods_status.stdout_lines }}"
+  when: 0 != pods_status.stdout|length
+
+- name: Get OCP pull-secret and set auth file in the default location
+  shell: |
+    oc get secret/pull-secret -n openshift-config -o json | jq -r '.data.".dockerconfigjson"' | base64 -d > authfile
+    mkdir -p /run/user/0/containers/
+    cp authfile /run/user/0/containers/auth.json
+  when: e2e_tests_git_branch == 'release-4.16'  
+
+# Running E2E
+- name: Prepare test suites and run e2e tests
+  shell: |
+    extended-platform-tests run all --dry-run | grep "logging" > logging_tests.txt
+    extended-platform-tests run -f ./logging_tests.txt {{ repository_command }} -o {{ results_dir }}/logging_tests_output.txt
+    sed -e 's/\"/\\"/g;s/.*/\"&\"/'  {{ results_dir }}/logging_tests_output.txt   | awk '/Failing tests:/,EOF' | tail -n +3 | head -n -4 > {{ results_dir }}/failed-e2e-results.txt
+  args:
+    chdir: "{{ test_dir }}/origin"
+  environment: "{{ e2e_env }}"
+  register: opp
+  # when: e2e_tests_enabled and co_status.stdout|int == 0
+
+# # Re-Running E2E
+# - name: Re run e2e failed tests
+#   shell: |
+#     cnt=0
+#     pattern="(error: [0-9]* fail, [0-9]* pass, [0-9]* skip|[0-9]* pass, [0-9]* skip) \(([0-9]*h[0-9]*m[0-9]*s|[0-9]*m[0-9]*s|[0-9.]*s)\)"
+#     IFS=' ' read -ra ADDR1 <<< $(cat {{ results_dir }}/logging_tests_output.txt | tail -5 | grep -oE "${pattern}" | head -1)
+#     if  [ "0" -ne "$(wc -l < "{{ results_dir }}/failed-e2e-results.txt")" ]
+#     then
+#       # Storing start time
+#       START_TIME=$(date +%s);
+
+#       # Storing the hours, minutes and seconds of the first e2e execution
+#       IFS="hm" read -d '' hr min sec<<< $(echo ${ADDR1[7]} | sed -e 's/[()s]//g')
+
+#       while [ $cnt -lt 5 ]
+#       do
+#         f_test="$(wc -l < "{{ results_dir }}/failed-e2e-results.txt")"
+#         cnt=$(( $cnt + 1 ))
+#         openshift-tests run -f {{ results_dir }}/failed-e2e-results.txt {{ repository_command }} -o {{ results_dir }}/conformance-parallel-out-${cnt}.txt --junit-dir {{ results_dir }}/conformance-parallel &> {{ results_dir }}/openshift-cmd-out-log-${cnt}.txt
+#         sed -e 's/\"/\\"/g;s/.*/\"&\"/' "{{ results_dir }}/conformance-parallel-out-${cnt}.txt" | awk '/Failing tests:/,EOF' | tail -n +3 | head -n -4 > {{ results_dir }}/failed-e2e-results.txt
+#         awk -i inplace '/\S/' "{{ results_dir }}/failed-e2e-results.txt"
+
+#         IFS=' ' read -ra ADDR2 <<< $(cat {{ results_dir }}/openshift-cmd-out-log-${cnt}.txt | tail -5 | grep -oE "${pattern}" | head -1)
+#         # Calculating the passed and skipped test cases
+#         if [ ${{ "{" }}{{ "#" }}ADDR2[@]} -eq "5" ]
+#         then
+#           ADDR1[3]=$((${ADDR2[0]} + ${ADDR1[3]})) #Pass Count
+#           ADDR1[5]=$((${ADDR2[2]} + ${ADDR1[5]})) #Skip Count
+#           ADDR2[1]=0                              #Fail Count
+#         else
+#           if [ ${{ "{" }}{{ "#" }}ADDR2[@]} -eq "0" ]
+#             then
+#               PASS_COUNT=$(cat {{ results_dir }}/openshift-cmd-out-log-${cnt}.txt | grep "^passed" | wc -l)
+#               SKIP_COUNT=$(cat {{ results_dir }}/openshift-cmd-out-log-${cnt}.txt | grep "^skipped" | wc -l)
+#               FAIL_COUNT=$(cat {{ results_dir }}/openshift-cmd-out-log-${cnt}.txt | grep "^failed" | wc -l)
+#           fi 
+#           ADDR1[3]=$((${ADDR2[3]:=${PASS_COUNT}} + ${ADDR1[3]})) #Pass Count
+#           ADDR1[5]=$((${ADDR2[5]:=${SKIP_COUNT}} + ${ADDR1[5]})) #Skip Count
+#         fi
+
+#         # exiting the loop if no new test passes
+#         if [ "0" -eq "$(wc -l < "{{ results_dir }}/failed-e2e-results.txt")" ] || [ $f_test -eq "$(wc -l < "{{ results_dir }}/failed-e2e-results.txt")" ]
+#         then
+#             break
+#         fi
+#       done
+
+#       # Calculating time required for e2e execution
+#       END_TIME=$(date +%s);
+#       diff=$(($sec + END_TIME - START_TIME))
+#       hrs=$(($hr + ($min + $diff/60)/60))
+#       mins=$((($min + $diff/60)%60))
+#       secs=$(($diff%60))
+#       e2e_time="(${hrs}h${mins}m${secs}s)"
+
+#       mv {{ results_dir }}/conformance-parallel-out-${cnt}.txt {{ results_dir }}/conformance-parallel-out.txt
+#       echo " ${ADDR2[1]:=${FAIL_COUNT}} fail, ${ADDR1[3]} pass, ${ADDR1[5]} skip $e2e_time" >  {{ results_dir }}/summary.txt
+#     else
+#       if [ ${{ "{" }}{{ "#" }}ADDR1[@]} -eq "0" ]
+#         then
+#           PASS_COUNT=$(cat {{ results_dir }}/openshift-cmd-out-log-0.txt | grep "^passed" | wc -l)
+#           SKIP_COUNT=$(cat {{ results_dir }}/openshift-cmd-out-log-0.txt | grep "^skipped" | wc -l)
+#           FAIL_COUNT=$(cat {{ results_dir }}/openshift-cmd-out-log-0.txt | grep "^failed" | wc -l)
+#           echo " ${FAIL_COUNT} fail, ${PASS_COUNT} pass, ${SKIP_COUNT} skip " >  {{ results_dir }}/summary.txt
+#         else      
+#           summary=$(cat {{ results_dir }}/openshift-cmd-out-log-0.txt | tail -5 | grep -oE "${pattern}" | head -1)
+#       fi
+#       mv {{ results_dir }}/conformance-parallel-out-0.txt {{ results_dir }}/conformance-parallel-out.txt
+#       sed -e 's/\"/\\"/g;s/.*/\"&\"/'  {{ results_dir }}/conformance-parallel-out.txt   | awk '/Failing tests:/,EOF' | tail -n +3 | head -n -4 > {{ results_dir }}/failed-e2e-results.txt
+#       echo $summary |sed 's/error://' >> {{ results_dir }}/summary.txt
+#     fi
+#   args:
+#     chdir: "{{ test_dir }}/origin"
+#     executable: /bin/bash
+#   environment: "{{ e2e_env }}"
+#   register: op
+#   when: e2e_tests_enabled and co_status.stdout|int == 0
+#   ignore_errors: true

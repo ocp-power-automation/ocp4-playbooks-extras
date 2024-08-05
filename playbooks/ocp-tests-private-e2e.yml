@@ -1,0 +1,5 @@
+---
+- name: Run e2e test cases from openshift-tests-private repo
+  hosts: bastion
+  roles:
+  - ocp-tests-private-e2e

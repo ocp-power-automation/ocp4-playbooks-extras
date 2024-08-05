@@ -1,0 +1,7 @@
+---
+ocp_tests_private_e2e_enabled: false
+ocp_tests_private_e2e_dir: /tmp/ocp_tests_private/
+ocp_tests_private_e2e_git: "https://github.com/openshift/openshift-tests-private/"
+ocp_tests_private_e2e_git_branch: "release-4.4"
+golang_tarball: "https://dl.google.com/go/go1.12.17.linux-ppc64le.tar.gz"
+github_token: ""
