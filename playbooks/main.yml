@@ -118,3 +118,6 @@
 
 - import_playbook: ocp-etcd-rotate-encryption-key.yml
   when: ocp_etcd_key_rotation_enable is defined and ocp_etcd_key_rotation_enable
+
+- import_playbook: ocp-logging-tests-private-e2e.yml
+  when: ocp_logging_tests_private_e2e_enabled is defined and ocp_logging_tests_private_e2e_enabled

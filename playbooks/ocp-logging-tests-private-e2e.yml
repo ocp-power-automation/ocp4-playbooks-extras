@@ -1,0 +1,10 @@
+---
+
+- name: Run logging related e2e test cases from openshift-tests-private repo
+  hosts: bastion
+  tasks:
+  - name: Run logging related e2e 
+    include_role:
+      name: ocp-logging-tests-private-e2e
+    when: ocp_logging_tests_private_e2e_enabled == true
+
