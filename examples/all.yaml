@@ -402,3 +402,12 @@ coo_work_dir: "/tmp/coo_logs"
 ocp_etcd_key_rotation_enable: false
 encryption_type: "aescbc"
 NUMBER: 1 
+
+# ocp-logging-tests-private-e2e vars
+ocp_logging_tests_private_e2e_enabled: false #Set to true to enable logging e2e tests from openshift-tests-private repo
+ocp_logging_tests_private_e2e_dir: /tmp/ocp_logging_tests_private/ #Test directory path
+ocp_logging_tests_private_e2e_git: "https://github.com/openshift/openshift-tests-private/" #Git repo url for the e2e tests
+ocp_logging_tests_private_e2e_git_branch: "" #Git repo branch for e2e tests
+golang_tarball_logging_e2e: "https://dl.google.com/go/go1.22.6.linux-ppc64le.tar.gz" #HTTP URL for golang tarball
+logging_e2e_testcases: "" #Set to either all or critical
+

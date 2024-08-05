@@ -1,0 +1,122 @@
+---
+
+# tasks file for ocp4 e2e
+- name: Install required packages
+  package:
+    name:
+      - git
+    state: latest
+
+- name: Install the 'Development tools' package group
+  package: name="@Development tools" state=latest
+  when:  ansible_distribution == 'CentOS' or
+         ansible_distribution == 'RedHat' or
+         ansible_distribution == 'Fedora'
+
+- name: Install the 'Build Essential' package group
+  package: name="build-essential" state=latest
+  when: ansible_distribution == 'Debian' or
+        ansible_distribution == 'Ubuntu'
+
+- name: Set test and results directory path
+  set_fact:
+    test_dir: "{{ ocp_logging_tests_private_e2e_dir }}src/github.com/openshift-tests-private"
+    results_dir: "{{ ansible_env.HOME }}/ocp_logging_tests_private_e2e_results"
+    bin_path: "{{ ocp_logging_tests_private_e2e_dir }}src/github.com/openshift-tests-private"
+    repository_command: ""
+
+- name: Create test directory
+  file:
+    path: "{{ test_dir }}"
+    state: "{{ item }}"
+    mode: '0755'
+  with_items:
+  - absent
+  - directory
+
+- name: Include role for installation of Go lang
+  include_role:
+    name: golang-installation
+  vars:
+    go_tarball: "{{ golang_tarball_logging_e2e }}"
+    golang_path: "/usr/local"
+
+- name: Clone e2e tests repo
+  git:
+    repo: "https://{{ githubuser | urlencode }}:{{ githubpassword | urlencode }}@github.com/openshift/openshift-tests-private.git"
+    dest: "{{ test_dir }}"
+    version: "{{ ocp_logging_tests_private_e2e_git_branch }}"
+
+- name: Run make build command at target
+  shell: make
+  environment: "{{ logging_e2e_env }}"
+  args:
+    chdir: "{{ test_dir }}"
+
+- name: Check if the binary is created
+  ansible.builtin.stat:
+    path: "{{ test_dir }}/bin/extended-platform-tests"
+  register: bin_output
+
+- name: Check if the binary exists
+  ansible.builtin.debug:
+    msg: "The binary exists"
+  when: bin_output.stat.islnk is defined
+
+- name: Copy openshift-tests-private binary
+  copy:
+    src: "{{ bin_path }}"
+    remote_src: true
+    dest: "/usr/local/bin/"
+    mode: '0755'
+
+- name: Create results directory
+  file:
+    path: "{{ results_dir }}"
+    state: "{{ item }}"
+    mode: '0755'
+  with_items:
+  - absent
+  - directory
+
+# Check cluster health
+- name: Check the cluster health
+  include_role:
+    name: check-cluster-health 
+
+# Check PODS
+- name: Verify all PODS are Running or Completed
+  shell: oc get pods -A | awk 'NR>1 {if($4!="Running" && $4!="Completed" ){print $2" "$4}}'
+  register: pods_status
+  until: pods_status.stdout|length == 0
+  retries: 30
+  delay: 60
+  ignore_errors: true
+
+- debug:
+    msg: "Unhealthy PODS: {{ pods_status.stdout_lines }}"
+  when: 0 != pods_status.stdout|length
+
+# Running E2E
+- name: Prepare test suites and run e2e tests
+  shell: |
+    ./bin/extended-platform-tests run all --dry-run | grep "logging" > logging_tests.txt
+    ./bin/extended-platform-tests run -f ./logging_tests.txt {{ repository_command }} -o {{ results_dir }}/logging_tests_output.txt
+    sed -e 's/\"/\\"/g;s/.*/\"&\"/'  {{ results_dir }}/logging_tests_private_e2e_output.txt   | awk '/Failing tests:/,EOF' | tail -n +3 | head -n -4 > {{ results_dir }}/failed-logging-tests-private-e2e-results.txt
+  args:
+    chdir: "{{ test_dir }}"
+  environment: "{{ logging_e2e_env }}"
+  when: logging_e2e_testcases == "all" or logging_e2e_testcases == ""
+  register: opp
+
+- name: Prepare test suites and run critical e2e tests
+  shell: |
+    ./bin/extended-platform-tests run all --dry-run | grep -E "sig-openshift-logging.*Critical" > logging_tests_critical.txt
+    ./bin/extended-platform-tests run -f ./logging_tests_critical.txt {{ repository_command }} -o {{ results_dir }}/logging_tests_critical_output.txt
+    sed -e 's/\"/\\"/g;s/.*/\"&\"/'  {{ results_dir }}/logging_tests_private_e2e_output.txt   | awk '/Failing tests:/,EOF' | tail -n +3 | head -n -4 > {{ results_dir }}/failed-logging-tests-private-e2e-results.txt
+  args:
+    chdir: "{{ test_dir }}"
+  environment: "{{ logging_e2e_env }}"
+  when: logging_e2e_testcases == "critical"
+  register: opp
+
