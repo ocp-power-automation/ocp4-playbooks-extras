@@ -1,0 +1,118 @@
+---
+# tasks file for playbooks/roles/ocp-cost-management
+
+- name: Check if cluster operators and nodes are healthy
+  include_role:
+    name: check-cluster-health
+
+- name: Clean up
+  include_tasks: "{{ role_path }}/tasks/cost_management-cleanup.yml"
+  when: cost_management_cleanup
+
+- name: Create working directory
+  file:
+    state: "directory"
+    path: "{{ cost_management_directory }}"
+
+- name: Setup custom catalog source
+  block:
+  - name: Include the global-secret-update role
+    include_role:
+        name: global-secret-update
+
+  - name: Set fact variable for CatalogSource name
+    set_fact:
+      cost_management_catalogsource: "qe-app-registry"
+
+  - name: Include role to create ImageContentSourcePolicy and CatalogSource
+    include_role:
+      name: set-custom-catalogsource
+    vars:
+      custom_catalogsource_name: "{{ cost_management_catalogsource }}"
+      custom_catalogsource_display_name: "Cost Management Operator"
+      custom_catalogsource_image: "{{ cost_management_catalogsource_image }}"
+  when: cost_management_catalogsource_image != '' and cost_management_catalogsource_image != None
+
+- name: Search for the StorageClass
+  kubernetes.core.k8s_info:
+    kind: StorageClass
+  register: storage_class
+
+- name: Check for default StorageClass annotations
+  set_fact:
+    default_storage_class: "{{ storage_class.resources[0].metadata.annotations }}"
+  when:
+  - storage_class.resources|length != 0 and storage_class.resources[0].metadata.annotations is defined
+  - "'storageclass.kubernetes.io/is-default-class' in storage_class.resources[0].metadata.annotations"
+
+- name: Fail if default StorageClass does not exist
+  fail:
+    msg: 'Default StorageClass does not exist'
+  when: >
+    (default_storage_class is undefined) or
+    (default_storage_class is defined and not default_storage_class["storageclass.kubernetes.io/is-default-class"]|bool)
+
+- name: Deploy Cost Management Operator
+  block:
+  - name: Create namespace for Cost Management Operator
+    kubernetes.core.k8s:
+      state: present
+      definition:
+        apiVersion: v1
+        kind: Namespace
+        metadata:
+          labels:
+            pod-security.kubernetes.io/audit: privileged
+            pod-security.kubernetes.io/enforce: privileged
+            pod-security.kubernetes.io/warn: privileged
+            security.openshift.io/scc.podSecurityLabelSync: "false"
+          name: costmanagement-metrics-operator
+        spec:
+          targetNamespaces:
+          - costmanagement-metrics-operator
+
+  - name: Create operator group for Cost Management Operator
+    kubernetes.core.k8s:
+      state: present
+      definition:
+        apiVersion: operators.coreos.com/v1
+        kind: OperatorGroup
+        metadata:
+          name: costmanagement-metrics-operator
+          namespace: costmanagement-metrics-operator
+        spec:
+          targetNamespaces:
+          - costmanagement-metrics-operator
+
+  - name: Create subscription for Cost Management Operator
+    kubernetes.core.k8s:
+      state: present
+      definition:
+        apiVersion: operators.coreos.com/v1alpha1
+        kind: Subscription
+        metadata:
+          name: cost-management-operator
+          namespace: costmanagement-metrics-operator
+        spec:
+          channel: "{{ cost_management_upgrade_channel }}"
+          installPlanApproval: Automatic
+          name: costmanagement-metrics-operator
+          source: "{{ cost_management_catalogsource }}"
+          sourceNamespace: openshift-marketplace
+
+  - name: Verification of operator installation
+    block:
+    - name: Check if the cluster service version has succeeded
+      shell: oc get csv -n costmanagement-metrics-operator --no-headers | awk '{ if (($1 ~ /^costmanagement-metrics-operator/) && $NF=="Succeeded") print $1 }'| wc -l
+      register: cost_management_operators_csv
+      until: cost_management_operators_csv.stdout|int == 1
+      retries: 15
+      delay: 120
+
+    - name: Check if pods are running
+      shell: oc get pods -n costmanagement-metrics-operator --no-headers | grep "Running" | wc -l
+      register: cost_management_pods
+      until: cost_management_pods.stdout|int == 1
+      retries: 15
+      delay: 60
+

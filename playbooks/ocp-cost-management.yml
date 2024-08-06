@@ -1,0 +1,7 @@
+---
+- name: Installation of the Compliance Operator and run e2e
+  hosts: bastion
+  tasks:
+  - name: Deploy Cost Management Operator
+    include_role:
+      name: ocp-cost-management
