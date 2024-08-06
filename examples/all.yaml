@@ -374,12 +374,14 @@ l2_address:
 bgp_address:
   - "9.47.90.202"
 
-# ocp-coo vars
-coo_role_enable: false
-coo_operator_deploy: true
-coo_cleanup: true
-coo_namespace: "openshift-observability-operator"
-coo_catalogsource_name: "coo-catalog"
-coo_catalogsource_image: "brew.registry.redhat.io/rh-osbs/iib:760399"
-coo_channel: "development"
- 
+# ocp-cost_management vars
+cost_management_enabled: false
+cost_management_directory: "/tmp/compliance"
+cost_management_catalogsource_image: ""         # "brew.registry.redhat.io/rh-osbs/iib:327237"
+cost_management_upgrade_channel: "stable"
+cost_management_e2e: false
+cost_management_e2e_github_repo: ""
+cost_management_e2e_github_branch: ""
+cost_management_github_username: ""
+cost_management_github_token: ""
+cost_management_cleanup: true
