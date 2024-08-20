@@ -121,3 +121,8 @@
 
 - import_playbook: ocp-logging-tests-private-e2e.yml
   when: ocp_logging_tests_private_e2e_enabled is defined and ocp_logging_tests_private_e2e_enabled
+
+- import_playbook: hypershift-agent.yml
+  when: >
+        (hypershift_agent_install is defined and hypershift_agent_install) or
+        (hypershift_agent_destroy is defined and hypershift_agent_destroy)
