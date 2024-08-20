@@ -1,0 +1,31 @@
+---
+# To destroy only hosted cluster
+
+- name: Get the Infra ID of the hosted cluster
+  shell: oc get hcp -n {{ hosted_control_plane_namespace }} {{ hosted_cluster_name }} -ojsonpath='{.spec.infraID}'
+  register: infra_id
+
+- name: Delete the hypershift hosted cluster
+  shell: |
+    hcp destroy cluster agent --name={{ hosted_cluster_name }} --namespace={{ cluster_namespace }} --infra-id={{ infra_id.stdout }}
+  environment:
+    PATH: "{{ hypershift_dir }}/bin:{{ ansible_env.PATH }}"
+
+- name: Cleanup the kubeconfig file
+  file:
+    state: absent
+    path: "{{ hypershift_dir }}/{{ hosted_cluster_name }}.kubeconfig"
+
+- name: Find rendered files
+  find:
+    paths: "{{ hypershift_dir }}/"
+    patterns: "render-{{ hosted_cluster_name }}.yaml*"
+    recurse: yes
+    use_regex: yes
+  register: render_files
+
+- name: Remove rendered files
+  file:
+    path: "{{item.path}}"
+    state: absent
+  with_items: '{{render_files.files}}'

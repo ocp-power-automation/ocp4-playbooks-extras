@@ -1,0 +1,5 @@
+---
+- name: Run ocp alerts
+  hosts: bastion
+  roles:
+  - hypershift-agent
