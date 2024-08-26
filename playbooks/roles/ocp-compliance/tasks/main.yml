@@ -19,6 +19,7 @@
   - name: Include the global-secret-update role
     include_role:
         name: global-secret-update
+    when: compliance_enable_global_secret   
 
   - name: Set fact variable for CatalogSource name
     set_fact:

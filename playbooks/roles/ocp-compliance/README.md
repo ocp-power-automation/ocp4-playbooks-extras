@@ -23,12 +23,14 @@ Role Variables
 | Variable                       | Required | Default     | Comments                                       |
 |--------------------------------|----------|-------------|------------------------------------------------|
 | compliance_enabled             | no       |    false    | Set it to true to run this playbook            |
+| compliance_enable_global_secret| no       |    false    | Role var to update the global pull-secret.     |
 | compliance_directory           | no       | `/tmp/compliance` | Working directory for compliance         |
 | compliance_catalogsource_image | no       |             | Catlog source index image. If not defined, default `redhat-operators` catalog source will be used |
 | compliance_upgrade_channel     | no       |    stable   | Channel version for the compliance operator    |
 | compliance_e2e                 | no       |    false    | Set it true for running e2e tests              |
 | compliance_e2e_github_repo     | no       |     ""      | github repository for running e2e tests        |
 | compliance_e2e_github_branch   | no       |    master   | github repository branch for running e2e tests |
+| compliance_go_tarball          | no       | https://go.dev/dl/go1.22.4.linux-ppc64le.tar.gz | HTTPS URL for golang tarball |
 | compliance_github_username     | no       |     ""      | Github username                                |
 | compliance_github_token        | no       |     ""      | Github token                                   |
 | compliance_cleanup             | no       |    true     | Uninstall and cleanup any existing installed version of compliance operator |
