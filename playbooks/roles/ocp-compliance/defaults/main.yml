@@ -1,11 +1,12 @@
 ---
 # defaults file for playbooks/roles/ocp-compliance
 compliance_enabled: false
+compliance_enable_global_secret: false
 compliance_catalogsource: "redhat-operators"
 compliance_directory: "/tmp/compliance"
 compliance_catalogsource_image: ""
 compliance_upgrade_channel: "stable"
-compliance_go_tarball: "https://go.dev/dl/go1.20.5.linux-ppc64le.tar.gz"
+compliance_go_tarball: "https://go.dev/dl/go1.22.4.linux-ppc64le.tar.gz"
 compliance_e2e: false
 compliance_e2e_github_repo: ""
 compliance_e2e_github_branch: "master"

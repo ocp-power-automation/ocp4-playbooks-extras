@@ -18,6 +18,7 @@ Role Variables
 |--------------------------|----------|-------------|-------------------------------------------------------|
 | fio_enabled              | no       | false       | Set it to true to run this playbook                   |
 | fio_install_operator     | no       | true        | Set it to true to install the File Integrity Operator |
+| fio_enable_global_secret | no       | false       | Role var to update the global pull-secret.            |
 | fio_catalogsource_image  | no       | ""          | Custom catalog source index image for File Integrity Operator. If not defined, default `redhat-operators` catalog source will be used      |
 | fio_upgrade_channel      | no       | stable      | Operator upgrade channel |
 | fio_directory            | no       | `/tmp/fio`  | Working directory for File Integrity Operator |
@@ -28,7 +29,7 @@ Role Variables
 | fio_node_selector        | no       | ""          | Selector for nodes to schedule the scan instances on |
 | fio_default_config       | no       | true        | Flag is set to true to use default configuration     |
 | fio_debug                | no       | false       | If set to true, the daemon running in the AIDE deamon set's pods would output extra information |
-| fio_golang_tarball       | no       | https://dl.google.com/go/go1.18.2.linux-ppc64le.tar.gz | HTTPS URL for golang tarball |
+| fio_golang_tarball       | no       |  https://go.dev/dl/go1.22.4.linux-ppc64le.tar.gz | HTTPS URL for golang tarball |
 | fio_e2e                  | no       | false       | Set it to true to run e2e            |
 | fio_e2e_git_repository   | no       | ""          | Git respository for e2e tests        |
 | fio_git_username         | no       | ""          | Github username                      |
