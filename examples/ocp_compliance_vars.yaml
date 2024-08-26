@@ -1,9 +1,11 @@
 ---
 # ocp-compliance vars
 compliance_enabled: false
+compliance_enable_global_secret: false
 compliance_directory: "/tmp/compliance"
 compliance_catalogsource_image: ""         # "brew.registry.redhat.io/rh-osbs/iib:327237"
 compliance_upgrade_channel: "stable"
+compliance_go_tarball: "https://go.dev/dl/go1.22.4.linux-ppc64le.tar.gz"
 compliance_e2e: false
 compliance_e2e_github_repo: ""
 compliance_e2e_github_branch: ""
