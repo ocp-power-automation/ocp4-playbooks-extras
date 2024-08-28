@@ -1,0 +1,4 @@
+---
+
+etcd_key_env:
+  KUBECONFIG: "{{ ansible_env.HOME }}/.kube/config"

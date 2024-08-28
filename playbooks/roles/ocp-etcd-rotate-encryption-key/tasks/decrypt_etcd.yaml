@@ -1,0 +1,57 @@
+---
+
+- name: Modify the APIServer object for Decryption
+  shell: |
+    oc patch apiserver cluster --type='merge' --patch \
+    '{ "spec": { "encryption": { "type": "identity" } } }'
+
+- name: Verify that etcd decryption was successful
+  shell: oc get openshiftapiserver -o=jsonpath='{range .items[0].status.conditions[?(@.type=="Encrypted")]}{.reason}{"\n"}{.message}{"\n"}'
+  register: describe_etcd_decryption
+  until: describe_etcd_decryption.stdout is search("DecryptionCompleted")
+  retries: 10
+  delay: 300
+  ignore_errors: true
+
+- debug: 
+    msg: "{{ describe_etcd_decryption.stdout }}"
+
+- name: Fail when etcd decryption was not successful
+  fail:
+    msg: "Encryption is Successful but Decryption has not completed"
+  when: describe_etcd_decryption.failed
+
+- name: Decrypted status condition for the Kubernetes API server
+  shell: oc get kubeapiserver -o=jsonpath='{range .items[0].status.conditions[?(@.type=="Encrypted")]}{.reason}{"\n"}{.message}{"\n"}'
+  register: decryption_status_K8s_APIServer
+  until: decryption_status_K8s_APIServer.stdout is search("DecryptionCompleted")
+  retries: 10
+  delay: 300
+  ignore_errors: true
+
+- debug: 
+    msg: "{{ decryption_status_K8s_APIServer.stdout }}"
+
+- name: Fail when etcd decryption of bernetes API server was not successful
+  fail:
+    msg: "Encryption is Successful but Decryption has not completed"
+  when: decryption_status_K8s_APIServer.failed
+
+- name: Decryption status condition for the OpenShift OAuth API server
+  shell: oc get authentication.operator.openshift.io -o=jsonpath='{range .items[0].status.conditions[?(@.type=="Encrypted")]}{.reason}{"\n"}{.message}{"\n"}'
+  register: decryption_status_OAuth_APIServer
+  until: decryption_status_OAuth_APIServer.stdout is search("DecryptionCompleted")
+  retries: 10
+  delay: 300
+  ignore_errors: true
+
+- debug: 
+    msg: "{{ decryption_status_OAuth_APIServer.stdout }}"
+
+- name: Fail when etcd decryption for the OpenShift OAuth API server was not successful
+  fail:
+    msg: "Encryption is Successful but Decryption has not been completed"
+  when: decryption_status_OAuth_APIServer.failed
+
+- debug:
+    msg: "ETCD Decryption is Successful"
