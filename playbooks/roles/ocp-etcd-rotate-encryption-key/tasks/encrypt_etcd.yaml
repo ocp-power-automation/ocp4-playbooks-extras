@@ -1,0 +1,62 @@
+---
+
+- name: Modify the APIServer object for Encryption
+  shell: |
+    oc patch apiserver cluster --type='merge' --patch \
+    '{ "spec": { "encryption": { "type": "{{ encryption_type }}" } } }'
+
+- name: Verify that etcd encryption was successful
+  shell: oc get openshiftapiserver -o=jsonpath='{range .items[0].status.conditions[?(@.type=="Encrypted")]}{.reason}{"\n"}{.message}{"\n"}'
+  register: describe_etcd_encryption
+  until: describe_etcd_encryption.stdout is search("EncryptionCompleted")
+  retries: 10
+  delay: 300
+  ignore_errors: true
+
+- debug:
+    msg: "{{ describe_etcd_encryption.stdout }}"
+
+- name: Fail when etcd encryption was not successful
+  fail: 
+    msg: "Encryption has not completed"
+  when: describe_etcd_encryption.failed
+
+- name: Encrypted status condition for the Kubernetes API server
+  shell: oc get kubeapiserver -o=jsonpath='{range .items[0].status.conditions[?(@.type=="Encrypted")]}{.reason}{"\n"}{.message}{"\n"}'
+  register: encrypted_status_K8s_APIServer
+  until: encrypted_status_K8s_APIServer.stdout is search("EncryptionCompleted")
+  retries: 10
+  delay: 300
+  ignore_errors: true
+  
+- debug:
+    msg: "{{ encrypted_status_K8s_APIServer.stdout }}"
+  
+- name: Fail when Encrypted status of Kubernetes API server was not successful
+  fail:
+    msg: "Encryption has not completed"
+  when: encrypted_status_K8s_APIServer.failed
+
+- name: Encrypted status condition for the OpenShift OAuth API server
+  shell: oc get authentication.operator.openshift.io -o=jsonpath='{range .items[0].status.conditions[?(@.type=="Encrypted")]}{.reason}{"\n"}{.message}{"\n"}'
+  register: encrypted_status_OAuth_APIServer
+  until: encrypted_status_OAuth_APIServer.stdout is search("EncryptionCompleted")
+  retries: 10
+  delay: 300
+  ignore_errors: true
+
+- debug:
+    msg: "{{ encrypted_status_OAuth_APIServer.stdout }}"
+
+- name: Fail when Encrypted status for the OpenShift OAuth API server was not successful
+  fail:
+    msg: "Encryption has not completed"
+  when: encrypted_status_OAuth_APIServer.failed
+
+- name: Verify all apiserver pods are in running state
+  shell: oc get pods -A --no-headers | grep apiserver | grep -vi "Running\|Completed" | wc -l
+  register: api_pods
+  until: api_pods.stdout|int == 0 and api_pods.stderr == ""
+  retries: 10
+  delay: 180
+
