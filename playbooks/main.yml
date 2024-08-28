@@ -115,3 +115,6 @@
 
 - import_playbook: ocp-coo.yml
   when: coo_role_enable is defined and coo_role_enable
+
+- import_playbook: ocp-etcd-rotate-encryption-key.yml
+  when: ocp_etcd_key_rotation_enable is defined and ocp_etcd_key_rotation_enable

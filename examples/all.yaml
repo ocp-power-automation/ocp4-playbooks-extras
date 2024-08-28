@@ -382,4 +382,8 @@ coo_namespace: "openshift-observability-operator"
 coo_catalogsource_name: "coo-catalog"
 coo_catalogsource_image: "brew.registry.redhat.io/rh-osbs/iib:760399"
 coo_channel: "development"
- 
+
+# ocp-etcd-rotate-encryption-key vars
+ocp_etcd_key_rotation_enable: false
+encryption_type: "aescbc"
+NUMBER: 1 

@@ -1,48 +1,43 @@
 ---
 # check if Cluster Health is good
-- name: Check all Cluster Operators are available
-  shell: oc get co | awk 'NR>1 {if($3=="False" ||  $4=="True" || $5=="True" ){print $1}}' | wc -l
-  register: co
+- name: Invoke the role check-cluster-health to check cluster status
+  include_role:
+    name: check-cluster-health
 
-- name: Fail when Cluster Operators are not available
-  fail: 
-    msg: " {{ co.stdout }} Cluster Operators is/are not available."
-  when: co.stdout | int !=  0
+- name: Check if etcd datastore is encrypted
+  shell: oc get apiserver cluster -o jsonpath='{.spec.encryption.type}'
+  register: encrypt_status
 
-- name: Check all nodes are Ready
-  shell: oc wait --all --for=condition=Ready nodes --timeout=10s
+- name: Decrypt the cluster
+  include_tasks: decrypt_etcd.yaml
+  when: 
+    - encrypt_status.stdout != encryption_type
+    - encrypt_status.stdout != ""
 
+- name: Encrypt the cluster
+  include_tasks: encrypt_etcd.yaml
+  when: encrypt_status.stdout != encryption_type
+        
+- name: Place secrets collecter script in etcd pod
+  kubernetes.core.k8s_cp:
+    namespace: openshift-etcd
+    pod: etcd-master-0
+    container: etcd
+    local_path: "{{ role_path }}/files/secret.sh"
+    remote_path: /tmp/secret.sh
+    state: to_pod
 
-# Verify the encryption status of Openshift api server, Kubernetes api server and Openshift OAuth api server
-- name: Verify encryption of OpenShift API server
-  shell: oc get openshiftapiserver -o=jsonpath='{range .items[0].status.conditions[?(@.type=="Encrypted")]}{.reason}{"\n"}{.message}{"\n"}'
-  register: openshift_api_server_encryption_status
+- name: Execute secret collecter script in etcd pod to collect encrypted value of secrets before key rotation
+  kubernetes.core.k8s_exec:
+    namespace: openshift-etcd
+    pod: etcd-master-0
+    container: etcd
+    command: /tmp/secret.sh "{{ NUMBER }}" "{{ encryption_type }}"
+  register: script_output_1
+    
+- debug:
+    msg: "{{ script_output_1.stdout_lines }}"
 
-- name: Fail if Openshift API server is not encrypted
-  fail:
-    msg: "OpenShift API server is not encrypted"
-  when: openshift_api_server_encryption_status.failed
-
-- name: Verify encryption of Kubernetes API server
-  shell: oc get kubeapiserver -o=jsonpath='{range .items[0].status.conditions[?(@.type=="Encrypted")]}{.reason}{"\n"}{.message}{"\n"}'
-  register: kubeapiserver_encryption_status
-
-- name: Fail if Kubernetes API server is not encrypted
-  fail:
-    msg: "Kubernetes API server is not encrypted"
-  when: kubeapiserver_encryption_status.failed
-
-- name: Verify encryption of OpenShift OAuth API server
-  shell: oc get authentication.operator.openshift.io -o=jsonpath='{range .items[0].status.conditions[?(@.type=="Encrypted")]}{.reason}{"\n"}{.message}{"\n"}'
-  register: oauth_apiserver_encryption_status
- 
-- name: Fail if Openshift OAuth API server is not encrypted
-  fail:
-    msg: "OpenShift OAuth API server is not encrypted"
-  when: oauth_apiserver_encryption_status.failed
-
-
-#Rotate encryption keys     
 - name: Rotate encryption key for Openshift API server
   shell: |
     oc patch openshiftapiserver cluster --type merge -p "
@@ -60,4 +55,79 @@
         encryption:
           reason: force KAS rotation `date`
     "
+
+- name: Increment NUMBER variable
+  set_fact:
+    NUMBER: "{{ NUMBER + 1 }}"
+
+- name: Verify new encryption key secrets are created
+  shell: oc get secret -n openshift-config-managed --no-headers | grep enc | grep "\-{{ NUMBER }}" | wc -l
+  register: enc_secrets
+  until: enc_secrets.stdout|int >= 2 and enc_secrets.stderr == ""
+  retries: 10
+  delay: 120
+
+- name: Verify all apiserver pods are in running state
+  shell: oc get pods -A --no-headers | grep apiserver | grep -vi "Running\|Completed" | wc -l
+  register: api_pods
+  until: api_pods.stdout|int == 0 and api_pods.stderr == ""
+  retries: 10
+  delay: 120
+
+- name: Verify all kube-apiserver pods are in running state
+  shell: oc get pods -n openshift-kube-apiserver --no-headers | grep -vi "Running\|Completed" | wc -l
+  register: kubeapi_pods
+  until: kubeapi_pods.stdout|int == 0 and api_pods.stderr == ""
+  retries: 10
+  delay: 120
+
+- name: Verify that etcd encryption with new key was successful
+  shell: oc get openshiftapiserver -o=jsonpath='{range .items[0].status.conditions[?(@.type=="APIServerDeploymentDegraded")]}{.status}{"\n"}'
+  register: encryption_with_new_key_status
+  until: encryption_with_new_key_status.stdout == "False"
+  retries: 10
+  delay: 300
+  ignore_errors: true
+
+- name: Fail when Encrypted status for the OpenShift OAuth API server was not successful
+  fail:
+    msg: "Encryption has not completed"
+  when: encryption_with_new_key_status.failed
+
+- name: Verify that etcd encryption with new key was successful for the Kubernetes API server
+  shell: oc get kubeapiserver -o=jsonpath='{range .items[0].status.conditions[?(@.type=="InstallerControllerDegraded")]}{.status}{"\n"}'
+  register: encryption_with_new_key_k8s_status
+  until: encryption_with_new_key_k8s_status.stdout == "False"
+  retries: 10
+  delay: 300
+  ignore_errors: true
+
+- name: Fail when Encrypted status for the OpenShift OAuth API server was not successful
+  fail:
+    msg: "Encryption has not completed"
+  when: encryption_with_new_key_k8s_status.failed
+
+- name: Wait till all the secrets in the cluster are encrypted with new key
+  pause:
+    minutes: 15
+
+- name: Place secrets collecter script in etcd pod
+  kubernetes.core.k8s_cp:
+    namespace: openshift-etcd
+    pod: etcd-master-0
+    container: etcd
+    local_path: "{{ role_path }}/files/secret.sh"
+    remote_path: /tmp/secret.sh
+    state: to_pod
+
+- name: Execute secret collecter script in etcd pod to collect encrypted value of secrets after key rotation
+  kubernetes.core.k8s_exec:
+    namespace: openshift-etcd
+    pod: etcd-master-0
+    container: etcd
+    command: /tmp/secret.sh "{{ NUMBER }}" "{{ encryption_type }}"
+  register: script_output_2
+    
+- debug:
+    msg: "{{ script_output_2.stdout_lines }}"
 
