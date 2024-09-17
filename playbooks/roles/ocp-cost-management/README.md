@@ -1,38 +1,60 @@
-Role Name
+ocp-cost-management-operator
 =========
 
-A brief description of the role goes here.
+This role is used to deploy Cost Management Operator.
 
 Requirements
 ------------
 
-Any pre-requisites that may not be covered by Ansible itself or the role should be mentioned here. For instance, if the role uses the EC2 module, it may be a good idea to mention in this section that the boto package is required.
+- OCP 4.x healthy cluster on PowerVS.
+- OCP secret with name ***podman-secret*** in the default namespace which is used for global secret update and has following keys:
+   ***username***, ***password*** and ***registry***
 
 Role Variables
 --------------
 
-A description of the settable variables for this role should go here, including any variables that are in defaults/main.yml, vars/main.yml, and any variables that can/should be set via parameters to the role. Any variables that are read from other roles and/or the global scope (ie. hostvars, group vars, etc.) should be mentioned here as well.
+| Variable                                   | Required | Default                                                                              | Comments                                                                                                                       |
+|--------------------------------------------|----------|--------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------|
+| cost_management_enabled                            | no       | false                                                                                |                                                                        |
+| cost_management_directory                   | no       | true                                                                                 |  operator                                                                      |
+| cost_management_catalogsource_image               | no       | true                                                                                 |  operator                                                                            |
+| cost_management_upgrade_channel                   | no       |                                                                               |                                                                                                        |
+| cost_management_e2e                      | no       | ""                                                                    |                                                                                                          |
+| cost_management_e2e_github_repo                | no       | "" |  |
+| coo_channel                    | no       | development                                                                               | Operator upgrade channel                                                                                                       |
+| cost_management_e2e_github_branch                | no       | "" |  |
+| coo_channel                    | no       | development                                                                               | Operator upgrade channel                                                                                                       |
+| cost_management_github_username                | no       | "" |  |
+| coo_channel                    | no       | development                                                                               | Operator upgrade channel                                                                                                       |
+| cost_management_github_token                | no       | "" |  |
+| coo_channel                    | no       | development                                                                               | Operator upgrade channel                                                                                                       |
+| cost_management_cleanup                | no       | "" |  |
+| coo_channel                    | no       | development                                                                               | Operator upgrade channel                                                                                                       |
 
 Dependencies
 ------------
 
-A list of other roles hosted on Galaxy should go here, plus any details in regards to parameters that may need to be set for other roles, or variables that are used from other roles.
+- None
+
 
 Example Playbook
 ----------------
 
-Including an example of how to use your role (for instance, with variables passed in as parameters) is always nice for users too:
+```
+  ---
+- name: Installation of the cost management operator and run e2e
+  hosts: bastion
+  roles:
+  - ocp-cost-management
+```
 
-    - hosts: servers
-      roles:
-         - { role: username.rolename, x: 42 }
 
 License
 -------
 
-BSD
+See LICENCE.txt
 
 Author Information
 ------------------
 
-An optional section for the role authors to include contact information, or a website (HTML is not allowed).
+Pavan.Sadhana3@ibm.com
