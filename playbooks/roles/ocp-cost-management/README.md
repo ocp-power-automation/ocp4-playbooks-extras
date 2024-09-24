@@ -70,7 +70,11 @@ inorder to execute this we have to enable the cost_management_test `cost_managem
 
 **cmo-cleanup.yml**
 This file is use to cleanup all resources involved with this operator.
+inorder to execute this we have to enable the cost_management_cleanup `cost_management_cleanup: true`
 
+```
+
+```
 
 
 License
