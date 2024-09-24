@@ -51,7 +51,7 @@
             sourceType: grpc
             publisher: grpc
             displayName: my-operator-catalog
-            image: brew.registry.redhat.io/rh-osbs/iib:{{ catalog_image_tag }}
+            image: brew.registry.redhat.io/rh-osbs/iib:{{ cost_management_catalogsource_image}}
 
     - name: Modify install_cost_operator method in cluster.py
       ansible.builtin.replace:
