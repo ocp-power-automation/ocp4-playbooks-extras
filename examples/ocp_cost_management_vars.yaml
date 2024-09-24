@@ -13,5 +13,4 @@ cost_management_cleanup: true
 cost_management_setup: false
 cost_management_test: false
 openshift_console_password: ""
-catalog_image_tag: ""
 
