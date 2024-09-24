@@ -12,3 +12,4 @@ cost_management_github_token: ""
 cost_management_cleanup: true
 cost_management_setup: false
 cost_management_test: false
+openshift_console_password: ""
