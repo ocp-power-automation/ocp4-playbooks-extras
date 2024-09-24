@@ -16,17 +16,17 @@ Role Variables
 | Variable                                   | Required | Default                                                                              | Comments                                                                                                                       |
 |--------------------------------------------|----------|--------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------|
 | cost_management_enabled                            | yes       | false                                                                                |                                                                        |
-| cost_management_directory                   | yes       | true                                                                                 |  operator                                                                      |
-| cost_management_catalogsource_image               | yes       | true                                                                                 |  operator                                                                            |
-| cost_management_upgrade_channel                   | no       |                                                                               |                                                                                                        |
-| cost_management_e2e                      | yes       | ""                                                                    |                                                                                                          |
-| cost_management_e2e_github_repo                | yes       | "" |  |
-| cost_management_e2e_github_branch                | yes       | "" |  |                                                                                     |
-| cost_management_github_username                | yes       | "" |  |
-| cost_management_github_token                | yes       | "" |  |
-| cost_management_cleanup                | yes       | "" |  |
-| cost_management_setup                | yes       | "" |  |
-| cost_management_test                | yes       | "" |  |
+| cost_management_directory                   | yes       | true                                                                                 |  cost management temporary directory                                                                     |
+| cost_management_catalogsource_image               | yes       | true                                                                                 |  cost management catalogsource image                                                                            |
+| cost_management_upgrade_channel                   | no       |                                                                               | channel                                                                                                       |
+| cost_management_e2e                      | yes       |                                                                     |                                                                                                          |
+| cost_management_e2e_github_repo                | yes       |  |  |
+| cost_management_e2e_github_branch                | yes       |  |  |                                                                                     |
+| cost_management_github_username                | yes       |  |  |
+| cost_management_github_token                | yes       |  |  |  
+| cost_management_cleanup                | yes       | false | to run cleanup playbook  |
+| cost_management_setup                | yes       | false | to run cost management setup |
+| cost_management_test                | yes       | false | to run cost management test |
 
 Dependencies
 ------------
