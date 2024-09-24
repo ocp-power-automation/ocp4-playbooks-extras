@@ -15,10 +15,10 @@ Role Variables
 | Variable                                   | Required | Default                                                                              | Comments                                                                                                                       |
 |--------------------------------------------|----------|--------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------|
 | cost_management_enabled                            | yes       | false                                                                                |                                                                        |
-| cost_management_directory                   | yes       | true                                                                                 |  cost management temporary directory                                                                     |
-| cost_management_catalogsource_image               | yes       | true                                                                                 |  cost management catalogsource image                                                                            |
-| cost_management_upgrade_channel                   | no       |                                                                               | channel                                                                                                       |
-| cost_management_e2e                      | yes       |                                                                     |                                                                                                          |
+| cost_management_directory                   | yes       | /tmp/compliance                                                                                |  cost management temporary directory                                                                     |
+| cost_management_catalogsource_image               | yes       | ""                                                                                 |  cost management catalogsource image                                                                            |
+| cost_management_upgrade_channel                   | no       | stable                                                                              | channel                                                                                                       |
+| cost_management_e2e                      | yes       |  false                                                                   |                                                                                                          |
 | cost_management_e2e_github_repo                | yes       |  |  |
 | cost_management_e2e_github_branch                | yes       |  |  |                                                                                     |
 | cost_management_github_username                | yes       |  |  |
@@ -27,7 +27,7 @@ Role Variables
 | cost_management_setup                | yes       | false | to run cost management setup |
 | cost_management_test                | yes       | false | to run cost management test |
 | openshift_console_password                | yes       | false | oc login command password |
-| catalog_image_tag                | yes       | false | index image build id |
+| catalog_image_tag                | yes       | "" | index image build id |
 
 Dependencies
 ------------
