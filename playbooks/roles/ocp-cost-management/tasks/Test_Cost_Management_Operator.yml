@@ -7,7 +7,7 @@
       ansible.builtin.shell: >
         oc login -u kubeadmin -p {{ openshift_password }}
       environment:
-        KUBECONFIG: "{{ kubeconfig_path }}"
+        KUBECONFIG: "/root/openstack-upi/auth/kubeconfig"
       become: yes
 
     - name: Patch OperatorHub to disable default sources
