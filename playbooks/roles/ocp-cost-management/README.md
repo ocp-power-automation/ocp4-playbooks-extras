@@ -15,20 +15,18 @@ Role Variables
 
 | Variable                                   | Required | Default                                                                              | Comments                                                                                                                       |
 |--------------------------------------------|----------|--------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------|
-| cost_management_enabled                            | no       | false                                                                                |                                                                        |
-| cost_management_directory                   | no       | true                                                                                 |  operator                                                                      |
-| cost_management_catalogsource_image               | no       | true                                                                                 |  operator                                                                            |
+| cost_management_enabled                            | yes       | false                                                                                |                                                                        |
+| cost_management_directory                   | yes       | true                                                                                 |  operator                                                                      |
+| cost_management_catalogsource_image               | yes       | true                                                                                 |  operator                                                                            |
 | cost_management_upgrade_channel                   | no       |                                                                               |                                                                                                        |
-| cost_management_e2e                      | no       | ""                                                                    |                                                                                                          |
-| cost_management_e2e_github_repo                | no       | "" |  |
-| cost_management_e2e_github_branch                | no       | "" |  |                                                                                     |
-| cost_management_github_username                | no       | "" |  |
-
-| cost_management_github_token                | no       | "" |  |
-
-| cost_management_cleanup                | no       | "" |  |
-| cost_management_setup                    | no       | development                                                                               | Operator setup                                                                                                       |
-| cost_management_test                    | no       | development                                                                               | Operator test                                                                                                       |
+| cost_management_e2e                      | yes       | ""                                                                    |                                                                                                          |
+| cost_management_e2e_github_repo                | yes       | "" |  |
+| cost_management_e2e_github_branch                | yes       | "" |  |                                                                                     |
+| cost_management_github_username                | yes       | "" |  |
+| cost_management_github_token                | yes       | "" |  |
+| cost_management_cleanup                | yes       | "" |  |
+| cost_management_setup                | yes       | "" |  |
+| cost_management_test                | yes       | "" |  |
 
 Dependencies
 ------------
