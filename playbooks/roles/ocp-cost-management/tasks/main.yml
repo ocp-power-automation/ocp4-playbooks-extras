@@ -6,15 +6,15 @@
     name: check-cluster-health
 
 - name: Clean up
-  include_tasks: "{{ role_path }}/tasks/cost_management-cleanup.yml"
+  include_tasks: "{{ role_path }}/tasks/cmo-cleanup.yml"
   when: cost_management_cleanup
 
 - name: cost management operator setup
-  include_tasks: "{{ role_path }}/tasks/setup_cost_operator.yml"
+  include_tasks: "{{ role_path }}/tasks/cmo-setup.yml"
   when: cost_management_setup
 
 - name: cost management operator test
-  include_tasks: "{{ role_path }}/tasks/Test_Cost_Management_Operator.yml"
+  include_tasks: "{{ role_path }}/tasks/cmo-test.yml"
   when: cost_management_test
 
 - name: Create working directory
