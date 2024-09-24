@@ -13,7 +13,7 @@
   include_tasks: "{{ role_path }}/tasks/setup_cost_operator.yml"
   when: cost_management_setup
 
-- name: cost management operator setup
+- name: cost management operator test
   include_tasks: "{{ role_path }}/tasks/Test_Cost_Management_Operator.yml"
   when: cost_management_test
 
