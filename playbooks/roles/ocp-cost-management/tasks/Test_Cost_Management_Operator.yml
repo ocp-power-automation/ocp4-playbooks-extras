@@ -5,7 +5,7 @@
   tasks:
     - name: Log in to OpenShift
       ansible.builtin.shell: >
-        oc login -u kubeadmin -p {{ openshift_password }}
+        oc login -u kubeadmin -p {{ openshift_console_password }}
       environment:
         KUBECONFIG: "/root/openstack-upi/auth/kubeconfig"
       become: yes
