@@ -79,8 +79,18 @@ This file is use to cleanup all resources involved with this operator.
 inorder to execute this we have to enable the cost_management_cleanup in var file.
 `cost_management_cleanup: true`
 
-```
+Run Playbook
+------------
 
+To set up variables for specific playbook make use of the sample file at examples/<playbook_vars.yaml>. Modify the values as per your cluster. For more information refer to examples.
+
+```
+cp examples/ocp_cost_management_vars.yaml
+```
+Once you have configured the vars & inventory file, run the specific playbook using:
+
+```
+ansible-playbook  -i inventory -e @ocp_cost_management_vars.yaml playbooks/main.yml
 ```
 
 
