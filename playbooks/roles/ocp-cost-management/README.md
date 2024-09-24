@@ -16,7 +16,7 @@ Role Variables
 |--------------------------------------------|----------|--------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------|
 | cost_management_enabled                            | yes       | false                                                                                |                                                                        |
 | cost_management_directory                   | yes       | /tmp/compliance                                                                                |  cost management temporary directory                                                                     |
-| cost_management_catalogsource_image               | yes       | ""                                                                                 |  "brew.registry.redhat.io/rh-osbs/iib:327237"                                                                           |
+| cost_management_catalogsource_image               | yes       | ""                                                                                 |  index image build id                                                                           |
 | cost_management_upgrade_channel                   | no       | stable                                                                              | channel                                                                                                       |
 | cost_management_e2e                      | yes       |  false                                                                   |                                                                                                          |
 | cost_management_e2e_github_repo                | yes       |  |  |
@@ -27,7 +27,7 @@ Role Variables
 | cost_management_setup                | yes       | false | to run cost management setup |
 | cost_management_test                | yes       | false | to run cost management test |
 | openshift_console_password                | yes       | false | oc login command password |
-| catalog_image_tag                | yes       | "" | index image build id |
+
 
 Dependencies
 ------------
