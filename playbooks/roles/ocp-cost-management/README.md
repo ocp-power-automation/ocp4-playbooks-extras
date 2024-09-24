@@ -21,15 +21,14 @@ Role Variables
 | cost_management_upgrade_channel                   | no       |                                                                               |                                                                                                        |
 | cost_management_e2e                      | no       | ""                                                                    |                                                                                                          |
 | cost_management_e2e_github_repo                | no       | "" |  |
-| coo_channel                    | no       | development                                                                               | Operator upgrade channel                                                                                                       |
-| cost_management_e2e_github_branch                | no       | "" |  |
-| coo_channel                    | no       | development                                                                               | Operator upgrade channel                                                                                                       |
+| cost_management_e2e_github_branch                | no       | "" |  |                                                                                     |
 | cost_management_github_username                | no       | "" |  |
-| coo_channel                    | no       | development                                                                               | Operator upgrade channel                                                                                                       |
+
 | cost_management_github_token                | no       | "" |  |
-| coo_channel                    | no       | development                                                                               | Operator upgrade channel                                                                                                       |
+
 | cost_management_cleanup                | no       | "" |  |
-| coo_channel                    | no       | development                                                                               | Operator upgrade channel                                                                                                       |
+| cost_management_setup                    | no       | development                                                                               | Operator setup                                                                                                       |
+| cost_management_test                    | no       | development                                                                               | Operator test                                                                                                       |
 
 Dependencies
 ------------
