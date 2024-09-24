@@ -27,8 +27,8 @@ Role Variables
 | cost_management_cleanup                | yes       | false | to run cleanup playbook  |
 | cost_management_setup                | yes       | false | to run cost management setup |
 | cost_management_test                | yes       | false | to run cost management test |
-| openshift_console_password                | yes       | false | to run cost management test |
-| catalog_image_tag                | yes       | false | to run cost management test |
+| openshift_console_password                | yes       | false | oc login command password |
+| catalog_image_tag                | yes       | false | index image build id |
 
 Dependencies
 ------------
