@@ -57,20 +57,27 @@ Execution process
    - cmo-test.yml
    - cmo-cleanup.yml
 
+**var filepath:**
+examples/ocp_cost_management_vars.yaml
 
 **main.yml**
 This is the main yaml file which is used to install,verify and validate cost managemenent operator.
 
 **cmo-setup.yml**
-This file is responsible for install iqe cost management plugin and dependencies on your machine,inorder to execute this we have to enable the cost_management_setup `cost_management_setup: true`
+This file is responsible for install iqe cost management plugin and dependencies on your machine,
+inorder to execute this we have to enable the cost_management_setup  in var file.
+`cost_management_setup: true`
 
 **cmo-test.yml**
 After plugin installation is successful,we have to execute this file to run tests.
-inorder to execute this we have to enable the cost_management_test `cost_management_test: true`
+inorder to execute this we have to enable the cost_management_test in var file.
+`cost_management_test: true`
+Also we have to pass the kubeadmin password to this variable `openshift_console_password` in var file.
 
 **cmo-cleanup.yml**
 This file is use to cleanup all resources involved with this operator.
-inorder to execute this we have to enable the cost_management_cleanup `cost_management_cleanup: true`
+inorder to execute this we have to enable the cost_management_cleanup in var file.
+`cost_management_cleanup: true`
 
 ```
 
