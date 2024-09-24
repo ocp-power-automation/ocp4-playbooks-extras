@@ -51,19 +51,25 @@ Example Playbook
 Execution process
 -----------------
 
-```
   there are 4 playbooks available on tasks folder
    - main.yml
    - cmo-setup.yml
    - cmo-test.yml
    - cmo-cleanup.yml
-```
 
-main.yml - this is the main yaml file which is used to install,verify and validate cost managemenent operator.
-cmo-setup.yml - this file is responsible for install iqe cost management plugin and dependencies on your machine,inorder to execute this we have to enable the cost_management_setup `cost_management_setup: true`
-cmo-test.yml - after plugin installation is successful,we have to execute this file to run tests.
+
+**main.yml**
+This is the main yaml file which is used to install,verify and validate cost managemenent operator.
+
+**cmo-setup.yml**
+This file is responsible for install iqe cost management plugin and dependencies on your machine,inorder to execute this we have to enable the cost_management_setup `cost_management_setup: true`
+
+**cmo-test.yml**
+After plugin installation is successful,we have to execute this file to run tests.
 inorder to execute this we have to enable the cost_management_test `cost_management_test: true`
-cmo-cleanup.yml - this file is use to cleanup all resources involved with this operator.
+
+**cmo-cleanup.yml**
+This file is use to cleanup all resources involved with this operator.
 
 
 
