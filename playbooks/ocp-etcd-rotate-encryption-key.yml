@@ -1,0 +1,6 @@
+---
+-
+  name: OCP etcd rotate encryption key 
+  hosts: bastion
+  roles:
+    - role: ocp-etcd-rotate-encryption-key
