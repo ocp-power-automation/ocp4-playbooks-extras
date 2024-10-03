@@ -2,97 +2,13 @@
 
 ## Enabling monitoring to user-defined-projects
 
-- name: Create a new namespace
-  k8s:
-    state: present
-    definition:
-      apiVersion: v1
-      kind: Namespace
-      metadata:
-        name: "{{ user_defined_namespace }}"
+- name: Install the Development tools
+  shell: yum groupinstall -y 'Development tools' 
 
-- name: Deploy a sample app
-  k8s:
-    state: present
-    definition: 
-      apiVersion: apps/v1
-      kind: Deployment
-      metadata:
-        labels:
-          app: "{{ user_defined_app_name }}"
-        name: "{{ user_defined_app_name }}"
-        namespace: "{{ user_defined_namespace }}"
-      spec:
-        replicas: 1
-        selector:
-          matchLabels:
-            app: "{{ user_defined_app_name }}"
-        template:
-          metadata:
-            labels:
-              app: "{{ user_defined_app_name }}"
-          spec:
-            containers:
-            - image: ghcr.io/rhobs/prometheus-example-app:0.3.0
-              imagePullPolicy: IfNotPresent
-              name: "{{ user_defined_app_name }}"
+- name: Resource deployment for monitoring-user-defined-projects
+  include_tasks: "{{ role_path }}/tasks/deployment.yml"
 
-- name: Create a service that expose the metrics of the deployed app
-  k8s:
-    state: present
-    definition:
-      apiVersion: v1
-      kind: Service
-      metadata:
-        labels:
-          app: "{{ user_defined_app_name }}"
-        name: "{{ user_defined_app_name }}"
-        namespace: "{{ user_defined_namespace }}"
-      spec:
-        ports:
-        - port: 8080
-          protocol: TCP
-          targetPort: 8080
-          name: web
-        selector:
-          app: "{{ user_defined_app_name }}"
-        type: ClusterIP
-
-- name: Check the pod for the deployed prometheus app
-  shell: "oc -n {{ user_defined_namespace }} get pod --no-headers | awk '{ if($3 != 'Running') print $3 }' | wc -l"
-  register: pod_count
-  until: pod_count.stdout|int > 0
-  retries: 10
-  delay: 60
-
-- name: Deploying ServiceMonitor resource object
-  k8s:
-    state: present
-    definition: 
-      apiVersion: monitoring.coreos.com/v1
-      kind: ServiceMonitor
-      metadata:
-        labels:
-          k8s-app: "{{ service_monitor_name }}"
-        name: "{{ service_monitor_name }}"
-        namespace: "{{ user_defined_namespace }}"
-      spec:
-        endpoints:
-        - interval: 30s
-          port: web
-          scheme: http
-        selector:
-          matchLabels:
-            app: "{{ user_defined_app_name }}"
-    
-- name: Check the ServiceMonitor resource
-  shell: "oc -n {{ user_defined_namespace }} get servicemonitor --no-headers | wc -l"
-  register: service_monitor_count
-  until: service_monitor_count.stdout|int > 0
-  retries: 5
-  delay: 30
-
-- name: Create and deploy cluster-monitering-config ConfigMap instance
+- name: Create cluster-monitering-config ConfigMap for enabling the user-workload-monitoring
   k8s:
     state: present
     definition:
@@ -105,24 +21,16 @@
         config.yaml: |
           enableUserWorkload: true
 
-- name: Create and deploy user-workload-monitoring-config ConfigMap instance
-  k8s:
-    state: present
-    definition:
-      apiVersion: v1
-      kind: ConfigMap
-      metadata:
-        name: user-workload-monitoring-config
-        namespace: openshift-user-workload-monitoring
-      data:
-        config.yaml: | 
-
 - name: Check if the pods are running in openshift-user-workload-monitoring namespace
   shell: oc get po -n openshift-user-workload-monitoring --no-headers | awk '{ print $3 }' | grep 'Running' | wc -l
   register: user_workload_monitoring_pods
   until: user_workload_monitoring_pods.stdout|int == 5
   retries: 5
   delay: 30
+
+- name: Wait for another three minutes
+  wait_for:
+    timeout: 180
 
 - name: Accessing metrics outside the cluster
   block:
@@ -145,9 +53,8 @@
       register: thanos_querier_route_host
 
     - name: Query the metrics of user defined services in the command line
-      shell: "curl -X GET -kG 'https://{{ THANOS_QUERIER_HOST }}/api/v1/query?' --data-urlencode \"query=up{namespace='{{ NAMESPACE }}'}\" -H 'Authorization: Bearer {{ TOKEN }}'"
-      args:
-        warn: false
+      shell: | 
+        curl -X GET -kG "https://{{ THANOS_QUERIER_HOST }}/api/v1/query?" --data-urlencode "query=up{namespace='{{ NAMESPACE }}'}" -H "Authorization: Bearer {{ TOKEN }}"
       vars: 
         THANOS_QUERIER_HOST: "{{ thanos_querier_route_host.resources[0].spec.host }}"
         TOKEN: "{{ access_token.stdout.strip('\"') }}"
@@ -170,3 +77,13 @@
 
           {{ query_output.stdout_lines }}
         dest: "~/{{ user_defined_app_name }}/output.txt"
+
+    - name: Clean up the resources for monitoring user defined projects
+      include_tasks: "{{ role_path }}/tasks/cleanup.yml"
+    
+    - name: Disable the user-workload-monitoring
+      shell: | 
+        oc patch configmap cluster-monitoring-config \
+        -n openshift-monitoring --type='json' \ 
+        -p '[{"op": "replace", "path": "/data/config.yaml", "value": "enabledUserWorkload: false\n"}]' 
+  ignore_errors: true
