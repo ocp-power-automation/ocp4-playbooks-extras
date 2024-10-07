@@ -188,9 +188,10 @@ clf_clean_up: false
 
 ## ocp-nfd-operator required vars
 ocp_nfd: false
-update_channel: ""
-nfd_instance_image_version: ""
+update_channel: "" # e.g. stable
+nfd_instance_image_version: "" # ocp version
 nfd_catalogsource: "" # quay.io/openshift-release-dev/ocp-release-nightly:iib-int-index-art-operators-4.9
+check_nxgzip_label: false # set to true when the cluster deployed on p10 server
 
 # Go Language Installation
 golang_installation: false

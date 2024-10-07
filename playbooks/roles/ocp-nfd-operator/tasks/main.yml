@@ -185,7 +185,7 @@
             #      - nodename: ["special-.*-node-.*"]
         operand:
           image: >-
-            registry.redhat.io/openshift4/ose-node-feature-discovery:v{{ nfd_instance_image }}
+            registry.redhat.io/openshift4/ose-node-feature-discovery-rhel9
           imagePullPolicy: Always
           namespace: openshift-nfd
           servicePort: 12000
@@ -309,7 +309,7 @@
 - name: Get number of pods 
   shell: oc get pods -n openshift-nfd | wc -l
   register: pods_count
-  until: pods_count.stdout|int > 6
+  until: pods_count.stdout|int > 4
   retries: 10
   delay: 60
 
@@ -321,4 +321,13 @@
   retries: 10
   delay: 120
 
+# Verify nx-gzip label
+- name: Verify nx-gzip label
+  shell: oc get nodes -ojson | jq -r '.items[].metadata.labels' | grep nx
+  register: verify_label
+  until: verify_label.stdout|int == 2
+  when: check_nxgzip_label
 
+- debug:
+    msg: "{{ verify_label.stdout_lines }}"
+  when: check_nxgzip_label
