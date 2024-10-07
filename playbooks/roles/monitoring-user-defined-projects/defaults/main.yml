@@ -1,6 +1,8 @@
 ---
 
 # User defined project monitoring vars with defaults
-user_defined_namespace: "test-namespace"
-user_defined_app_name: "prometheus-example-app"
-service_monitor_name: "prometheus-app-monitor"
+enable_user_defined_project_monitoring: false  # Set true to enable role execution
+user_defined_app_name: "example-app"  # User defined app name
+user_defined_namespace: "test-project1"  # User defined namespace
+service_monitor_name: "example-app-monitor"  # User defined name for ServiceMonitor object name
+user_defined_app_image: "quay.io/powercloud/nginx-unprivileged:latest" # Any image for deploying the user-defined app

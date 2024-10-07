@@ -1,0 +1,91 @@
+---
+
+- name: Create a new namespace
+  k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: "{{ user_defined_namespace }}"
+
+- name: Deploy a sample app
+  k8s:
+    state: present
+    definition: 
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        labels:
+          app: "{{ user_defined_app_name }}"
+        name: "{{ user_defined_app_name }}"
+        namespace: "{{ user_defined_namespace }}"
+      spec:
+        replicas: 1
+        selector:
+          matchLabels:
+            app: "{{ user_defined_app_name }}"
+        template:
+          metadata:
+            labels:
+              app: "{{ user_defined_app_name }}"
+          spec:
+            containers:
+            - image: "{{ user_defined_app_image }}"
+              imagePullPolicy: IfNotPresent
+              name: "{{ user_defined_app_name }}"
+
+- name: Create a service that expose the metrics of the deployed app
+  k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Service
+      metadata:
+        labels:
+          app: "{{ user_defined_app_name }}"
+        name: "{{ user_defined_app_name }}"
+        namespace: "{{ user_defined_namespace }}"
+      spec:
+        ports:
+        - port: 8080
+          protocol: TCP
+          targetPort: 8080
+          name: web
+        selector:
+          app: "{{ user_defined_app_name }}"
+        type: ClusterIP
+
+- name: Check the pod for the deployed prometheus app
+  shell: "oc -n {{ user_defined_namespace }} get pod --no-headers | awk '{ if($3 != 'Running') print $3 }' | wc -l"
+  register: pod_count
+  until: pod_count.stdout|int > 0
+  retries: 10
+  delay: 60
+
+- name: Deploying ServiceMonitor resource object
+  k8s:
+    state: present
+    definition: 
+      apiVersion: monitoring.coreos.com/v1
+      kind: ServiceMonitor
+      metadata:
+        labels:
+          k8s-app: "{{ service_monitor_name }}"
+        name: "{{ service_monitor_name }}"
+        namespace: "{{ user_defined_namespace }}"
+      spec:
+        endpoints:
+        - interval: 30s
+          port: web
+          scheme: http
+        selector:
+          matchLabels:
+            app: "{{ user_defined_app_name }}"
+    
+- name: Check the ServiceMonitor resource
+  shell: "oc -n {{ user_defined_namespace }} get servicemonitor --no-headers | wc -l"
+  register: service_monitor_count
+  until: service_monitor_count.stdout|int > 0
+  retries: 5
+  delay: 30
