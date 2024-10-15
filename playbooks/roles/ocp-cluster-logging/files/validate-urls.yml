@@ -11,7 +11,7 @@
     when: op.failed == false
   ignore_errors: yes
   when: elasticsearch_url != "" and elasticsearch_url != None
-  
+
 # Set loki_server_url
 - set_fact:
     loki_server_url: "{{ loki_url }}"
@@ -118,3 +118,4 @@
     - elasticsearch_server_url is undefined and syslog_server_url is undefined
     - fluentd_server_url is undefined and kafka_server_url is undefined
     - loki_server_url is undefined and cw_secret is undefined
+    
