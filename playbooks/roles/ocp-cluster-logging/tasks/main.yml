@@ -1,14 +1,15 @@
 ---
-- name: Check channel variables
-  fail:
-    msg: Please check Channel variables for ClusterLogging and ElasticSearch Operators.
-  when: >
-        (cluster_logging_channel == "" or elastic_search_channel == "") or
-        (cluster_logging_channel == None or elastic_search_channel == None) 
-
 # Set log_labels
 - set_fact:
       log_labels: "{{ log_label | default('test-clf', true) }}"
+      clo_version: "{{ cluster_logging_channel | regex_search('\\d+\\.\\d+') | float }}"
+
+- name: Check channel variables
+  fail:
+    msg: Please check Channel variables for ClusterLogging, ElasticSearch and Loki Operators.
+  when: >
+        cluster_logging_channel == "" and (elastic_search_channel == "" or loki_channel == "") or
+        cluster_logging_channel == None and (elastic_search_channel == None or loki_channel == None)
 
 # Set log directory
 - set_fact:
@@ -35,7 +36,7 @@
   when: cluster_log_forwarder
 
 # Custom ImageContentSourcePolicy and CatalogSource
-- name: Create ImageContentSourcePolicy and CatalogSource
+- name: Create ImageContentSourcePolicy and CatalogSource for CLO less than or equal to 5.8
   block: 
   - name: Create CatalogSource
     template:
@@ -62,8 +63,40 @@
       elasticsearch_op_source: "elasticsearch"
       cluster_logging_op_source: "cluster-logging"
   when: 
-    - elasticsearch_clf_cs != '' and clusterlogging_clf_cs != '' 
+    - elasticsearch_clf_cs != '' and clusterlogging_clf_cs != ''  
     - elasticsearch_clf_cs != None and clusterlogging_clf_cs != None
+    - clo_version | float <= 5.8
+
+- name: Create ImageContentSourcePolicy and CatalogSource for CLO greater than 5.8
+  block: 
+  - name: Create CatalogSource
+    template:
+      src: "{{ role_path }}/templates/NewCatalogSource.yaml.j2"
+      dest: "{{ role_path }}/files/NewCatalogSource.yml"
+
+  - name: Run ImageContentSourcePolicy
+    shell: oc apply -f "{{ role_path }}/files/ImageContentSourcePolicy.yml"
+     
+  - name: Run CatalogSource
+    shell: oc apply -f "{{ role_path }}/files/NewCatalogSource.yml"
+ 
+  - name: Check ImageContentSourcePolicy and CatalogSource added
+    shell:  oc get CatalogSource -n openshift-marketplace | grep "cluster-logging\|loki" |wc -l
+    register: output
+
+  - name: Fail if CatalogSource not added
+    fail:
+      msg: "CatalogSource not added !"
+    when: output.stdout|int != 2
+ 
+  - name: Set fact variable for Subscription
+    set_fact:
+      loki_op_source: "loki"
+      cluster_logging_op_source: "cluster-logging"
+  when: 
+    - loki_clf_cs != '' and clusterlogging_clf_cs != ''  
+    - loki_clf_cs != None and clusterlogging_clf_cs != None
+    - clo_version | float >= 5.9
 
 # Default CatalogSource
 - name: Use default sources
@@ -75,6 +108,12 @@
   - name: Check if the CatalogSource exists
     shell:  oc get CatalogSource -n openshift-marketplace | grep "cluster-logging\|elasticsearch" |wc -l
     register: output
+    when: clo_version | float <= 5.8
+
+  - name: Check if the CatalogSource exists
+    shell:  oc get CatalogSource -n openshift-marketplace | grep "cluster-logging\|loki" |wc -l
+    register: output
+    when: clo_version | float >= 5.9
 
   - name: Delete ImageContentSourcePolicy if it exists
     shell: oc delete ImageContentSourcePolicy brew-registry
@@ -82,7 +121,15 @@
 
   - name: Delete CatalogSource if it exists
     shell: oc delete CatalogSource elasticsearch cluster-logging -n openshift-marketplace
-    when: output.stdout|int == 2
+    when: 
+      - output.stdout|int == 2
+      - clo_version | float <= 5.8
+
+  - name: Delete CatalogSource if it exists
+    shell: oc delete CatalogSource loki cluster-logging -n openshift-marketplace
+    when:
+      - output.stdout|int == 2
+      - clo_version | float >= 5.9
 
   - name: Set disableAllDefaultSources to false
     shell: |
@@ -92,10 +139,17 @@
     set_fact:
       elasticsearch_op_source: "redhat-operators"
       cluster_logging_op_source: "redhat-operators"
+    when: clo_version | float <= 5.8
+
+  - name: Set fact variable for subscription
+    set_fact:
+      loki_op_source: "redhat-operators"
+      cluster_logging_op_source: "redhat-operators"
+    when: clo_version | float >= 5.9
   when: >
-        (elasticsearch_clf_cs == "" or clusterlogging_clf_cs == None) or
-        (clusterlogging_clf_cs == "" or elasticsearch_clf_cs == None) 
-     
+        clusterlogging_clf_cs == "" and (elasticsearch_clf_cs == "" or loki_clf_cs == "") or
+        clusterlogging_clf_cs == None and (elasticsearch_clf_cs == None or loki_clf_cs == None)
+
 # Check if default storage class has exists
 - name: Check if default storage class has exists
   shell:  oc get sc | awk '/(default)/{ print $1 }' | wc -l
@@ -109,7 +163,7 @@
   when: storage_class.failed
 
 # Creating namespaces 
-- name: Create namespace for elasticsearch and cluster logging
+- name: Create namespace for Elasticsearch/loki and cluster logging
   k8s:
     state: present
     definition:
@@ -126,7 +180,7 @@
     - openshift-logging
 
 # Create operator group objects for OpenShift Elasticsearch Operator and Red Hat OpenShift Logging Operator
-- name: Create operator group for Elasticsearch
+- name: Create operator group for Elasticsearch/loki
   k8s:
     state: present
     definition:
@@ -148,7 +202,6 @@
         namespace: openshift-logging
       spec:
         targetNamespaces:
-        - openshift-logging
 
 # Create a Subscription object OpenShift Elasticsearch Operator and Red Hat OpenShift Logging Operator.
 - name: Subscription for cluster-logging operator
@@ -169,10 +222,31 @@
   loop:
   - { name: 'cluster-logging', namespace: 'openshift-logging', channel: "{{cluster_logging_channel}}" , cs_src: "{{cluster_logging_op_source}}" }
   - { name: 'elasticsearch-operator', namespace: 'openshift-operators-redhat', channel: "{{elastic_search_channel}}", cs_src: "{{elasticsearch_op_source}}" }
+  when: clo_version | float <= 5.8
+
+- name: Subscription for cluster-logging operator
+  k8s:
+    state: present
+    definition:
+      apiVersion: operators.coreos.com/v1alpha1
+      kind: Subscription
+      metadata:
+        name: "{{ item.name }}"
+        namespace: "{{ item.namespace }}"
+      spec:
+        channel: "{{ item.channel }}"
+        name: "{{ item.name }}"
+        installPlanApproval: "Automatic"
+        source: "{{ item.cs_src }}"
+        sourceNamespace: openshift-marketplace
+  loop:
+  - { name: 'cluster-logging', namespace: 'openshift-logging', channel: "{{cluster_logging_channel}}" , cs_src: "{{cluster_logging_op_source}}" }
+  - { name: 'loki-operator', namespace: 'openshift-operators-redhat', channel: "{{loki_channel}}", cs_src: "{{loki_op_source}}" }
+  when: clo_version | float >= 5.9
 
 # Verify the operator installation.
 - name: Verify the operator installation
-  shell:  oc get csv -n openshift-logging --no-headers | awk '{ if (($1 ~ /^cluster-logging/ || $1 ~ /^elasticsearch-operator/) && $NF=="Succeeded") print $1 }'| wc -l
+  shell:  oc get csv -n openshift-logging --no-headers | awk '{ if (($1 ~ /^cluster-logging/ || $1 ~ /^elasticsearch-operator/ || $1 ~ /^loki-operator/) && $NF=="Succeeded") print $1 }'| wc -l
   register: operators
   until: operators.stdout|int == 2
   retries: 15

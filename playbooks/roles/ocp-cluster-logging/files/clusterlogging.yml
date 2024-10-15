@@ -2,6 +2,26 @@
 # Set the default collector type
 - set_fact:
     collector_type: "{{ log_collector_type | default('fluentd', true) }}"
+    clo_version: "{{ cluster_logging_channel | regex_search('\\d+\\.\\d+') | float }}"
+    log_labels: "{{ log_label | default('test-clf', true) }}"
+
+# Check Lokistack instance
+- name: Check if the Lokistack instance exists
+  shell: |
+    oc get lokistack -n openshift-logging | grep lokistack | awk 'NR==1{print $1}' | xargs
+  register: check_lokistack
+
+# Create a random string to append to lokistack name
+- name: Create Lokistack name
+  block:
+    - name: Generate random string
+      shell: "tr -dc 'a-z' < /dev/urandom | head -c 5"
+      register: random_string
+
+    #Create lokistack name
+    - name: Generate Lokistack name
+      shell: echo "lokistack-{{ random_string.stdout }}"
+      register: lokistack_name
 
 # Check if the ClusterLogging CR is exists
 - name: Check if the ClusterLogging instance exists
@@ -60,6 +80,165 @@
       type: {{ collector_type }}
       {{ collector_type }}: {}
   register: cl_cr
+  when: clo_version | float <= 5.8
+
+- name: Create an instance for logging operator
+  k8s:
+    state: present
+    definition:
+      apiVersion: "logging.openshift.io/v1"
+      kind: "ClusterLogging"
+      metadata:
+        name: "instance"
+        namespace: "openshift-logging"
+        annotations:
+          logging.openshift.io/preview-vector-collector: "{{ (collector_type == 'vector') | ternary('enabled', omit) }}"
+      spec:
+        managementState: "Managed"
+        logStore:
+          type: "lokistack"
+          lokistack:
+            name: "{{ (check_lokistack.stdout|length > 0) | ternary(check_lokistack.stdout, lokistack_name.stdout) }}"
+        collection:
+          logs: "{{ collector_spec | from_yaml }}"
+  vars:
+    collector_spec: |
+      type: {{ collector_type }}
+      {{ collector_type }}: {}
+  register: cl_cr
+  when: clo_version | float == 5.9
+
+# Create a ConfigMap for lokistack
+- name: Create ConfigMap for lokistack
+  k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: lokistack-ca
+        namespace: openshift-logging
+        annotations:
+          service.beta.openshift.io/inject-cabundle: "true"
+  when: clo_version | float >= 5.9
+
+# Create Service Account
+- name: Create Service Account
+  shell: |
+    oc create sa logcollector -n openshift-logging
+    oc adm policy add-cluster-role-to-user collect-application-logs -z logcollector -n openshift-logging
+    oc adm policy add-cluster-role-to-user collect-infrastructure-logs -z logcollector -n openshift-logging
+    oc adm policy add-cluster-role-to-user collect-audit-logs -z logcollector -n openshift-logging
+
+# Create a Role binding for lokistack
+- name: Create Cluster Role for lokistack
+  k8s:
+    state: present
+    definition:
+      apiVersion: rbac.authorization.k8s.io/v1
+      kind: ClusterRole
+      metadata:
+        name: lokistack-instance-tenant-logs
+      rules:
+      - apiGroups:
+        - 'loki.grafana.com'
+        resources:
+        - application
+        - infrastructure
+        - audit
+        resourceNames:
+        - logs
+        verbs:
+        - 'get'
+        - 'create'
+  when: clo_version | float >= 5.9
+
+- name: Create Role binding for lokistack
+  k8s:
+    state: present
+    definition:
+      apiVersion: rbac.authorization.k8s.io/v1
+      kind: ClusterRoleBinding
+      metadata:
+        name: lokistack-instance-tenant-logs
+      roleRef:
+        apiGroup: rbac.authorization.k8s.io
+        kind: ClusterRole
+        name: lokistack-instance-tenant-logs
+      subjects:
+      - kind: ServiceAccount
+        name: logcollector
+        namespace: openshift-logging
+  when: clo_version | float >= 5.9
+
+# Create lokistack
+- name: Create lokistack
+  k8s:
+    state: present
+    definition:
+      apiVersion: loki.grafana.com/v1
+      kind: LokiStack
+      metadata:
+        name: "{{ (check_lokistack.stdout|length > 0) | ternary(check_lokistack.stdout, lokistack_name.stdout) }}"
+        namespace: openshift-logging
+      spec:
+        size: 1x.small
+        replicationFactor: 1
+        storage:
+          secret:
+            name: lokicred-secret
+            type: s3
+        storageClassName: nfs-storage-provisioner
+        tenants:
+          mode: openshift-logging
+        rules:
+          enabled: true
+          selector:
+            matchLabels:
+              openshift.io/cluster-monitoring: 'true'
+          namespaceSelector:
+            matchLabels:
+              openshift.io/cluster-monitoring: 'true'
+  when: clo_version | float == 5.9
+
+# Create lokistack for 6.0 and above
+- name: Create lokistack
+  k8s:
+    state: present
+    definition:
+      apiVersion: loki.grafana.com/v1
+      kind: LokiStack
+      metadata:
+        name: "{{ (check_lokistack.stdout|length > 0) | ternary(check_lokistack.stdout, lokistack_name.stdout) }}"
+        namespace: openshift-logging
+      spec:
+        size: 1x.demo
+        replicationFactor: 1
+        storage:
+          schemas:
+          - effectiveDate: "2023-10-15"
+            version: v13
+          secret:
+            name: lokicred-secret
+            type: s3
+        storageClassName: nfs-storage-provisioner
+        tenants:
+          mode: openshift-logging
+        rules:
+          enabled: true
+          selector:
+            matchLabels:
+              openshift.io/cluster-monitoring: 'true'
+          namespaceSelector:
+            matchLabels:
+              openshift.io/cluster-monitoring: 'true'
+  when: clo_version | float >= 6.0
+
+- name: Check lokistack secret exists
+  shell: oc get secret -n openshift-logging | grep "lokicred-secret" | wc -l
+  register: lokisecret
+  failed_when: lokisecret.stdout|int == 0
+  when: clo_version | float >= 5.9
 
 # Check if deployment is successfull
 - name: Check the deployment
@@ -93,8 +272,8 @@
       delay: 90
       ignore_errors: yes
   when: cl_cr.changed and check_cl.stdout|int != 0
-  
-- name: Get error state pods 
+
+- name: Get error state pods
   shell: oc get pod -n openshift-logging | grep Error| wc -l
   register: err_pods
 
