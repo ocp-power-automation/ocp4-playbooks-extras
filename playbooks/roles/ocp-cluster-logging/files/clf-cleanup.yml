@@ -49,6 +49,15 @@
   shell: oc delete ClusterLogging instance -n openshift-logging
   when: check_cl.stdout|int != 0
 
+# Check Lokistack instance and delete if it exists
+- name: Check if the lokistack instance exists
+  shell: oc get lokistack -n openshift-logging | grep lokistack | awk 'NR==1{print $1}'
+  register: check_lokistack
+
+- name: Delete lokistack instance if it exists
+  shell: oc delete lokistack {{ check_lokistack }} -n openshift-logging
+  when: check_lokistack.stdout|int != 0
+
 # Check and delete Elasticsearch subscription if it exists
 - name: Check if the Elasticsearch subscription exists
   shell: oc get subscription -n openshift-operators-redhat | grep elasticsearch-operator | wc -l
@@ -85,3 +94,20 @@
   shell: oc delete clusterserviceversion {{ cluster_logging_csv.stdout }} -n openshift-logging 
   when: cluster_logging_csv.stdout|length > 0
 
+# Check and delete lokistack subscription if it exists
+- name: Check if the Loki subscription exists
+  shell: oc get subscription -n openshift-operators-redhat | grep loki-operator | wc -l
+  register: loki_subs
+
+- name: Delete Loki subscription if it exists
+  shell: oc delete subscription loki-operator -n openshift-operators-redhat
+  when: loki_subs.stdout|int != 0
+
+# Check and delete Loki operator if it exists
+- name: Check if the Loki operator exists
+  shell:  oc get csv  -n openshift-operators-redhat | grep loki-operator | awk 'NR==1{print $1}'
+  register: loki_csv
+
+- name: Delete Loki operator if it exists
+  shell: oc delete clusterserviceversion {{ loki_csv.stdout }} -n openshift-operators-redhat
+  when: loki_csv.stdout|length > 0
