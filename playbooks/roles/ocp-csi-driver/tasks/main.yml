@@ -124,12 +124,12 @@
       msg: "PowerVC certificate secret is not present!"
     when: powervc_certificate.resources | length == 0
 
-  - name: If powervc-certificate is empty
-    debug:
+  - debug:
       msg: "PowerVC certificate is empty! Please check the certificate's secret."
     when: >
           (powervc_certificate.resources[0].data.certificate is not defined) or
-          (powervc_certificate.resources[0].data.certificate | length == 0)
+          (powervc_certificate.resources[0].data.certificate | length == 0) or
+          (powervc_certificate.resources | length != 0)
 
   - name: Create namespace for CSI driver validation
     k8s:
