@@ -1,0 +1,5 @@
+## ocp-etcd-rotate-encryption-key vars
+
+ocp_etcd_key_rotation_enable: false
+encryption_type: "aescbc"
+NUMBER: 1
