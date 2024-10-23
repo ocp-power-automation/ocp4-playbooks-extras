@@ -395,4 +395,4 @@ chainsaw_tarball: "https://github.com/kyverno/chainsaw/releases/download/v0.2.9-
 chainsaw_test_namespace: "chainsaw-multitenancy"
 chainsaw_path: "/usr/local/"
 coo_work_dir: "/tmp/coo_logs"
- 
+
