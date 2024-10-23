@@ -387,6 +387,15 @@ coo_namespace: "openshift-observability-operator"
 coo_catalogsource_name: "coo-catalog"
 coo_catalogsource_image: "brew.registry.redhat.io/rh-osbs/iib:760399"
 coo_channel: "development"
+coo_e2e_namespace: "coo-e2e"
+coo_logstack_namespace: "openshift-logging"
+minio_image: "quay.io/minio/minio:latest"
+distributed_tracing_qe_repo: "https://github.com/openshift/distributed-tracing-qe.git"
+distributed_tracing_qe_repo_branch: "main"
+chainsaw_tarball: "https://github.com/kyverno/chainsaw/releases/download/v0.2.9-beta.1/chainsaw_linux_ppc64le.tar.gz"
+chainsaw_test_namespace: "chainsaw-multitenancy"
+chainsaw_path: "/usr/local/"
+coo_work_dir: "/tmp/coo_logs"
 
 # ocp-etcd-rotate-encryption-key vars
 ocp_etcd_key_rotation_enable: false

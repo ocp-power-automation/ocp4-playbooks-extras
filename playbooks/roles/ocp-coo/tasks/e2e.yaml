@@ -146,37 +146,45 @@
         msg: "Secret lokicred-secret not found in openshift-logging namespace"
       when: secret_count.stdout|int == 0
 
-    - name: Get loki operator csv 
-      k8s_info:
-        api_version: operators.coreos.com/v1alpha1
-        kind: ClusterServiceVersion
-        namespace: openshift-operators-redhat
-      register: loki_csv
+    - name: Get list of csv present in openshift-logging namespace
+      shell: oc get csv -n "{{ coo_logstack_namespace }}" -o jsonpath='{.items[*].metadata.name}'
+      register: csv_list
 
     - name: Check if Loki Operator CSV exists
       set_fact:
-        loki_installed: "{{ loki_csv.resources | selectattr('metadata.name', 'search', 'loki') | list | length>0 }}"
+        loki_installed: "{{ csv_list.stdout is contains('loki') }}"
 
     - name: Fail if Loki Operator is not installed 
       fail:
         msg: "Install Loki Operator"
       when: not loki_installed
 
-    - name: Get Cluster Logging csv 
-      k8s_info:
-        api_version: operators.coreos.com/v1alpha1
-        kind: ClusterServiceVersion
-        namespace: "{{ coo_logstack_namespace }}"
-      register: clo_csv
-
     - name: Check if Cluster Logging Operator CSV exists
       set_fact:
-        clo_installed: "{{ clo_csv.resources | selectattr('metadata.name', 'search', 'cluster-logging') | list | length>0 }}"
+        clo_installed: "{{ csv_list.stdout is contains('cluster-logging') }}"
 
     - name: Fail if Cluster Logging is not installed 
       fail:
         msg: "Install Cluster Logging Operator"
       when: not clo_installed
+
+    - name: Get the CLO csv name
+      set_fact:
+        clo_csv_name: "{{ item }}"
+      loop: "{{ csv_list.stdout.split() }}"
+      when: item is search('cluster-logging')
+
+    - name: Get Cluster Logging csv
+      k8s_info:
+        api_version: operators.coreos.com/v1alpha1
+        kind: ClusterServiceVersion
+        namespace: "{{ coo_logstack_namespace }}"
+        name: "{{ clo_csv_name }}"
+      register: clo_csv
+
+    - name:  Set CLO version 
+      set_fact:
+        clo_version: "{{ clo_csv.resources[0].spec.version.split('.')[:2] | join('.') }}"
 
     - name: Create Lokistack instance 
       kubernetes.core.k8s:
@@ -231,6 +239,107 @@
                   logsLimit: 50
                   timeout:  6m
                 type: ocp-console
+      when: clo_version|float < 6.0
+
+    - name: Create ClusterLogForwarder instance for CLO version greater than or equal to v6.0.0
+      block:
+      - name: Create serviceAccount logcollector
+        kubernetes.core.k8s:
+          state: present
+          definition:  
+            apiVersion: v1
+            kind: ServiceAccount
+            metadata:
+              name: logcollector
+              namespace: "{{ coo_logstack_namespace }}"
+
+      - name: Create clusterrolebinding collect-application-logs
+        kubernetes.core.k8s:
+          state: present
+          definition:  
+            apiVersion: rbac.authorization.k8s.io/v1
+            kind: ClusterRoleBinding
+            metadata:
+              name: collect-application-logs
+            roleRef:
+              apiGroup: rbac.authorization.k8s.io
+              kind: ClusterRole
+              name: collect-application-logs
+            subjects:
+              - kind: ServiceAccount
+                name: logcollector
+                namespace: "{{ coo_logstack_namespace }}"
+
+      - name: Create clusterrolebinding collect-infrastructure-logs
+        kubernetes.core.k8s:
+          state: present
+          definition:  
+            apiVersion: rbac.authorization.k8s.io/v1
+            kind: ClusterRoleBinding
+            metadata:
+              name: collect-infrastructure-logs
+            roleRef:
+              apiGroup: rbac.authorization.k8s.io
+              kind: ClusterRole
+              name: collect-infrastructure-logs
+            subjects:
+              - kind: ServiceAccount
+                name: logcollector
+                namespace: "{{ coo_logstack_namespace }}"
+
+      - name: Create clusterrolebinding collect-audit-logs
+        kubernetes.core.k8s:
+          state: present
+          definition:  
+            apiVersion: rbac.authorization.k8s.io/v1
+            kind: ClusterRoleBinding
+            metadata:
+              name: collect-audit-logs
+            roleRef:
+              apiGroup: rbac.authorization.k8s.io
+              kind: ClusterRole
+              name: collect-audit-logs
+            subjects:
+              - kind: ServiceAccount
+                name: logcollector
+                namespace: "{{ coo_logstack_namespace }}"
+
+      - name: Create ClusterLogForwarder instance
+        kubernetes.core.k8s:
+          state: present
+          definition:  
+            apiVersion: observability.openshift.io/v1
+            kind: ClusterLogForwarder
+            metadata:
+              name: collector
+              namespace: "{{ coo_logstack_namespace }}"
+            spec:
+              managementState: Managed
+              outputs:
+                - lokiStack:
+                    authentication:
+                      token:
+                        from: serviceAccount
+                    target:
+                      name: lokistack-sample
+                      namespace: "{{ coo_logstack_namespace }}"
+                  name: lokistack
+                  tls:
+                    ca:
+                      configMapName: lokistack-sample-gateway-ca-bundle
+                      key: service-ca.crt
+                  type: lokiStack
+              pipelines:
+                - inputRefs:
+                    - infrastructure
+                    - audit
+                    - application
+                  name: forward-to-lokistack
+                  outputRefs:
+                    - lokistack
+              serviceAccount:
+                name: logcollector
+      when: clo_version|float >= 6.0
 
     - name: Verify Logging stack
       shell: oc get pods -n "{{ coo_logstack_namespace }}" --no-headers | grep logging-view | grep "Running" | wc -l
@@ -329,7 +438,6 @@
       shell: "{{ chainsaw_path }}/chainsaw test --apply-timeout 2m --assert-timeout 5m --skip-delete {{ coo_work_dir }}/distributed-tracing-qe/tests/e2e-acceptance/multitenancy \
             {{ coo_work_dir }}/distributed-tracing-qe/tests/e2e-acceptance/monolithic-multitenancy-openshift/"
             
-  environment: "{{ coo_e2e_env }}"
   when: enable_distributed_tracing_uiplugin 
 
 - name: Deploy troubleshootingpanel-plugin  

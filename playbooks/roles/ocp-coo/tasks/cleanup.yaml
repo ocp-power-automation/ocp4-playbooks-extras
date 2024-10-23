@@ -38,6 +38,12 @@
       kind: MonitoringStack
       name: multi-ns
 
+  - name: Check if ClusterLogging resource exists
+    k8s_info:
+      kind: ClusterLogging
+      namespace: "{{ coo_logstack_namespace }}"
+    register: cl_resource
+
   - name: Delete ClusterLogging instance
     kubernetes.core.k8s:
       state: absent
@@ -45,6 +51,51 @@
       namespace: "{{ coo_logstack_namespace }}"
       kind: ClusterLogging
       name: instance
+    when: cl_resource.resources | length > 0
+
+  - name: Delete ServiceAccount
+    kubernetes.core.k8s:
+      state: absent
+      api_version: v1
+      namespace: "{{ coo_logstack_namespace }}"
+      kind: ServiceAccount
+      name: logcollector
+
+  - name: Delete collect-application-logs clusterrole
+    kubernetes.core.k8s:
+      state: absent
+      api_version: rbac.authorization.k8s.io/v1
+      name: collect-application-logs
+      kind: ClusterRole
+      
+  - name: Delete collect-infrastructure-logs clusterrole
+    kubernetes.core.k8s:
+      state: absent
+      api_version: rbac.authorization.k8s.io/v1
+      name: collect-infrastructure-logs
+      kind: ClusterRole
+
+  - name: Delete collect-audit-logs clusterrole
+    kubernetes.core.k8s:
+      state: absent
+      api_version: rbac.authorization.k8s.io/v1
+      name: collect-audit-logs
+      kind: ClusterRole
+
+  - name: Check if ClusterLogForwarder resource exists
+    k8s_info:
+      kind: ClusterLogForwarder
+      namespace: "{{ coo_logstack_namespace }}"
+    register: clf_resource
+
+  - name: Delete ClusterLogForwarder instance
+    kubernetes.core.k8s:
+      state: absent
+      api_version: "observability.openshift.io/v1"
+      namespace: "{{ coo_logstack_namespace }}"
+      kind: ClusterLogForwarder
+      name: collector
+    when: clf_resource.resources | length > 0
 
   - name: Delete LokiStack instance
     kubernetes.core.k8s:
