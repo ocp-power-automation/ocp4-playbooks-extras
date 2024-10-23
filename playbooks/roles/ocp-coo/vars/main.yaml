@@ -1,5 +1,4 @@
 ---
 
 coo_e2e_env:
-  PATH: "{{ ansible_env.PATH }}:/usr/local/chainsaw"
   KUBECONFIG: "{{ ansible_env.HOME }}/.kube/config"
