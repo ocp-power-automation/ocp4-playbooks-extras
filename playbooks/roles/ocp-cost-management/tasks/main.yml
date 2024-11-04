@@ -60,67 +60,62 @@
     (default_storage_class is undefined) or
     (default_storage_class is defined and not default_storage_class["storageclass.kubernetes.io/is-default-class"]|bool)
 
-- name: Deploy Cost Management Operator
-  block:
-  - name: Create namespace for Cost Management Operator
-    kubernetes.core.k8s:
-      state: present
-      definition:
-        apiVersion: v1
-        kind: Namespace
-        metadata:
-          labels:
-            pod-security.kubernetes.io/audit: privileged
-            pod-security.kubernetes.io/enforce: privileged
-            pod-security.kubernetes.io/warn: privileged
-            security.openshift.io/scc.podSecurityLabelSync: "false"
-          name: costmanagement-metrics-operator
-        spec:
-          targetNamespaces:
-          - costmanagement-metrics-operator
+- name: Create namespace for Cost Management Operator
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        labels:
+          pod-security.kubernetes.io/audit: privileged
+          pod-security.kubernetes.io/enforce: privileged
+          pod-security.kubernetes.io/warn: privileged
+          security.openshift.io/scc.podSecurityLabelSync: "false"
+        name: costmanagement-metrics-operator
+      spec:
+        targetNamespaces:
+        - costmanagement-metrics-operator
 
-  - name: Create operator group for Cost Management Operator
-    kubernetes.core.k8s:
-      state: present
-      definition:
-        apiVersion: operators.coreos.com/v1
-        kind: OperatorGroup
-        metadata:
-          name: costmanagement-metrics-operator
-          namespace: costmanagement-metrics-operator
-        spec:
-          targetNamespaces:
-          - costmanagement-metrics-operator
+- name: Create operator group for Cost Management Operator
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: operators.coreos.com/v1
+      kind: OperatorGroup
+      metadata:
+        name: costmanagement-metrics-operator
+        namespace: costmanagement-metrics-operator
+      spec:
+        targetNamespaces:
+        - costmanagement-metrics-operator
 
-  - name: Create subscription for Cost Management Operator
-    kubernetes.core.k8s:
-      state: present
-      definition:
-        apiVersion: operators.coreos.com/v1alpha1
-        kind: Subscription
-        metadata:
-          name: cost-management-operator
-          namespace: costmanagement-metrics-operator
-        spec:
-          channel: "{{ cost_management_upgrade_channel }}"
-          installPlanApproval: Automatic
-          name: costmanagement-metrics-operator
-          source: "{{ cost_management_catalogsource }}"
-          sourceNamespace: openshift-marketplace
+- name: Create subscription for Cost Management Operator
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: operators.coreos.com/v1alpha1
+      kind: Subscription
+      metadata:
+        name: cost-management-operator
+        namespace: costmanagement-metrics-operator
+      spec:
+        channel: "{{ cost_management_upgrade_channel }}"
+        installPlanApproval: Automatic
+        name: costmanagement-metrics-operator
+        source: "{{ cost_management_catalogsource }}"
+        sourceNamespace: openshift-marketplace
 
-  - name: Verification of operator installation
-    block:
-    - name: Check if the cluster service version has succeeded
-      shell: oc get csv -n costmanagement-metrics-operator --no-headers | awk '{ if (($1 ~ /^costmanagement-metrics-operator/) && $NF=="Succeeded") print $1 }'| wc -l
-      register: cost_management_operators_csv
-      until: cost_management_operators_csv.stdout|int == 1
-      retries: 15
-      delay: 120
+- name: Check if the cluster service version has succeeded
+  shell: oc get csv -n costmanagement-metrics-operator --no-headers | awk '{ if (($1 ~ /^costmanagement-metrics-operator/) && $NF=="Succeeded") print $1 }' | wc -l
+  register: cost_management_operators_csv
+  until: cost_management_operators_csv.stdout | int == 1
+  retries: 15
+  delay: 120
 
-    - name: Check if pods are running
-      shell: oc get pods -n costmanagement-metrics-operator --no-headers | grep "Running" | wc -l
-      register: cost_management_pods
-      until: cost_management_pods.stdout|int == 1
-      retries: 15
-      delay: 60
-
+- name: Check if pods are running
+  shell: oc get pods -n costmanagement-metrics-operator --no-headers | grep "Running" | wc -l
+  register: cost_management_pods
+  until: cost_management_pods.stdout | int == 1
+  retries: 15
+  delay: 60

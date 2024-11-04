@@ -17,40 +17,13 @@
           --type=merge
       become: yes
 
-    - name: Apply ImageContentSourcePolicy
-      ansible.builtin.k8s:
-        state: present
-        definition:
-          apiVersion: operator.openshift.io/v1alpha1
-          kind: ImageContentSourcePolicy
-          metadata:
-            name: brew-registry
-          spec:
-            repositoryDigestMirrors:
-              - mirrors:
-                  - brew.registry.redhat.io
-                source: registry.redhat.io
-              - mirrors:
-                  - brew.registry.redhat.io
-                source: registry.stage.redhat.io
-              - mirrors:
-                  - brew.registry.redhat.io
-                source: registry-proxy.engineering.redhat.com
-
-    - name: Create custom CatalogSource for Cost Management
-      ansible.builtin.k8s:
-        state: present
-        definition:
-          apiVersion: operators.coreos.com/v1alpha1
-          kind: CatalogSource
-          metadata:
-            name: my-operator-catalog
-            namespace: openshift-marketplace
-          spec:
-            sourceType: grpc
-            publisher: grpc
-            displayName: my-operator-catalog
-            image: brew.registry.redhat.io/rh-osbs/iib:{{ cost_management_catalogsource_image}}
+    - name: Set up custom ImageContentSourcePolicy and CatalogSource
+      include_role:
+        name: set-custom-catalogsource
+      vars:
+        custom_catalogsource_name: "my-operator-catalog"
+        custom_catalogsource_display_name: "my-operator-catalog"
+        custom_catalogsource_image: "brew.registry.redhat.io/rh-osbs/iib:{{ cost_management_catalogsource_image }}"
 
     - name: Modify install_cost_operator method in cluster.py
       ansible.builtin.replace:
