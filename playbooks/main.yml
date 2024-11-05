@@ -128,3 +128,6 @@
   
 - import_playbook: ocp-lso.yml
   when: lso_enabled is defined and lso_enabled
+
+- import_playbook: ocp-operator-api.yml
+  when: op_api_role_enable is defined and op_api_role_enable
