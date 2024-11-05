@@ -402,3 +402,12 @@ coo_work_dir: "/tmp/coo_logs"
 ocp_etcd_key_rotation_enable: false
 encryption_type: "aescbc"
 NUMBER: 1 
+
+#ocp-operator-api vars
+op_api_role_enable: false
+build_operator_image: true
+deploy_operator: false 
+op_cleanup: false
+OPERATOR_SDK_VERSION: "1.37.0"
+op_api_dir: "/tmp/operator-api"
+HELM_OP_IMAGE: "quay.io/{{quay_username}}/nginx-operator-helm:v1"

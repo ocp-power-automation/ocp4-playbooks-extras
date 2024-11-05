@@ -118,3 +118,6 @@
 
 - import_playbook: ocp-etcd-rotate-encryption-key.yml
   when: ocp_etcd_key_rotation_enable is defined and ocp_etcd_key_rotation_enable
+
+- import_playbook: ocp-operator-api.yml
+  when: op_api_role_enable is defined and op_api_role_enable
