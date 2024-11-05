@@ -1,0 +1,3 @@
+operator_api_env:
+  PATH: "{{ ansible_env.PATH }}:/usr/local/bin/operator-sdk"
+  KUBECONFIG: "{{ ansible_env.HOME }}/.kube/config"
