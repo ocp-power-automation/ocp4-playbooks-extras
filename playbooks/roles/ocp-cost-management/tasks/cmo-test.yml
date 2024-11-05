@@ -1,0 +1,46 @@
+---
+- name: Setup and Test Cost Management Operator in OpenShift
+  gather_facts: no
+  tasks:
+    - name: Log in to OpenShift
+      ansible.builtin.shell: >
+        oc login -u kubeadmin -p {{ openshift_console_password }}
+      environment:
+        KUBECONFIG: "/root/openstack-upi/auth/kubeconfig"
+      become: yes
+
+    - name: Patch OperatorHub to disable default sources
+      ansible.builtin.command:
+        cmd: >
+          oc patch operatorhub.config.openshift.io/cluster
+          -p='{"spec":{"disableAllDefaultSources":true}}'
+          --type=merge
+      become: yes
+
+    - name: Set up custom ImageContentSourcePolicy and CatalogSource
+      include_role:
+        name: set-custom-catalogsource
+      vars:
+        custom_catalogsource_name: "my-operator-catalog"
+        custom_catalogsource_display_name: "Cost Management Operator"
+        custom_catalogsource_image: "{{ cost_management_catalogsource_image }}"
+      when: cost_management_catalogsource_image != '' and cost_management_catalogsource_image != None
+
+    - name: Run IQE tests for Cost Management
+      ansible.builtin.shell: >
+        iqe tests plugin cost_management -k "{{ item.test_file }}" -m "{{ item.marker }}"
+      args:
+        chdir: "{{ cost_management_directory }}/iqe-cost-management-plugin/iqe_cost_management/tests/operator"
+      environment:
+        ENV_FOR_DYNACONF: prod
+      register: iqe_test_results
+      loop:
+        - { test_file: "test_basic.py", marker: "cost_operator" }
+        - { test_file: "test_default_config.py", marker: "cost_operator" }
+        - { test_file: "test_interop.py", marker: "cost_interop" }
+        - { test_file: "test_operator.py", marker: "manual" }
+
+    - name: Show IQE test results
+      ansible.builtin.debug:
+        msg: "{{ item.stdout }}"
+      loop: "{{ iqe_test_results.results }}"

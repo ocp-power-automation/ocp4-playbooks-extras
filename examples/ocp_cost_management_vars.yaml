@@ -1,0 +1,16 @@
+---
+# ocp-cmo vars
+cost_management_enabled: false
+cost_management_directory: "~/iqe-workspace-dev"
+cost_management_catalogsource_image: ""         # "brew.registry.redhat.io/rh-osbs/iib:327237"
+cost_management_upgrade_channel: "stable"
+cost_management_e2e: false
+cost_management_e2e_github_repo: ""
+cost_management_e2e_github_branch: ""
+cost_management_github_username: ""
+cost_management_github_token: ""
+cost_management_cleanup: true
+cost_management_setup: false
+cost_management_test: false
+openshift_console_password: ""
+

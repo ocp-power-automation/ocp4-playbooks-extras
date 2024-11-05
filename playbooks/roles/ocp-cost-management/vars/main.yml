@@ -1,0 +1,7 @@
+---
+# vars file for playbooks/roles/ocp-cmo
+
+cost_management_e2e_env:
+  PATH: "/usr/local/go/bin:{{ ansible_env.PATH }}"
+  KUBECONFIG: "{{ ansible_env.HOME }}/.kube/config"
+  COST_MANAGEMENT_WORKDIR: "{{ cost_management_directory }}"
