@@ -442,4 +442,8 @@ cost_management_e2e_github_repo: ""
 cost_management_e2e_github_branch: ""
 cost_management_github_username: ""
 cost_management_github_token: ""
+<<<<<<< HEAD
 cost_management_cleanup: true
+=======
+cost_management_cleanup: true
+>>>>>>> b3d8153 (code changes for automation of cmo)
