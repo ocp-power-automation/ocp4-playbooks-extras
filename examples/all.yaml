@@ -411,3 +411,15 @@ ocp_logging_tests_private_e2e_git_branch: "" #Git repo branch for e2e tests
 golang_tarball_logging_e2e: "https://dl.google.com/go/go1.22.6.linux-ppc64le.tar.gz" #HTTP URL for golang tarball
 logging_e2e_testcases: "" #Set to either all or critical
 
+# ocp-cost_management vars
+cost_management_enabled: false
+cost_management_directory: "/tmp/compliance"
+cost_management_catalogsource_image: ""         # "brew.registry.redhat.io/rh-osbs/iib:327237"
+cost_management_upgrade_channel: "stable"
+cost_management_e2e: false
+cost_management_e2e_github_repo: ""
+cost_management_e2e_github_branch: ""
+cost_management_github_username: ""
+cost_management_github_token: ""
+cost_management_cleanup: true
+
