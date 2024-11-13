@@ -25,7 +25,10 @@ Role Variables
 Dependencies
 ------------
 
- - None
+ - Install community.general collection
+ ```
+ ansible-galaxy collection install community.general
+ ```
 
 Example Playbook
 ----------------

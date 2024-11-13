@@ -69,7 +69,7 @@
         ansible_distribution == 'Ubuntu'
 
 - name: Run make target
-  make:
+  community.general.make:
     chdir: "{{ test_dir }}/origin"
     target: WHAT=cmd/openshift-tests
   environment: "{{ e2e_env }}"
