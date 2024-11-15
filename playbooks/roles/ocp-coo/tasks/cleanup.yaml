@@ -1,5 +1,148 @@
 - name: Clean up
   block:
+  - name: Delete prometheus-datasource configmap
+    kubernetes.core.k8s:
+      state: absent
+      namespace: openshift-config-managed
+      kind: ConfigMap
+      name: prometheus-datasource-test
+
+  - name: Delete test-db-plugin-admin configmap
+    kubernetes.core.k8s:
+      state: absent
+      namespace: openshift-config-managed
+      kind: ConfigMap
+      name: test-db-plugin-admin
+
+  - name: Register all UIPlugins name 
+    shell: oc get UIPlugin -o json | jq .items[].metadata.name
+    register: uiplugin_names
+
+  - name: Delete all the UIPlugins
+    shell: oc delete UIPlugin -o name {{ item }}
+    loop: "{{ uiplugin_names.stdout.split() }}"
+
+  - name: Delete Thanoquerier
+    kubernetes.core.k8s:
+      state: absent
+      api_version: monitoring.rhobs/v1alpha1
+      namespace: "{{ coo_e2e_namespace }}"
+      kind: ThanosQuerier
+      name: example-thanos
+
+  - name: Delete MonitoringStack
+    kubernetes.core.k8s:
+      state: absent
+      api_version: monitoring.rhobs/v1alpha1
+      namespace: "{{ coo_e2e_namespace }}"
+      kind: MonitoringStack
+      name: multi-ns
+
+  - name: Check if ClusterLogging resource exists
+    k8s_info:
+      kind: ClusterLogging
+      namespace: "{{ coo_logstack_namespace }}"
+    register: cl_resource
+
+  - name: Delete ClusterLogging instance
+    kubernetes.core.k8s:
+      state: absent
+      api_version: "logging.openshift.io/v1"
+      namespace: "{{ coo_logstack_namespace }}"
+      kind: ClusterLogging
+      name: instance
+    when: cl_resource.resources | length > 0
+
+  - name: Delete ServiceAccount
+    kubernetes.core.k8s:
+      state: absent
+      api_version: v1
+      namespace: "{{ coo_logstack_namespace }}"
+      kind: ServiceAccount
+      name: logcollector
+
+  - name: Delete collect-application-logs clusterrole
+    kubernetes.core.k8s:
+      state: absent
+      api_version: rbac.authorization.k8s.io/v1
+      name: collect-application-logs
+      kind: ClusterRole
+      
+  - name: Delete collect-infrastructure-logs clusterrole
+    kubernetes.core.k8s:
+      state: absent
+      api_version: rbac.authorization.k8s.io/v1
+      name: collect-infrastructure-logs
+      kind: ClusterRole
+
+  - name: Delete collect-audit-logs clusterrole
+    kubernetes.core.k8s:
+      state: absent
+      api_version: rbac.authorization.k8s.io/v1
+      name: collect-audit-logs
+      kind: ClusterRole
+
+  - name: Check if ClusterLogForwarder resource exists
+    k8s_info:
+      kind: ClusterLogForwarder
+      namespace: "{{ coo_logstack_namespace }}"
+    register: clf_resource
+
+  - name: Delete ClusterLogForwarder instance
+    kubernetes.core.k8s:
+      state: absent
+      api_version: "observability.openshift.io/v1"
+      namespace: "{{ coo_logstack_namespace }}"
+      kind: ClusterLogForwarder
+      name: collector
+    when: clf_resource.resources | length > 0
+
+  - name: Delete LokiStack instance
+    kubernetes.core.k8s:
+      state: absent
+      api_version: loki.grafana.com/v1
+      namespace: "{{ coo_logstack_namespace }}"
+      kind: LokiStack
+      name: lokistack-sample
+
+  - name: Delete the namespace chainsaw_test_namespace
+    kubernetes.core.k8s:
+      state: absent
+      kind: Namespace
+      name: "{{ chainsaw_test_namespace }}"
+
+  - name: Check if the chainsaw_test_namespace gets deleted
+    shell: oc get namespace --no-headers | grep "{{ chainsaw_test_namespace }}" | wc -l
+    register: chainsaw_test_namespace_count
+    until: chainsaw_test_namespace_count.stdout|int == 0
+    retries: 15
+    delay: 30
+
+  - name: Delete Test data deployment
+    kubernetes.core.k8s:
+      state: absent
+      namespace: default
+      kind: Deployment 
+      name: bad-deployment
+
+  - name: Delete the namespace coo_e2e_namespace
+    kubernetes.core.k8s:
+      state: absent
+      kind: Namespace
+      name: "{{ coo_e2e_namespace }}"
+
+  - name: Check if the coo_e2e_namespace gets deleted
+    shell: oc get namespace --no-headers | grep "{{ coo_e2e_namespace }}" | wc -l
+    register: coo_e2e_namespace_count
+    until: coo_e2e_namespace_count.stdout|int == 0
+    retries: 15
+    delay: 30
+
+  - name: Delete the workspace
+    file:
+      path: "{{ coo_work_dir }}"
+      state: "absent"
+
   - name: Get the name of cluster service version
     shell: oc get clusterserviceversion -n "{{ coo_namespace }}" | awk '{ if ($1 ~ /cluster-observability-operator/) print $1 }'
     register: coo_csv
