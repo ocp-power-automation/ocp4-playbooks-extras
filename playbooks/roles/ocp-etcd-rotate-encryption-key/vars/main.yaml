@@ -1,4 +1,4 @@
 ---
 
-coo_e2e_env:
+etcd_key_env:
   KUBECONFIG: "{{ ansible_env.HOME }}/.kube/config"

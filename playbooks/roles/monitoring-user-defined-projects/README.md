@@ -24,13 +24,14 @@ Requirements
 Role Variables
 --------------
 
-| Variable                               | Required | Default                        |Comments                                                                                              |
-|----------------------------------------|----------|--------------------------------|----------------------------------------------------------------------------------------------------- |
-| enable_user_defined_project_monitoring | no       | false                          | Flag to be set to true to enable monitoring-user-defined-project-monitoring role execution           |
-| user_defined_app_name                  | no       | prometheus-example-app         | Name to create a user defined prometheus app, if not defined the default will be set                 |
-| user_defined_namespace                 | no       | test-namespace                 | Name to create user defined namespace, if not defined the default will be set                        |
-| service_monitor_name                   | no       | prometheus-example-app-monitor | Name for a ServiceMonitor object monitoring user defined app, if not defined the default will be set |
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+| Variable                               | Required | Default                                      | Comments                                                                             |
+|----------------------------------------|----------|----------------------------------------------|--------------------------------------------------------------------------------------|
+| enable_user_defined_project_monitoring | no       | false                                        | Flag to enable monitoring-user-defined-project-monitoring role.                      |
+| user_defined_app_name                  | no       | example-app                                  | App name for the user-defined-project.                                               |
+| user_defined_namespace                 | no       | test-project1                                | User defined project name.                                                           |
+| service_monitor_name                   | no       | example-app-monitor                          | Name of the ServiceMonitor for monitoring user defined app.                          |
+| user_defined_app_image                 | no       | quay.io/powercloud/nginx-unprivileged:latest | Container image for deploying user-defined app, user can set any other custom image. |                                                                                                     
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 
 Dependencies
@@ -60,6 +61,9 @@ Sample Command
 ---------------
 
 ansible-playbook -i inventory -e @all.yaml ~/ocp4-playbooks-extras/playbooks/main.yml
+
+OR to run the specific playbook use below command:
+ansible-playbook -i inventory -e @examples/all.yaml ~/ocp4-playbooks-extras/playbooks/monitoring-user-defined-projects.yml 
 
 
 License

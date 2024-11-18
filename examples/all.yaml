@@ -81,9 +81,10 @@ golang_tar_url: ""  # Golang tar URL to install golang version >= 1.18
 
 # User defined project monitoring vars
 enable_user_defined_project_monitoring: false  # Set true to enable role execution
-user_defined_app_name: "prometheus-example-app"  # User defined app name
-user_defined_namespace: "test-namespace"  # User defined namespace
-service_monitor_name: "prometheus-example-app-monitor"  # User defined name for ServiceMonitor object name
+user_defined_app_name: "example-app"  # User defined app name
+user_defined_namespace: "test-project1"  # User defined namespace
+service_monitor_name: "example-app-monitor"  # User defined name for ServiceMonitor object name
+user_defined_app_image: "quay.io/powercloud/nginx-unprivileged:latest" # Any image for deploying the user-defined app 
 
 # Request-header identity provider vars
 request_header_provider: false  # Set true to enable the test execution
@@ -188,9 +189,10 @@ clf_clean_up: false
 
 ## ocp-nfd-operator required vars
 ocp_nfd: false
-update_channel: ""
-nfd_instance_image_version: ""
+update_channel: "" # e.g. stable
+nfd_instance_image_version: "" # ocp version
 nfd_catalogsource: "" # quay.io/openshift-release-dev/ocp-release-nightly:iib-int-index-art-operators-4.9
+check_nxgzip_label: false # set to true when the cluster deployed on p10 server
 
 # Go Language Installation
 golang_installation: false
@@ -375,11 +377,28 @@ bgp_address:
   - "9.47.90.202"
 
 # ocp-coo vars
-coo_role_enable: false
 coo_operator_deploy: true
 coo_cleanup: true
+enable_dashboard_uiplugin: false
+enable_logging_uiplugin: false
+enable_distributed_tracing_uiplugin: false
+enable_troubleshootingpanel_uiplugin: false
+coo_role_enable: false
 coo_namespace: "openshift-observability-operator"
 coo_catalogsource_name: "coo-catalog"
 coo_catalogsource_image: "brew.registry.redhat.io/rh-osbs/iib:760399"
 coo_channel: "development"
- 
+coo_e2e_namespace: "coo-e2e"
+coo_logstack_namespace: "openshift-logging"
+minio_image: "quay.io/minio/minio:latest"
+distributed_tracing_qe_repo: "https://github.com/openshift/distributed-tracing-qe.git"
+distributed_tracing_qe_repo_branch: "main"
+chainsaw_tarball: "https://github.com/kyverno/chainsaw/releases/download/v0.2.9-beta.1/chainsaw_linux_ppc64le.tar.gz"
+chainsaw_test_namespace: "chainsaw-multitenancy"
+chainsaw_path: "/usr/local/"
+coo_work_dir: "/tmp/coo_logs"
+
+# ocp-etcd-rotate-encryption-key vars
+ocp_etcd_key_rotation_enable: false
+encryption_type: "aescbc"
+NUMBER: 1 

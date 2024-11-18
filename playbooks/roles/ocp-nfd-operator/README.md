@@ -34,6 +34,7 @@ Role Variables
 | update_channel  | no | It uses default channel | It is used to set subscription channel for NFD Operator |
 | nfd_instance_image_version  | no | It uses cluster version(eg. 4.9) |This image is used while creating NFD Custom Resource |
 | nfd_catalogsource  | no | It uses default redhat-operators CatalogSource | It is used to set Index-Image of NFD Operator in the CatalogSource |
+| check_nxgzip_label  |no | False| set to true when using p10 server |
 
 #### Note:
 

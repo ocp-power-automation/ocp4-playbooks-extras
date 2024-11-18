@@ -1,0 +1,5 @@
+---
+lso_catalogsource_image: "registry.redhat.io/redhat/redhat-operator-index:v4.18-prerelease-local-storage-operator"
+lso_namespace: "openshift-local-storage"
+lso_channel: "stable"
+lso_catalogsource_name: "my-operator-catalog"

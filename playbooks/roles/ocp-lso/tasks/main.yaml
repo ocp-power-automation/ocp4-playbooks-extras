@@ -1,0 +1,282 @@
+---
+
+    # Check the health of Cluster Operators
+    - name: Check all co are in 'Available' state and not in 'Progressing' or 'Degraded' state
+      shell: oc get co --no-headers | awk '{ print $3 $4 $5 }' | grep -w -v TrueFalseFalse | wc -l
+      register: cluster_operator_count
+      until: cluster_operator_count.stdout | int == 0
+      retries: 6
+      delay: 60
+      ignore_errors: true
+
+    # Check the health of nodes in the cluster
+    - name: Check all nodes are healthy
+      shell: oc get nodes --no-headers | grep -v Ready | wc -l
+      register: node_count
+
+    # Fail in case cluster state is unhealthy
+    - name: Fail in case cluster state is unhealthy
+      fail:
+        msg: "The current cluster state is unhealthy."
+      when: cluster_operator_count.stdout | int > 0 or node_count.stdout | int > 0
+
+    # Checking if worker node contains 500 Gb volume attached
+    - name: Check if 500GB volume is attached to worker nodes
+      shell: lsblk | grep 500
+      register: volume_check
+      failed_when: volume_check.rc != 0  # Fail if the volume is not found
+      changed_when: false  # This task doesn't change anything
+      ignore_errors: false  # Do not ignore errors
+      when: "'worker' in group_names and ansible_facts.devices is defined and ansible_facts.devices | selectattr('size', 'equalto', 500000000000) | list | length > 0"
+
+    - name: Fail if 500GB volume is not found
+      fail:
+        msg: "500GB volume is not attached to the worker node. Please add a 500GB attached volume to each worker node and try again."
+      when:
+        - volume_check is not defined
+        - volume_check.rc != 0  # This condition ensures that the failure message is shown only if the volume check fails
+
+    # Check if the openshift-local-storage project exists
+    - name: Create a target namespace
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: "{{ lso_namespace }}"
+
+    # Disable all default operator sources
+    - name: Disable all default operator sources
+      command: oc patch operatorhub.config.openshift.io/cluster -p='{"spec":{"disableAllDefaultSources":true}}' --type=merge
+      register: patch_operatorhub
+      failed_when: patch_operatorhub.rc != 0  # Fail if the patch operation fails
+      changed_when: false  # This task does not make changes
+
+    # Create ICSP & login to podman
+    - name: local storage Operator deployment
+      block:
+        - name: Setup a catalogsource for installing local storage operator
+          block:
+            - name: Include the global pull-secret update role to extract podman-secret
+              include_role:
+                name: global-secret-update
+
+        - name: Create ImageContentSourcePolicy
+          k8s:
+            state: present
+            definition:
+              apiVersion: operator.openshift.io/v1alpha1
+              kind: ImageContentSourcePolicy
+              metadata:
+                name: brew-registry
+              spec:
+                repositoryDigestMirrors:
+                  - mirrors:
+                      - brew.registry.redhat.io
+                    source: registry.redhat.io
+                  - mirrors:
+                      - brew.registry.redhat.io
+                    source: registry-proxy.engineering.redhat.com
+
+    # Create CatalogSource YAML for Operator Catalog
+    - name: Create a custom CatalogSource
+      k8s:
+        state: present
+        definition:
+          apiVersion: operators.coreos.com/v1alpha1
+          kind: CatalogSource
+          metadata:
+            name: "{{ lso_catalogsource_name }}"
+            namespace: openshift-marketplace
+          spec:
+            displayName: lso-catalog
+            icon:
+              base64data: ""
+              mediatype: ""
+            image: "{{ lso_catalogsource_image }}"
+            sourceType: grpc
+            grpcPodConfig:
+              securityContextConfig: restricted
+            updateStrategy:
+              registryPoll:
+                interval: 1m0s
+      when: lso_catalogsource_image != '' and lso_catalogsource_image is not none
+
+    # Verify CatalogSource creation
+    - name: Verify CatalogSource creation
+      command: oc get catsrc -A
+      register: catsrc_status
+      failed_when: catsrc_status.rc != 0  # Fail if the command fails
+      changed_when: false  # This task does not make changes
+
+    # Create LocalStorage Operator YAML content (OperatorGroup and Subscription)
+    - name: Create LocalStorage Operator YAML
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: operators.coreos.com/v1
+          kind: OperatorGroup
+          metadata:
+            name: local-operator-group
+            namespace: "{{ lso_namespace }}"
+          spec:
+            targetNamespaces:
+              - "{{ lso_namespace }}"
+
+    # Create Subscription for the LocalStorage Operator
+    - name: Create LocalStorage Operator Subscription
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: operators.coreos.com/v1alpha1
+          kind: Subscription
+          metadata:
+            name: local-storage-operator
+            namespace: "{{ lso_namespace }}"
+          spec:
+            channel: "{{ lso_channel }}"
+            installPlanApproval: Automatic
+            name: local-storage-operator
+            source: "{{ lso_catalogsource_name }}"
+            sourceNamespace: openshift-marketplace
+
+    # Check LocalStorage Operator progress
+    - name: Check LocalStorage Operator progress
+      command: oc get ip -n "{{ lso_namespace }}"
+      register: ip_status
+      failed_when: ip_status.rc != 0  # Fail if the command fails
+      changed_when: false  # This task does not make changes
+
+    # Check the ClusterServiceVersion (CSV) for the LocalStorage Operator
+    - name: Check LocalStorage Operator CSV
+      command: oc get csv -n "{{ lso_namespace }}"
+      register: csv_status
+      failed_when: csv_status.rc != 0  # Fail if the command fails
+      changed_when: false  # This task does not make changes
+
+    # Create LocalVolumeSet YAML content for local block volumes
+    - name: Create LocalVolumeSet YAML for local block volumes
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          kind: LocalVolumeSet
+          apiVersion: local.storage.openshift.io/v1alpha1
+          metadata:
+            name: localblock
+            namespace: "{{ lso_namespace }}"
+          spec:
+            deviceInclusionSpec:
+              deviceMechanicalProperties:
+                - Rotational
+                - NonRotational
+              deviceTypes:
+                - disk
+                - mpath
+              maxSize: 500Gi
+              minSize: 500Gi
+            maxDeviceCount: 10
+            nodeSelector:
+              nodeSelectorTerms:
+                - matchExpressions:
+                    - key: kubernetes.io/hostname
+                      operator: In
+                      values:
+                        - worker-0
+                        - worker-1
+                        - worker-2
+            storageClassName: localblock
+            volumeMode: Block
+
+    # Wait for LocalVolumeSet to be created
+    - name: Wait for LocalVolumeSet to be created
+      command: oc get localvolumeset localblock -n "{{ lso_namespace }}"
+      register: lvs_status
+      retries: 5
+      delay: 10
+      until: lvs_status.rc == 0
+      failed_when: lvs_status.rc != 0  # Fail if LocalVolumeSet is not created within 5 retries
+      changed_when: false  # This task does not make changes
+
+    - name: Verify creation of diskmanager pods
+      command: oc get pods -n "{{ lso_namespace }}" --selector app=diskmaker-manager
+      register: check_pods
+      failed_when: check_pods.rc != 0
+      changed_when: false
+
+    - name: Verify the creation of StorageClass
+      command: oc get sc localblock
+      register: check_sc
+      failed_when: check_sc.rc != 0
+      changed_when: false
+
+    - name: Wait for persistent volumes to be created
+      pause:
+        minutes: 1
+
+    - name: Verify the status of Persistent Volumes
+      command: oc get pv --selector storage.openshift.com/owner-kind=LocalVolumeSet
+      register: check_pv
+      failed_when: check_pv.rc != 0
+      changed_when: false
+
+    # Testing localblock storage class
+    - name: Create PersistentVolumeClaim YAML
+      copy:
+        dest: "/tmp/PersistentVolumeClaim.yaml"
+        content: |
+          kind: PersistentVolumeClaim
+          apiVersion: v1
+          metadata:
+            name: test-local-claim
+          spec:
+            accessModes:
+            - ReadWriteOnce
+            volumeMode: Block
+            resources:
+              requests:
+                storage: 100Gi
+            storageClassName: localblock
+
+          ---
+          apiVersion: v1
+          kind: Pod
+          metadata:
+            name: busybox-lso
+            namespace: default
+          spec:
+            volumes:
+              - name: local-data
+                persistentVolumeClaim:
+                  claimName: test-local-claim
+            containers:
+              - name: busybox
+                image: quay.io/powercloud/busybox:ubi
+                command: ['sh', '-c', 'echo "Hello, Kubernetes!" && sleep 600']
+                volumeDevices:
+                  - devicePath: "/dev/lso"
+                    name: local-data
+
+    - name: Delete existing PersistentVolumeClaim and Pod (if they exist)
+      command: oc delete -f /tmp/PersistentVolumeClaim.yaml
+      register: delete_pvc
+      failed_when: false  # Do not fail if delete command is not successful (e.g., resource doesn't exist)
+      changed_when: true
+
+    - name: Apply PersistentVolumeClaim and Pod YAML
+      command: oc create -f /tmp/PersistentVolumeClaim.yaml
+      register: pvc_creation
+      failed_when: pvc_creation.rc != 0
+      changed_when: true
+
+    - name: Verify PVC status
+      command: oc get pvc
+      register: pvc_status
+      failed_when: pvc_status.rc != 0
+      changed_when: false
+
+    - name: Verify Pod status
+      command: oc get pods
+      register: pod_status
+      failed_when: pod_status.rc != 0
+      changed_when: false
