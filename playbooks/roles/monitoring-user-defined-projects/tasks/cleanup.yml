@@ -1,0 +1,13 @@
+---
+
+- name: Delete the servicemonitor instance
+  shell: oc delete servicemonitor {{ service_monitor_name }} -n {{ user_defined_namespace }}
+
+- name: Delete the service
+  shell: oc delete service {{ user_defined_app_name }} -n {{ user_defined_namespace }}
+
+- name: Delete the example app
+  shell: oc delete deploy {{ user_defined_app_name }} -n {{ user_defined_namespace }}
+
+- name: Delete the project
+  shell: oc delete ns {{ user_defined_namespace }}
