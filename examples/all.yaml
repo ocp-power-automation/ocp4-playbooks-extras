@@ -383,3 +383,9 @@ coo_catalogsource_name: "coo-catalog"
 coo_catalogsource_image: "brew.registry.redhat.io/rh-osbs/iib:760399"
 coo_channel: "development"
  
+
+#ocp-lso vars
+lso_catalogsource_image: ""   #registry.redhat.io/redhat/redhat-operator-index:vX.y-prerelease-local-storage-operator
+lso_namespace: ""             #openshift-local-storage
+lso_channel: ""               #stable,alpha,beta
+lso_catalogsource_name: ""       #my-operator-catalog

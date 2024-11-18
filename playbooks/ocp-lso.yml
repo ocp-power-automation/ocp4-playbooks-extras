@@ -1,0 +1,6 @@
+---
+- name: Automate Local Storage Setup in OpenShift
+  hosts: localhost  # Run tasks on the localhost
+  gather_facts: no  
+  roles:
+  - ocp-lso
