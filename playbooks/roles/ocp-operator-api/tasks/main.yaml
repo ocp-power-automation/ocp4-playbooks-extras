@@ -1,0 +1,136 @@
+---
+
+- name: Check if cluster operators and nodes are healthy
+  include_role:
+    name: check-cluster-health
+
+- name: Download operator-sdk
+  get_url:
+    url: "https://github.com/operator-framework/operator-sdk/releases/download/v{{ OPERATOR_SDK_VERSION }}/operator-sdk_linux_ppc64le"
+    dest: /usr/local/bin/operator-sdk
+    mode: '0755'
+
+- name: Install required packages
+  package:
+    name:
+      - docker
+    state: present
+
+- name: Login to quay.io registry
+  shell: docker login -u {{ quay_username }} -p {{ quay_token }} quay.io
+  register: login_output
+  failed_when: "'Login Succeeded' not in login_output.stdout"
+  changed_when: false
+
+- name: Fail playbook if login to quay failed
+  fail:
+    msg: Failed to login to Quay. Ensure credentials are correct.
+  when: login_output.failed
+
+- name: Build and push operator images to quay.io
+  block:
+    - name: Create working directory for helm based nginx operator
+      ansible.builtin.file:
+        path: "{{ op_api_dir }}/helm-op"
+        state: directory
+        mode: '0755'
+      
+    - name: Intialize the helm based nginx operator project
+      command: operator-sdk init --plugins=helm --domain=helm.com --group=helm --version=v1 --kind=Nginx
+      args:
+        chdir: "{{ op_api_dir }}/helm-op"
+
+    - name: Create secrets to pull the operator images
+      copy:
+        dest: "{{ op_api_dir }}/helm-op/config/rbac/secrets.yaml"
+        content: |
+          apiVersion: v1 
+          kind: Secret 
+          metadata:
+            name: quay-secret
+          type: kubernetes.io/dockerconfigjson
+          data:
+            .dockerconfigjson: "{{ docker_config_json | to_json | b64encode }}"
+      vars:
+        docker_config_json: >
+          {"auths":{"quay.io":{"username":"{{ quay_username }}","password":"{{ quay_token }}","auth":"{{ (quay_username + ':' + quay_token) | b64encode }}"}}}
+
+    - name: Add secrets.yaml file in kustmization.yaml file
+      lineinfile:
+        path: "{{ op_api_dir }}/helm-op/config/rbac/kustomization.yaml"
+        line: "- secrets.yaml"
+        insertbefore: "- service_account.yaml"
+        state: present
+      check_mode: no
+
+    - name: Add imagesPullSecrets to service_account.yaml file
+      lineinfile:
+        path: "{{ op_api_dir }}/helm-op/config/rbac/service_account.yaml"
+        line: "imagePullSecrets:"
+        insertafter: EOF
+        state: present
+      check_mode: no
+
+    - name: Add secret name under imagesPullSecrets
+      lineinfile:
+        path: "{{ op_api_dir }}/helm-op/config/rbac/service_account.yaml"
+        line: "  - name: quay-secret"
+        insertafter: "imagePullSecrets:"
+        state: present
+      check_mode: no
+
+    - name: Build and push Nginx-helm operator image 
+      command: make docker-build docker-push IMG="{{ HELM_OP_IMAGE }}"
+      args:
+        chdir: "{{ op_api_dir }}/helm-op"
+  when: build_operator_image
+    
+- name: Deploy and Validate operator
+  block:
+    - name: Deploy helm based nginx operator 
+      command: make deploy IMG="{{ HELM_OP_IMAGE }}"
+      args:
+        chdir: "{{ op_api_dir }}/helm-op"
+
+    - name: Verify helm based nginx operator 
+      shell: oc get pods -n helm-op-system --no-headers | grep -v "Running\|Completed" | wc -l
+      register: helm_nginx_pods
+      until: helm_nginx_pods.stdout|int == 0 and helm_nginx_pods.stderr == ""
+      retries: 10
+      delay: 10
+
+    - name: Create a instance of Nginx resource
+      command: oc create -f "{{ op_api_dir }}/helm-op/config/samples/helm_v1_nginx.yaml"
+
+    - name: Verify if instance of nginx operator is created sucessfully
+      shell: oc get pods --no-headers | grep -v "Running\|Completed" | grep nginx-sample |wc -l
+      register: nginx_instance_pods
+      until: nginx_instance_pods.stdout|int == 0 and nginx_instance_pods.stderr == ""
+      retries: 10
+      delay: 10  
+  when: deploy_operator
+
+- name: Cleanup
+  block:
+    - name: Delete Nginx instance
+      command: oc delete -f "{{ op_api_dir }}/helm-op/config/samples/helm_v1_nginx.yaml"
+      args:
+        chdir: "{{ op_api_dir }}/helm-op"
+
+    - name: Verify Nginx instance is deleted
+      shell: oc get Nginx nginx-sample --no-headers | wc -l
+      register: nginx_instance
+      until: nginx_instance.stdout|int == 0 and nginx_instance.stderr == ""
+      retries: 10
+      delay: 10
+
+    - name: Operator cleanup
+      command: make undeploy IMG="{{ HELM_OP_IMAGE }}"
+      args:
+        chdir: "{{ op_api_dir }}/helm-op"
+
+    - name: Delete the workspace
+      file:
+        path: "{{ op_api_dir }}"
+        state: "absent"
+  when: op_cleanup
