@@ -402,3 +402,10 @@ coo_work_dir: "/tmp/coo_logs"
 ocp_etcd_key_rotation_enable: false
 encryption_type: "aescbc"
 NUMBER: 1 
+ 
+
+#ocp-lso vars
+lso_catalogsource_image: ""   #registry.redhat.io/redhat/redhat-operator-index:vX.y-prerelease-local-storage-operator
+lso_namespace: ""             #openshift-local-storage
+lso_channel: ""               #stable,alpha,beta
+lso_catalogsource_name: ""       #my-operator-catalog
