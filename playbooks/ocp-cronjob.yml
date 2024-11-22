@@ -1,0 +1,5 @@
+---
+- name: Start cronjob
+  hosts: bastion
+  roles:
+  - ocp-cronjob

@@ -1,0 +1,29 @@
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ job_name }}
+  namespace: "{{ cronjob_namespace }}"
+spec:
+  schedule: "{{ cronjob_schedule }}"  
+  concurrencyPolicy: "{{ cronjob_concurrencyPolicy }}"  
+  startingDeadlineSeconds: {{ cronjob_startingDeadlineSeconds }}
+  suspend: {{ cronjob_suspend }}              
+  successfulJobsHistoryLimit: {{ cronjob_successfulJobsHistoryLimit }} 
+  failedJobsHistoryLimit: {{ cronjob_failedJobsHistoryLimit }}
+  jobTemplate:                  
+    spec:
+      template:
+        metadata:
+          labels:              
+            parent: "cronjobpi"
+        spec:
+          containers:
+          - name: {{ container_name }}
+            image: {{ container_image }}
+{% if cronjob_concurrencyPolicy or cronjob_startingDeadlineSeconds %}
+            command: ["sleep", "80"]
+{% else %}
+            command: ["echo", "Hello Openshift !!"]
+{% endif %}
+          restartPolicy: Never
