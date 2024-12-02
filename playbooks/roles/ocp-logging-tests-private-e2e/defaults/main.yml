@@ -1,0 +1,9 @@
+---
+
+ocp_logging_tests_private_e2e_enabled: false
+ocp_logging_tests_private_e2e_dir: /tmp/ocp_logging_tests_private/
+ocp_logging_tests_private_e2e_git: "https://github.com/openshift/openshift-tests-private/"
+ocp_logging_tests_private_e2e_git_branch: "release-4.12"
+golang_tarball_logging_e2e: "https://dl.google.com/go/go1.22.6.linux-ppc64le.tar.gz"
+logging_e2e_testcases: "all"
+
