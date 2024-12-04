@@ -1,0 +1,4 @@
+---
+
+ocp_lso_env:
+  KUBECONFIG: "{{ ansible_env.HOME }}/.kube/config"

@@ -1,0 +1,9 @@
+---
+#ocp-lso vars
+
+lso_enabled: false            #set to true for lso operator installation
+lso_catalogsource_image: ""   #registry.redhat.io/redhat/redhat-operator-index:vX.y-prerelease-local-storage-operator
+lso_namespace: ""             #openshift-local-storage
+lso_channel: ""               #stable,alpha,beta
+lso_catalogsource_name: ""    #my-operator-catalog
+device_path: ""               #add this by running "ls /dev/disk/by-id/"
