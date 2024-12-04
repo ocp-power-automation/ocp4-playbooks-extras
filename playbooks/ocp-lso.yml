@@ -1,0 +1,6 @@
+---
+- name: Automate Local Storage Setup in OpenShift
+  hosts: bastion 
+  gather_facts: no  
+  roles:
+  - ocp-lso
