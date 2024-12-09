@@ -1,0 +1,34 @@
+---
+- name: Read the content of the file
+  slurp:
+    src: "{{ kube_burner_path }}/api-intensive/api-intensive.yml"
+  register: file_content
+
+- name: Decode the file content and extract first 4 lines
+  set_fact:
+    first_four_lines: "{{ (file_content['content'] | b64decode).split('\n')[3:7] }}"
+
+- name: Add '#' to the first 4 lines
+  lineinfile:
+    path: "{{ kube_burner_path }}/api-intensive/api-intensive.yml"
+    regexp: "^{{ item | regex_escape }}"
+    line: "# {{ item }}"
+    backrefs: yes
+    state: present
+  loop: "{{ first_four_lines }}"
+
+- name: Update jobIterations to 100
+  lineinfile:
+    path: "{{ kube_burner_path }}/api-intensive/api-intensive.yml"
+    regexp: '^(\s*)jobIterations:\s*700\s*$'  
+    line: '\1jobIterations: 100' 
+    backrefs: yes
+
+- name: Run the api-intensity workload
+  shell: kube-burner init -c api-intensive.yml
+  args:
+    chdir: "{{ kube_burner_dir }}/examples/workloads/api-intensive"
+  register: api_intensive_output
+  failed_when: 
+    - api_intensive_output.rc != 0
+    - "'👋 Exiting kube-burner' not in api_intensive_output.stdout"

@@ -1,0 +1,46 @@
+---
+# Add security to pod
+- name: Insert allowPrivilegeEscalation
+  lineinfile:
+    path: "{{ kube_burner_path }}/kubelet-density/templates/pod.yml"
+    insertafter: 'privileged:'
+    line: "      allowPrivilegeEscalation: false"
+
+- name: Insert allowPrivilegeEscalation
+  lineinfile:
+    path: "{{ kube_burner_path }}/kubelet-density/templates/pod.yml"
+    insertafter: 'allowPrivilegeEscalation: false'
+    line: "      capabilities:"
+
+- name: Insert capabilities.drop
+  lineinfile:
+    path: "{{ kube_burner_path }}/kubelet-density/templates/pod.yml"
+    insertafter: 'capabilities:'
+    line: "        drop: [\"ALL\"]"
+
+- name: Insert runAsNonRoot
+  lineinfile:
+    path: "{{ kube_burner_path }}/kubelet-density/templates/pod.yml"
+    insertafter: 'drop:'
+    line: "      runAsNonRoot: true"
+
+- name: Insert seccompProfile
+  lineinfile:
+    path: "{{ kube_burner_path }}/kubelet-density/templates/pod.yml"
+    insertafter: 'runAsNonRoot: true'
+    line: "      seccompProfile:"
+
+- name: Insert seccompProfile.type
+  lineinfile:
+    path: "{{ kube_burner_path }}/kubelet-density/templates/pod.yml"
+    insertafter: 'seccompProfile:'
+    line: "        type: RuntimeDefault"
+
+- name: Run the cluster density workload
+  shell: kube-burner init -c kubelet-density.yml
+  args:
+    chdir: "{{ kube_burner_dir }}/examples/workloads/kubelet-density"
+  register: kubelet_density_output
+  failed_when: 
+    - kubelet_density_output.rc != 0
+    - "'👋 Exiting kube-burner' not in kubelet_density_output.stdout"

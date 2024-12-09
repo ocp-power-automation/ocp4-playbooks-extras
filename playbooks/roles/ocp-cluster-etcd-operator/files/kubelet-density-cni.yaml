@@ -1,0 +1,9 @@
+---
+- name: Run the kubelet-density-cni workload
+  shell: kube-burner init -c kubelet-density-cni.yml
+  args:
+    chdir: "{{ kube_burner_dir }}/examples/workloads/kubelet-density-cni"
+  register: kubelet_density_cni_output
+  failed_when: 
+    - kubelet_density_cni_output.rc != 0
+    - "'👋 Exiting kube-burner' not in kubelet_density_cni_output.stdout"
