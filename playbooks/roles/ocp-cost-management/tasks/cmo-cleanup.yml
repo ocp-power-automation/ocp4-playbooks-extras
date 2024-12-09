@@ -2,7 +2,7 @@
 # this file is used for cleaning up the cost management operator resources
 
 - name: Get the name of cluster service version for Cost Management Operator
-  shell: oc get csv -n costmanagement-metrics-operator --no-headers | awk '{ if ($1 ~ /^cost-management-operator/) print $1 }'
+  shell: oc get csv -n costmanagement-metrics-operator --no-headers | awk '{ print $1 }'
   register: cost_management_csv
 
 - name: Get the subscription name
