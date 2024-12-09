@@ -1,9 +1,9 @@
 ---
 # this file is used for cleaning up the cost management operator resources
 
-- name: Get the name of cluster service version for Compliance Operator
-  shell: oc get csv -n costmanagement-metrics-operator --no-headers | awk '{ if ($1 ~ /^compliance-operator/) print $1 }'
-  register: compliance_csv
+- name: Get the name of cluster service version for Cost Management Operator
+  shell: oc get csv -n costmanagement-metrics-operator --no-headers | awk '{ if ($1 ~ /^cost-management-operator/) print $1 }'
+  register: cost_management_csv
 
 - name: Get the subscription name
   shell: oc get subscription -n costmanagement-metrics-operator --no-headers | awk '{print $1}'
@@ -36,9 +36,9 @@
     api_version: operators.coreos.com/v1alpha1
     state: absent
     kind: ClusterServiceVersion
-    name: "{{ cost_management_operators_csv.stdout }}"
+    name: "{{ cost_management_csv.stdout }}"
     namespace: costmanagement-metrics-operator
-  when: cost_management_operators_csv.stdout|length > 0
+  when: cost_management_csv.stdout|length > 0
 
 - name: Check if all the pods has been deleted
   shell: oc get pods -n costmanagement-metrics-operator --no-headers
@@ -48,7 +48,7 @@
   delay: 60
 
 - name: Get custom resource definitions
-  shell: oc get crd | awk '{print $1}'| grep compliance
+  shell: oc get crd | awk '{print $1}'| grep costmanagement
   register: cost_management_crds
   ignore_errors: true
 
@@ -58,7 +58,7 @@
   when: cost_management_crds.stdout_lines|length > 0
 
 - name: Check if all the custom resource definitions has been deleted
-  shell: oc get crd | awk '{print $1}'| grep compliance
+  shell: oc get crd | awk '{print $1}'| grep costmanagement
   register: cost_management_crds
   failed_when: ccost_management_crds.stdout_lines|length != 0
 
@@ -75,7 +75,7 @@
     name: costmanagement-metrics-operator
 
 - name: Check if the namespace gets deleted
-  shell: oc get namespace --no-headers | grep compliance | wc -l
+  shell: oc get namespace --no-headers | grep costmanagement-metrics-operator | wc -l
   register: cost_management_namespace
   until: cost_management_namespace.stdout|int == 0
   retries: 15
