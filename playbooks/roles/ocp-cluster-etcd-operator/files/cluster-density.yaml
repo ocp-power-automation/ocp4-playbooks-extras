@@ -1,0 +1,9 @@
+---
+- name: Run the cluster density workload
+  shell: kube-burner init -c cluster-density.yml
+  args:
+    chdir: "{{ kube_burner_dir }}/examples/workloads/cluster-density"
+  register: cluster_density_output
+  failed_when: 
+    - cluster_density_output.rc != 0
+    - "'👋 Exiting kube-burner' not in cluster_density_output.stdout"

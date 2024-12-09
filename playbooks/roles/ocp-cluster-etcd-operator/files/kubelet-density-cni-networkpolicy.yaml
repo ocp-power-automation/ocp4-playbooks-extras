@@ -1,0 +1,9 @@
+---
+- name: Run the kubelet-density-cni-networkpolicy workload
+  shell: kube-burner init -c kubelet-density-cni-networkpolicy.yml
+  args:
+    chdir: "{{ kube_burner_dir }}/examples/workloads/kubelet-density-cni-networkpolicy"
+  register: kube_den_cni_net_output
+  failed_when: 
+    - kube_den_cni_net_output.rc != 0
+    - "'👋 Exiting kube-burner' not in kube_den_cni_net_output.stdout"

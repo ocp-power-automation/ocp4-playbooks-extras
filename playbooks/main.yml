@@ -121,3 +121,6 @@
 
 - import_playbook: ocp-logging-tests-private-e2e.yml
   when: ocp_logging_tests_private_e2e_enabled is defined and ocp_logging_tests_private_e2e_enabled
+
+- import_playbook: ocp-cluster-etcd-operator.yml
+  when: cluster_etcd_enabled is defined and cluster_etcd_enabled

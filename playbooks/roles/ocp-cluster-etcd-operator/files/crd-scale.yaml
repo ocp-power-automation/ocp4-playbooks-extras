@@ -1,0 +1,27 @@
+---
+- name: Read the content of the file
+  slurp:
+    src: "{{ kube_burner_path }}/crd-scale/crd-scale.yml"
+  register: file_content
+
+- name: Decode the file content and extract first 4 lines
+  set_fact:
+    first_four_lines: "{{ (file_content['content'] | b64decode).split('\n')[3:7] }}"
+
+- name: Add '#' to the first 4 lines
+  lineinfile:
+    path: "{{ kube_burner_path }}/crd-scale/crd-scale.yml"
+    regexp: "^{{ item | regex_escape }}"
+    line: "# {{ item }}"
+    backrefs: yes
+    state: present
+  loop: "{{ first_four_lines }}"
+
+- name: Run the crd scale workload
+  shell: kube-burner init -c crd-scale.yml
+  args:
+    chdir: "{{ kube_burner_dir }}/examples/workloads/crd-scale"
+  register: crd_scale_output
+  failed_when: 
+    - crd_scale_output.rc != 0
+    - "'👋 Exiting kube-burner' not in crd_scale_output.stdout"
