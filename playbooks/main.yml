@@ -131,3 +131,11 @@
 
 - import_playbook: ocp-operator-api.yml
   when: op_api_role_enable is defined and op_api_role_enable
+
+- import_playbook: ocp-cluster-etcd-operator.yml
+  when: cluster_etcd_enabled is defined and cluster_etcd_enabled
+
+- import_playbook: ocp-kube-burner.yml
+  when: enable_kube_burner is defined and enable_kube_burner
+
+  

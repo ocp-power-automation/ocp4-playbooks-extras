@@ -1,0 +1,7 @@
+---
+
+- name: OCP cluster etcd operator verification
+  hosts: bastion
+  roles: 
+  - ocp-cluster-etcd-operator
+

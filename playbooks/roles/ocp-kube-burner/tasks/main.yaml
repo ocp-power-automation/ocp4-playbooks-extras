@@ -1,0 +1,161 @@
+# tasks file for playbooks/roles/ocp-kube-burner
+
+# kube-burner workload test
+- name: Download and install kube-burner executable
+  include_tasks: "{{ role_path }}/tasks/install-kube-burner.yaml"
+
+# Clone kube-burner git repo to run the test
+- name: Clone kube-burner git repo
+  git:
+    repo: "{{ kube_burner_repo }}"
+    dest: "{{ kube_burner_dir }}"
+
+# Run cluster-density workload
+- name: Run cluster-density workload
+  shell: kube-burner init -c cluster-density.yml
+  args:
+    chdir: "{{ kube_burner_dir }}/examples/workloads/cluster-density"
+  register: cluster_density_output
+  failed_when: 
+    - cluster_density_output.rc != 0
+    - "'👋 Exiting kube-burner' not in cluster_density_output.stdout"
+
+# Run api-intensive workload
+- name: Read the content of the file
+  slurp:
+    src: "{{ kube_burner_path }}/api-intensive/api-intensive.yml"
+  register: file_content
+
+- name: Decode the file content and extract first 4 lines
+  set_fact:
+    first_four_lines: "{{ (file_content['content'] | b64decode).split('\n')[3:7] }}"
+
+- name: Add '#' to the first 4 lines
+  lineinfile:
+    path: "{{ kube_burner_path }}/api-intensive/api-intensive.yml"
+    regexp: "^{{ item | regex_escape }}"
+    line: "# {{ item }}"
+    backrefs: yes
+    state: present
+  loop: "{{ first_four_lines }}"
+
+- name: Update jobIterations to 100
+  lineinfile:
+    path: "{{ kube_burner_path }}/api-intensive/api-intensive.yml"
+    regexp: '^(\s*)jobIterations:\s*700\s*$'  
+    line: '\1jobIterations: 100' 
+    backrefs: yes
+
+- name: Run the api-intensive workload
+  shell: kube-burner init -c api-intensive.yml
+  args:
+    chdir: "{{ kube_burner_dir }}/examples/workloads/api-intensive"
+  register: api_intensive_output
+  failed_when: 
+    - api_intensive_output.rc != 0
+    - "'👋 Exiting kube-burner' not in api_intensive_output.stdout"
+
+# Run crd-scale workload
+- name: Read the content of the file
+  slurp:
+    src: "{{ kube_burner_path }}/crd-scale/crd-scale.yml"
+  register: file_content
+
+- name: Decode the file content and extract first 4 lines
+  set_fact:
+    first_four_lines: "{{ (file_content['content'] | b64decode).split('\n')[3:7] }}"
+
+- name: Add '#' to the first 4 lines
+  lineinfile:
+    path: "{{ kube_burner_path }}/crd-scale/crd-scale.yml"
+    regexp: "^{{ item | regex_escape }}"
+    line: "# {{ item }}"
+    backrefs: yes
+    state: present
+  loop: "{{ first_four_lines }}"
+
+- name: Run the crd scale workload
+  shell: kube-burner init -c crd-scale.yml
+  args:
+    chdir: "{{ kube_burner_dir }}/examples/workloads/crd-scale"
+  register: crd_scale_output
+  failed_when: 
+    - crd_scale_output.rc != 0
+    - "'👋 Exiting kube-burner' not in crd_scale_output.stdout"
+
+# Run kubelet-density workload
+- name: Insert allowPrivilegeEscalation
+  lineinfile:
+    path: "{{ kube_burner_path }}/kubelet-density/templates/pod.yml"
+    insertafter: 'privileged:'
+    line: "      allowPrivilegeEscalation: false"
+
+- name: Insert allowPrivilegeEscalation
+  lineinfile:
+    path: "{{ kube_burner_path }}/kubelet-density/templates/pod.yml"
+    insertafter: 'allowPrivilegeEscalation: false'
+    line: "      capabilities:"
+
+- name: Insert capabilities.drop
+  lineinfile:
+    path: "{{ kube_burner_path }}/kubelet-density/templates/pod.yml"
+    insertafter: 'capabilities:'
+    line: "        drop: [\"ALL\"]"
+
+- name: Insert runAsNonRoot
+  lineinfile:
+    path: "{{ kube_burner_path }}/kubelet-density/templates/pod.yml"
+    insertafter: 'drop:'
+    line: "      runAsNonRoot: true"
+
+- name: Insert seccompProfile
+  lineinfile:
+    path: "{{ kube_burner_path }}/kubelet-density/templates/pod.yml"
+    insertafter: 'runAsNonRoot: true'
+    line: "      seccompProfile:"
+
+- name: Insert seccompProfile.type
+  lineinfile:
+    path: "{{ kube_burner_path }}/kubelet-density/templates/pod.yml"
+    insertafter: 'seccompProfile:'
+    line: "        type: RuntimeDefault"
+
+- name: Run the kubelet density workload
+  shell: kube-burner init -c kubelet-density.yml
+  args:
+    chdir: "{{ kube_burner_dir }}/examples/workloads/kubelet-density"
+  register: kubelet_density_output
+  failed_when: 
+    - kubelet_density_output.rc != 0
+    - "'👋 Exiting kube-burner' not in kubelet_density_output.stdout"
+
+# Run kubelet-density-cni workload
+- name: Run the kubelet-density-cni workload
+  shell: kube-burner init -c kubelet-density-cni.yml
+  args:
+    chdir: "{{ kube_burner_dir }}/examples/workloads/kubelet-density-cni"
+  register: kubelet_density_cni_output
+  failed_when: 
+    - kubelet_density_cni_output.rc != 0
+    - "'👋 Exiting kube-burner' not in kubelet_density_cni_output.stdout"
+
+# Run kubelet-density-cni-networkpolicy workload
+- name: Run the kubelet-density-cni-networkpolicy workload
+  shell: kube-burner init -c kubelet-density-cni-networkpolicy.yml
+  args:
+    chdir: "{{ kube_burner_dir }}/examples/workloads/kubelet-density-cni-networkpolicy"
+  register: kube_den_cni_net_output
+  failed_when: 
+    - kube_den_cni_net_output.rc != 0
+    - "'👋 Exiting kube-burner' not in kube_den_cni_net_output.stdout"
+
+# Run kubelet-density-heavy workload
+- name: Run the kubelet-density-heavy workload
+  shell: kube-burner init -c kubelet-density-heavy.yml
+  args:
+    chdir: "{{ kube_burner_dir }}/examples/workloads/kubelet-density-heavy"
+  register: kube_den_heavy_output
+  failed_when: 
+    - kube_den_heavy_output.rc != 0
+    - "'👋 Exiting kube-burner' not in kube_den_heavy_output.stdout"
+

@@ -1,0 +1,75 @@
+# tasks file for playbooks/roles/ocp-cluster-etcd-operator
+
+# Cluster health check
+- name: Check if cluster operators and nodes are healthy
+  include_role:
+    name: check-cluster-health
+
+# Verify tiers, if cluster is on PowerVS
+- name: Verify tiers
+  shell: oc get sc | grep tier
+  register: tier_output
+  failed_when: tier_output.stdout_lines|length == 0
+
+# Check hardware speed and change the profile to slower if not already
+- name: Verify if Control Plane Hardware Speed profile is "Slower"
+  shell: oc describe etcd/cluster | grep -i slower
+  register: speed_check
+  ignore_errors: true
+
+- name: Update Control Plane Hardware Speed profile to "Slower"
+  shell: |
+    oc patch etcd cluster --type=merge --patch '{"spec": { "controlPlaneHardwareSpeed": "Slower" }}'
+  when: speed_check.rc != 0
+
+- name: Wait for changes to take effect
+  wait_for:
+    timeout: 180
+  when: speed_check.rc != 0
+
+- name: Retrieve the etcd pod name
+  shell: oc get pods -n openshift-etcd --selector=app=etcd --output=jsonpath='{.items[0].metadata.name}'
+  register: etcd_pod_name
+
+- name: Extract HEARTBEAT_INTERVAL and ELECTION_TIMEOUT values
+  shell: |
+    oc describe pod {{ etcd_pod_name.stdout }} -n {{ etcd_namespace }} | grep -e HEARTBEAT_INTERVAL -e ELECTION_TIMEOUT | awk '{print $2}'
+  register: pod_values
+  failed_when:
+    - "'500' not in pod_values.stdout"
+    - "'2500' not in pod_values.stdout"
+
+## Run e2e conformance test suite
+- name: Run e2e conformance test suite
+  include_role:
+    name: ocp-e2e
+  when: run_e2e
+
+# Run the acme-air workload
+- name: Deploy Acmeair Mainservice Java
+  block:
+    - name: Clone acmeair-mainservice-java repo
+      git:
+        repo: https://github.com/ocp-power-demos/acmeair-mainservice-java.git
+        dest: /root/acmeair-mainservice-java/
+
+    - name: Deploy acmeair-mainservice-java pods
+      script: /root/acmeair-mainservice-java/scripts/deployToOpenshift.sh
+      args:
+        chdir: /root/acmeair-mainservice-java
+      register: deployment_output
+
+    - name: Wait for all pods to be ready in acme-air namespace
+      command: >
+        kubectl wait --all --namespace=acme-air --for=condition=Ready pods --timeout=300s
+      register: wait_output
+      failed_when: "'error' in wait_output.stderr.lower() or wait_output.rc != 0"
+      changed_when: False
+  when: install_acme_air
+
+# Run kube burner test
+- name: Run kube-burner-test
+  include_role:
+    name: ocp-kube-burner
+  when: install_kube_burner
+
