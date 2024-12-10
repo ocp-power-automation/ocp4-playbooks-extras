@@ -1,0 +1,92 @@
+# tasks file for playbooks/roles/ocp-cluster-etcd-operator
+
+# Cluster health check
+- name: Check if cluster operators and nodes are healthy
+  include_role:
+    name: check-cluster-health
+
+# Verify tiers, if cluster is on PowerVS
+- name: Verify tiers
+  shell: oc get sc | grep tier
+  register: tier_output
+  failed_when: tier_output.stdout_lines|length == 0
+
+# Check hardware speed and change the profile to slower if not already
+- name: Verify if Control Plane Hardware Speed profile is "Slower"
+  shell: oc describe etcd/cluster | grep -i slower
+  register: speed_check
+  failed_when: false
+
+- name: Update Control Plane Hardware Speed profile to "Slower"
+  shell: |
+    oc patch etcd cluster --type=merge --patch '{"spec": { "controlPlaneHardwareSpeed": "Slower" }}'
+  when: speed_check.rc != 0
+
+- name: Wait for changes to take effect
+  wait_for:
+    timeout: 60
+  when: speed_check.rc != 0
+
+- name: Perform actions if speed was already "Slower"
+  block:
+    - name: Retrieve the etcd pod name
+      shell: oc get pods -n openshift-etcd --selector=app=etcd --output=jsonpath='{.items[0].metadata.name}'
+      register: etcd_pod_name
+
+    - name: Extract HEARTBEAT_INTERVAL and ELECTION_TIMEOUT values
+      shell: |
+        oc describe pod {{ etcd_pod_name.stdout }} -n openshift-etcd | grep -e HEARTBEAT_INTERVAL -e ELECTION_TIMEOUT | awk '{print $2}'
+      register: pod_values
+      failed_when:
+        - "'500' not in pod_values.stdout"
+        - "'2500' not in pod_values.stdout"
+  when: speed_check.rc == 0
+
+## Run e2e conformance test suite
+- name: Run e2e conformance test suite
+  include_role:
+    name: ocp-e2e
+
+# Run the acme-air workload
+- name: Clone acmeair-mainservice-java repo
+  git:
+    repo: https://github.com/ocp-power-demos/acmeair-mainservice-java.git
+    dest: /root/acmeair-mainservice-java/
+
+- name: Deployment of acmeair-mainservice-java pods
+  shell: |
+    oc project default
+    sh /root/acmeair-mainservice-java/scripts/deployToOpenshift.sh
+    kubectl wait --all  --namespace=acme-air --for=condition=Ready pods --timeout=300s
+
+# kube-burner workload test
+- name: Download and install kube-burner executable
+  include_tasks: "{{ role_path }}/tasks/install-kube-burner.yaml"
+
+# Clone kube-burner git repo to run the test
+- name: Clone kube-burner git repo
+  git:
+    repo: "{{ kube_burner_repo }}"
+    dest: "{{ kube_burner_dir }}"
+
+- name: Run cluster-density workload
+  include_tasks: "{{ role_path }}/files/cluster-density.yaml"
+
+- name: Run api-intensive workload
+  include_tasks: "{{ role_path }}/files/api-intensive.yaml"
+
+- name: Run crd-scale workload
+  include_tasks: "{{ role_path }}/files/crd-scale.yaml"
+
+- name: Run kubelet-density workload
+  include_tasks: "{{ role_path }}/files/kubelet-density.yaml"
+
+- name: Run kubelet-density-cni workload
+  include_tasks: "{{ role_path }}/files/kubelet-density-cni.yaml"
+
+- name: Run kubelet-density-cni-networkpolicy workload
+  include_tasks: "{{ role_path }}/files/kubelet-density-cni-networkpolicy.yaml"
+
+- name: Run kubelet-density-heavy workload
+  include_tasks: "{{ role_path }}/files/kubelet-density-heavy.yaml"
+

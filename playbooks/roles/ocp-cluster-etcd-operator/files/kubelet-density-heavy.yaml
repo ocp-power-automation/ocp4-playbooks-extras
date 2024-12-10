@@ -1,0 +1,10 @@
+---
+- name: Run the kubelet-density-heavy workload
+  shell: kube-burner init -c kubelet-density-heavy.yml
+  args:
+    chdir: "{{ kube_burner_dir }}/examples/workloads/kubelet-density-heavy"
+  register: kube_den_heavy_output
+  failed_when: 
+    - kube_den_heavy_output.rc != 0
+    - "'👋 Exiting kube-burner' not in kube_den_heavy_output.stdout"
+

@@ -411,3 +411,10 @@ ocp_logging_tests_private_e2e_git_branch: "" #Git repo branch for e2e tests
 golang_tarball_logging_e2e: "https://dl.google.com/go/go1.22.6.linux-ppc64le.tar.gz" #HTTP URL for golang tarball
 logging_e2e_testcases: "" #Set to either all or critical
 
+# ocp-cluster-etcd-operator vars
+cluster_etcd_enabled: false
+etcd_namespace: "openshift-etcd"
+kube_burner_repo: "https://github.com/kube-burner/kube-burner.git"
+kube_burner_dir: "/root/kube-burner"
+kube_burner_path: "/root/kube-burner/examples/workloads"
+
