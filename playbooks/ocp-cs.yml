@@ -1,6 +1,0 @@
----
-- name: Install common services
-  hosts: bastion
-  roles:
-  - ocp-cs
-
