@@ -3,7 +3,6 @@
 This repository consists of additional ansible playbooks for the following:
 
 1. Run e2e tests against an existing OCP4 cluster
-1. Deploy Common Services
 1. Run scale tests against an existing OCP4 cluster
 1. Expose OCP internal image registry
 1. Run alerts configuration

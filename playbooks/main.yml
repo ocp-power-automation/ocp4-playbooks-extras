@@ -1,7 +1,4 @@
 ---
-- import_playbook: ocp-cs.yml
-  when: cs_install
-
 - import_playbook: ocp-scale.yml
   when: scale_test_enabled
 
