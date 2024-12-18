@@ -1,0 +1,4 @@
+## ocp_cluster_etcd-operator vars
+cluster_etcd_enabled: false
+etcd_namespace: openshift-etcd
+
