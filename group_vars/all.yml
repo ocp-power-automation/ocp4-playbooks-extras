@@ -4,9 +4,6 @@
 e2e_tests_enabled: false
 e2e_upgrade_image: ""
 
-## ocp-cs required vars
-cs_install: false
-
 ## ocp-scale required vars
 scale_test_enabled: false
 
