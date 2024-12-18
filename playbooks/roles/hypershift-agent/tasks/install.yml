@@ -1,0 +1,324 @@
+---
+
+- name: Install ACM/MCE operator
+  block:
+    - name: Download baremetalhosts manifest
+      get_url:
+        url: https://raw.githubusercontent.com/openshift/assisted-service/master/hack/crds/metal3.io_baremetalhosts.yaml
+        dest: ./metal3.io_baremetalhosts.yaml
+        mode: 0664
+
+    - name: Install baremetalhosts manifest
+      kubernetes.core.k8s:
+        state: present
+        src: ./metal3.io_baremetalhosts.yaml
+
+    - name: Download preprovisioningimages manifest
+      get_url:
+        url: https://raw.githubusercontent.com/openshift/assisted-service/refs/heads/master/hack/crds/metal3.io_preprovisioningimages.yaml
+        dest: ./metal3.io_preprovisioningimages.yaml
+        mode: 0664
+
+    - name: Install preprovisioningimages manifest
+      kubernetes.core.k8s:
+        state: present
+        src: ./metal3.io_preprovisioningimages.yaml
+
+    - name: Deploy ACM/MCE Operator
+      block:
+        - name: Setup custom catalog source for ACM
+          include_role:
+            name: set-custom-catalogsource
+          vars:
+            custom_catalogsource_name: "{{ acm_catalogsource_name }}"
+            custom_catalogsource_display_name: "Red Hat Operators ACM"
+            custom_catalogsource_image: "{{ acm_catalogsource_image }}"
+          when: acm_catalogsource_image != '' and acm_catalogsource_image != None
+
+        - name: Check if the catalogsource for ACM is ready
+          shell: "oc get catalogsource {{ acm_catalogsource_name }} -n openshift-marketplace -ojsonpath='{.status.connectionState.lastObservedState}'"
+          register: catsrc_status
+          until: catsrc_status.stdout == "READY"
+          retries: 15
+          delay: 60
+
+        - name: Setup custom catalog source for MCE
+          include_role:
+            name: set-custom-catalogsource
+          vars:
+            custom_catalogsource_name: "{{ mce_catalogsource_name }}"
+            custom_catalogsource_display_name: "Red Hat Operators MCE"
+            custom_catalogsource_image: "{{ mce_catalogsource_image }}"
+          when: mce_catalogsource_image != '' and mce_catalogsource_image != None
+
+        - name: Check if the catalogsource for MCE is ready
+          shell: "oc get catalogsource {{ mce_catalogsource_name }} -n openshift-marketplace -ojsonpath='{.status.connectionState.lastObservedState}'"
+          register: catsrc_status
+          until: catsrc_status.stdout == "READY"
+          retries: 15
+          delay: 60
+
+        - name: Create namespace for acm operator
+          kubernetes.core.k8s:
+            state: present
+            definition:
+              apiVersion: v1
+              kind: Namespace
+              metadata:
+                labels:
+                  pod-security.kubernetes.io/audit: privileged
+                  pod-security.kubernetes.io/enforce: privileged
+                  pod-security.kubernetes.io/warn: privileged
+                  security.openshift.io/scc.podSecurityLabelSync: "false"
+                  kubernetes.io/metadata.name: open-cluster-management
+                  name: open-cluster-management
+                name: open-cluster-management
+              spec:
+                finalizers:
+                - kubernetes
+
+        - name: Create operator group for acm operator
+          kubernetes.core.k8s:
+            state: present
+            definition:
+              apiVersion: operators.coreos.com/v1
+              kind: OperatorGroup
+              metadata:
+                generateName: open-cluster-managemen-
+                name: open-cluster-management
+                namespace: open-cluster-management
+              spec:
+                targetNamespaces:
+                - open-cluster-management
+
+        - name: Create subscription for acm operator
+          kubernetes.core.k8s:
+            state: present
+            definition:
+              apiVersion: operators.coreos.com/v1alpha1
+              kind: Subscription
+              metadata:
+                labels:
+                  operators.coreos.com/advanced-cluster-management.open-cluster-management: ""
+                name: advanced-cluster-management
+                namespace: open-cluster-management
+              spec:
+                channel: "{{ acm_upgrade_channel }}"
+                installPlanApproval: Automatic
+                name: advanced-cluster-management
+                source: "{{ acm_catalogsource_name }}"
+                sourceNamespace: openshift-marketplace
+      when: acm_mce_install
+
+    - name: Validate ACM Operator Deployment
+      block:
+        - name: Check if the subscription is created
+          shell: oc get sub advanced-cluster-management -n open-cluster-management --no-headers | wc -l
+          register: acm_operators_subscription
+          until: acm_operators_subscription.stdout|int == 1
+
+        - name: Check if the cluster service version has succeeded
+          shell: oc get clusterserviceversion -n open-cluster-management | awk '{ if (($1 ~ /advanced-cluster-management/) && $NF=="Succeeded") print $1 }' | wc -l
+          register: acm_operators_csv
+          until: acm_operators_csv.stdout|int == 1
+          retries: 15
+          delay: 120
+
+        - name: Check if the acm operator instance exists
+          shell: oc get mch -n open-cluster-management | wc -l
+          register: mch_check
+
+        - name: Create instance of the acm operator
+          kubernetes.core.k8s:
+            state: present
+            definition:
+              apiVersion: operator.open-cluster-management.io/v1
+              kind: MultiClusterHub
+              metadata:
+                name: multiclusterhub
+                namespace: open-cluster-management
+          when: mch_check.stdout|int == 0
+
+        - name: Annotate mch instance
+          shell: |
+            oc annotate mch multiclusterhub -n open-cluster-management installer.open-cluster-management.io/mce-subscription-spec='{"source": "{{ mce_catalogsource_name }}"}' --overwrite
+
+        - name: Check if operator pods are running
+          shell: oc get pod -n  multicluster-engine| grep "Running" | grep "multicluster-engine-operator" | wc -l
+          register: mce_operator_pods
+          until: mce_operator_pods.stdout|int == 2
+          retries: 10
+          delay: 60
+
+        - name: Check if the mce instance exists
+          shell: oc get mce | wc -l
+          register: mce_check
+
+        - name: Sleep for 600 seconds for mce to come up
+          wait_for:
+            timeout: 600
+          when: mch_check.stdout|int == 0
+
+        - name: Check if mce instance is in available phase
+          shell: oc get "$(oc get multiclusterengines -oname)" -n multicluster-engine -ojsonpath='{.status.phase}'
+          register: mce_status_phase
+          until: mce_status_phase.stdout == "Available"
+          retries: 15
+          delay: 120
+      when: acm_mce_install
+
+- name: Verify ClusterImageSet availaibility
+  block:
+    - name: Check if ClusterImageSet list contains the expected release
+      shell: oc get ClusterImageSet | grep "{{ ocp_release }}" | wc -l
+      register: cluster_image_set
+      ignore_errors: true
+
+    - name: Create ClusterImageSet for expected version
+      template:
+        src: "{{ role_path }}/templates/cluster-image-set.yaml.j2"
+        dest: "{{ role_path }}/templates/cluster-image-set.yml"
+      delegate_to: localhost
+
+    - name: Deploy ClusterImageSet
+      kubernetes.core.k8s:
+        state: present
+        src: "{{ role_path }}/templates/cluster-image-set.yml"
+      when: cluster_image_set.stdout|int == 0
+
+- name: Create ConfigMap
+  kubernetes.core.k8s:
+    state: present
+    src: "{{ role_path }}/files/ConfigMap.yml"
+
+- name: Create RoleBinding
+  kubernetes.core.k8s:
+    state: present
+    src: "{{ role_path }}/files/RoleBinding.yml"
+
+- name: Set value of ocp_release_min
+  shell: "echo {{ ocp_release }} | awk -F'-' '{print $1}'"
+  register: ocp_release_min
+
+- name: Set value of ocp_release_version
+  shell: "curl -s https://mirror.openshift.com/pub/openshift-v4/ppc64le/clients/ocp/{{ ocp_release }}/release.txt | awk '/machine-os / { print $2 }'"
+  register: ocp_release_version
+
+- name: Create AgentServiceConfig
+  template:
+    src: "{{ role_path }}/templates/agent-service-config.yaml.j2"
+    dest: "{{ role_path }}/templates/agent-service-config.yml"
+  delegate_to: localhost
+
+- name: Deploy AgentServiceConfig
+  kubernetes.core.k8s:
+    state: present
+    src: "{{ role_path }}/templates/agent-service-config.yml"
+  when: ocp_release_version.stdout != "" and ocp_release_min.stdout != ""
+
+- name: Hypershift deployment
+  block:
+    - name: Create namespace for hosted control plane namespace
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            labels:
+              pod-security.kubernetes.io/audit: privileged
+              pod-security.kubernetes.io/warn: privileged
+            name: "{{ hosted_control_plane_namespace }}"
+          spec:
+            finalizers:
+            - kubernetes
+
+    - name: Create Hypershift Cluster Agent
+      shell: |
+        hcp create cluster agent --name={{ hosted_cluster_name }} --pull-secret={{ pull_secret_file }} --infra-availability-policy SingleReplica --control-plane-availability-policy=SingleReplica --agent-namespace={{ hosted_control_plane_namespace }} --ssh-key {{ ssh_pub_key_value.stdout }} --base-domain={{ base_domain }} --api-server-address=api.{{ hosted_cluster_name }}.{{ base_domain }} --release-image=quay.io/openshift-release-dev/ocp-release:{{ ocp_release }}-multi --render-sensitive --render > {{ hypershift_dir }}/render-{{ hosted_cluster_name }}.yaml
+      ignore_errors: true
+      environment:
+        PATH: "{{ hypershift_dir }}/bin:{{ ansible_env.PATH }}"
+
+    - name: Modify the rendered file
+      shell: |
+        sed -i.bak '/nodePort:/d' {{ hypershift_dir }}/render-{{ hosted_cluster_name }}.yaml
+        sed -i.bak '/address:/d' {{ hypershift_dir }}/render-{{ hosted_cluster_name }}.yaml
+        sed -E -i '
+        /^\s*-\s*service:\s*APIServer/{
+         :top
+         N
+         /type/!btop
+         s/(type:).*/\1\ LoadBalancer/
+        }' {{ hypershift_dir }}/render-{{ hosted_cluster_name }}.yaml
+        sed -i.bak 's/NodePort/Route/g' {{ hypershift_dir }}/render-{{ hosted_cluster_name }}.yaml
+
+    - name: Create the hosted cluster
+      shell: oc create -f {{ hypershift_dir }}/render-{{ hosted_cluster_name }}.yaml
+      ignore_errors: true
+
+    - name: Check pods
+      shell: 'oc get pods -n {{ hosted_control_plane_namespace }} | grep "Running" | wc -l'
+      register: hc_pods
+      until: hc_pods.stdout|int > 0
+      retries: 15
+      delay: 60
+
+    - name: Check if all the pods are created
+      shell: "oc wait -n {{ hosted_control_plane_namespace }} --for=condition=Ready pods --all --timeout=600s"
+
+    - name: Sleep for 400 seconds
+      wait_for:
+        timeout: 400
+
+    - name: Generate the kubeconfig of hosted cluster
+      shell: "hcp create kubeconfig --namespace {{ cluster_namespace }} --name {{ hosted_cluster_name }} > {{ hypershift_dir }}/{{ hosted_cluster_name }}.kubeconfig"
+      ignore_errors: true
+      environment:
+        PATH: "{{ hypershift_dir }}/bin:{{ ansible_env.PATH }}"
+
+- name: List the Kubernetes api service to create DNS entries
+  shell: "oc get svc kube-apiserver -n {{ hosted_control_plane_namespace }} --no-headers | awk '{ print $4 }'"
+  register: dns_entry
+
+- name: Set the value of ssh_pub_key
+  shell: "cat {{ ssh_pub_key }}"
+  register: ssh_pub_key_value
+
+- name: Create InfraEnv
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: agent-install.openshift.io/v1beta1
+      kind: InfraEnv
+      metadata:
+        name: "{{ hosted_cluster_name }}"
+        namespace: "{{ hosted_control_plane_namespace }}"
+      spec:
+        cpuArchitecture: ppc64le
+        pullSecretRef:
+          name: pull-secret
+        sshAuthorizedKey: "{{ ssh_pub_key_value.stdout }}"
+
+- name: Check if the ISO is generated
+  shell: "oc get infraenv -n {{ hosted_control_plane_namespace }} --no-headers | awk '{ print $2 }'"
+  register: infraenv_iso
+  until: infraenv_iso.stdout|length > 0
+  retries: 15
+  delay: 60
+
+- name: Get the url of the generated ISO
+  shell: "oc get -n {{ hosted_control_plane_namespace }} InfraEnv {{ hosted_cluster_name }} -ojsonpath='{.status.isoDownloadURL}'"
+  register: infraenv_iso
+
+- name: Output the ISO URL link for download
+  debug:
+    msg: "{{ infraenv_iso.stdout }}"
+
+- name: Output the Kubernetes api service to create DNS entries
+  debug:
+   msg: "{{ dns_entry.stdout }}"
+
+- name: Output the location of Kubeconfig of the hosted cluster
+  debug:
+    msg: "{{ hypershift_dir }}/{{ hosted_cluster_name }}.kubeconfig"
