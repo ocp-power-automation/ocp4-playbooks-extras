@@ -1,0 +1,8 @@
+---
+# vars file for playbooks/roles/ocp-sso
+
+sso_e2e_env:
+  PATH: "/usr/local/go/bin:{{ ansible_env.PATH }}"
+  KUBECONFIG: "{{ ansible_env.HOME }}/.kube/config"
+  SSO_WORKDIR: "{{ sso_directory }}"
+
