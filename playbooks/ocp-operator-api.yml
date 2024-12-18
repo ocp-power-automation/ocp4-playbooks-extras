@@ -1,0 +1,7 @@
+---
+- name: Validate Operator development and installation
+  hosts: bastion
+  tasks:
+    - name: Validate Operator development and installation
+      include_role:
+        name: ocp-operator-api

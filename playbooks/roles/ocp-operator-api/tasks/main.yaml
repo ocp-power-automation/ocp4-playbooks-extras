@@ -1,0 +1,5 @@
+---
+
+# tasks file for playbooks/roles/ocp-operator-api
+- include_tasks: install.yaml
+- include_tasks: cleanup.yaml
