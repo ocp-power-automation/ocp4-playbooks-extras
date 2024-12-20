@@ -1,0 +1,33 @@
+# tasks file for playbooks/roles/ocp-kube-burner
+
+# kube-burner workload test
+- name: Download and install kube-burner executable
+  include_tasks: "{{ role_path }}/tasks/install-kube-burner.yaml"
+
+# Clone kube-burner git repo to run the test
+- name: Clone kube-burner git repo
+  git:
+    repo: "{{ kube_burner_repo }}"
+    dest: "{{ kube_burner_dir }}"
+
+- name: Run cluster-density workload
+  include_tasks: "{{ role_path }}/files/cluster-density.yaml"
+
+- name: Run api-intensive workload
+  include_tasks: "{{ role_path }}/files/api-intensive.yaml"
+
+- name: Run crd-scale workload
+  include_tasks: "{{ role_path }}/files/crd-scale.yaml"
+
+- name: Run kubelet-density workload
+  include_tasks: "{{ role_path }}/files/kubelet-density.yaml"
+
+- name: Run kubelet-density-cni workload
+  include_tasks: "{{ role_path }}/files/kubelet-density-cni.yaml"
+
+- name: Run kubelet-density-cni-networkpolicy workload
+  include_tasks: "{{ role_path }}/files/kubelet-density-cni-networkpolicy.yaml"
+
+- name: Run kubelet-density-heavy workload
+  include_tasks: "{{ role_path }}/files/kubelet-density-heavy.yaml"
+
