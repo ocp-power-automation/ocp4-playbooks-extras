@@ -1,0 +1,6 @@
+apiVersion: hive.openshift.io/v1
+kind: ClusterImageSet
+metadata:
+  name: img{{ ocp_release }}-multi-appsub
+spec:
+  releaseImage: quay.io/openshift-release-dev/ocp-release:{{ ocp_release }}-multi

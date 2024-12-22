@@ -1,0 +1,36 @@
+---
+# This file executes from management cluster
+
+- name: Check if cluster operators and nodes are healthy on management cluster
+  include_role:
+    name: check-cluster-health
+
+- name: HCP deployment
+  block:
+    - name: Clone hypershift github repo
+      git:
+        repo: "{{ hypershift_git_repo }}"
+        dest: "{{ hypershift_dir }}"
+        version: "{{ hypershift_git_branch }}"
+
+    - name: Build the hcp binary
+      make:
+        target: build
+        chdir: "{{ hypershift_dir }}"
+
+    - name: HCP version
+      environment:
+        PATH: "{{ hypershift_dir }}/bin:{{ ansible_env.PATH }}"
+      shell: hcp version
+
+    - name: Setting the hosted control plane namespace
+      set_fact:
+        hosted_control_plane_namespace: "{{ cluster_namespace }}-{{ hosted_cluster_name }}"
+
+  environment: "{{ hypershift_env_vars }}"
+
+- include_tasks: install.yml
+  when: hypershift_agent_install is defined and hypershift_agent_install
+
+- include_tasks: destroy.yml
+  when: hypershift_agent_destroy is defined and hypershift_agent_destroy

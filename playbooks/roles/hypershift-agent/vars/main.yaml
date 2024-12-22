@@ -1,0 +1,4 @@
+---
+
+hypershift_env_vars:
+  PATH: "{{ ansible_env.PATH }}:/usr/local/go/bin"
