@@ -1,0 +1,9 @@
+---
+ocp_scheduler_plugins_enabled: false
+kubeconfig_path: "/root/openstack-upi/auth/kubeconfig"
+scheduler_plugins_repo: "https://github.com/kubernetes-sigs/scheduler-plugins.git"
+scheduler_plugins_chart_dir: "/root/scheduler-plugins/manifests/install/charts"
+scheduler_image: "registry.k8s.io/scheduler-plugins/kube-scheduler:v0.30.6"
+nginx_image: "quay.io/powercloud/nginx-unprivileged:latest"
+pause_image: "registry.k8s.io/pause:3.6"
+

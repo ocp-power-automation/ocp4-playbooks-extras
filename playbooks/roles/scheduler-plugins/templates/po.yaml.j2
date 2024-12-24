@@ -1,0 +1,8 @@
+apiVersion: scheduling.x-k8s.io/v1alpha1
+kind: PodGroup
+metadata:
+  name: pg1
+spec:
+  scheduleTimeoutSeconds: 10
+  minMember: 3
+

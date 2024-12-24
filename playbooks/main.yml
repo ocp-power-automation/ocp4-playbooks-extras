@@ -123,3 +123,6 @@
   when: >
         (hypershift_agent_install is defined and hypershift_agent_install) or
         (hypershift_agent_destroy is defined and hypershift_agent_destroy)
+
+- import_playbook: scheduler-plugins.yml
+  when: ocp_scheduler_plugins_enable is defined and ocp_scheduler_plugins_enable
