@@ -1,0 +1,60 @@
+---
+
+- name: Cleanup
+  block:
+    - name: Delete Nginx instance
+      command: oc delete -f "{{ op_api_dir }}/helm-op/config/samples/helm_v1_nginx.yaml"
+      args:
+        chdir: "{{ op_api_dir }}/helm-op"
+
+    - name: Verify Nginx instance is deleted
+      shell: oc get Nginx --no-headers | wc -l
+      register: nginx_instance
+      until: nginx_instance.stdout|int == 0 and nginx_instance.stderr == "No resources found in default namespace."
+      retries: 10
+      delay: 10
+
+    - name: Nginx helm operator cleanup
+      command: make undeploy IMG="{{ HELM_OP_IMAGE }}"
+      args:
+        chdir: "{{ op_api_dir }}/helm-op"
+
+    - name: Delete Memcached instance
+      command: oc delete -f "{{ op_api_dir }}/ansible-op/config/samples/cache_v1_memcached.yaml"
+      args:
+        chdir: "{{ op_api_dir }}/go-op"
+
+    - name: Verify Memcached instance is deleted
+      shell: oc get Memcached --no-headers | wc -l
+      register: memcached_instance
+      until: memcached_instance.stdout|int == 0 and memcached_instance.stderr == "No resources found in default namespace."
+      retries: 10
+      delay: 10
+
+    - name: Memcached ansible operator cleanup
+      command: make undeploy IMG="{{ ANSIBLE_OP_IMAGE }}"
+      args:
+        chdir: "{{ op_api_dir }}/ansible-op"
+
+    - name: Delete MemcachedGo instance
+      command: oc delete -f "{{ op_api_dir }}/go-op/config/samples/cache1_v1_memcachedgo.yaml"
+      args:
+        chdir: "{{ op_api_dir }}/go-op"
+
+    - name: Verify Memcached instance is deleted
+      shell: oc get MemcachedGo --no-headers | wc -l
+      register: memcached_instance
+      until: memcached_instance.stdout|int == 0 and memcached_instance.stderr == "No resources found in default namespace."
+      retries: 10
+      delay: 10
+
+    - name: MemcachedGo operator cleanup
+      command: make undeploy IMG="{{ GO_OP_IMAGE }}"
+      args:
+        chdir: "{{ op_api_dir }}/go-op"
+
+    - name: Delete the workspace
+      file:
+        path: "{{ op_api_dir }}"
+        state: "absent"
+  when: op_cleanup

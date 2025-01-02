@@ -1,0 +1,303 @@
+---
+
+- name: Invoke the role check-cluster-health to check cluster status
+  include_role:
+    name: check-cluster-health
+
+- name: Download operator-sdk
+  get_url:
+    url: "https://github.com/operator-framework/operator-sdk/releases/download/v{{ operator_sdk_version }}/operator-sdk_linux_ppc64le"
+    dest: /usr/local/bin/operator-sdk
+    mode: '0755'
+
+- name: Install required packages
+  package:
+    name:
+      - docker
+      - make
+      - go
+    state: present
+
+- name: Ensure quay_username and quay_token are defined and not None
+  fail: 
+    msg: "Invalid quay username or token"
+  when: >
+    quay_username is not defined or
+    quay_username is none or
+    quay_token is not defined or
+    quay_token is none
+
+- name: Login to quay.io account
+  shell: docker login quay.io -u {{ quay_username }} -p {{ quay_token }}
+
+- name: Create working directory for testing operators
+  ansible.builtin.file:
+    path: "{{ op_api_dir }}"
+    state: directory
+    mode: '0755'
+
+- name: Create secrets to pull the operator images
+  copy:
+    dest: "{{ op_api_dir }}/secrets.yaml"
+    content: |
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: quay-secret
+      type: kubernetes.io/dockerconfigjson
+      data:
+        .dockerconfigjson: "{{ docker_config_json | to_json | b64encode }}"
+  vars:
+    docker_config_json: >
+      {"auths":{"quay.io":{"username":"{{ quay_username }}","password":"{{ quay_token }}","auth":"{{ (quay_username + ':' + quay_token) | b64encode }}"}}}
+
+- name: Test helm based operator
+  block:
+    - name: Create working directory for helm based nginx operator
+      ansible.builtin.file:
+        path: "{{ op_api_dir }}/helm-op"
+        state: directory
+        mode: '0755'
+
+    - name: Intialize the helm based nginx operator project
+      command: operator-sdk init --plugins=helm --domain=helm.com --group=helm --version=v1 --kind=Nginx
+      args:
+        chdir: "{{ op_api_dir }}/helm-op"
+
+    - name: Copy secrets yaml file
+      copy:
+        src: "{{ op_api_dir }}/secrets.yaml"
+        dest: "{{ op_api_dir }}/helm-op/config/rbac/secrets.yaml"
+
+    - name: Add secrets.yaml file in kustmization.yaml file
+      lineinfile:
+        path: "{{ op_api_dir }}/helm-op/config/rbac/kustomization.yaml"
+        line: "- secrets.yaml"
+        insertbefore: "- service_account.yaml"
+        state: present
+      check_mode: no
+
+    - name: Add imagesPullSecrets to service_account.yaml file
+      blockinfile:
+        path: "{{ op_api_dir }}/helm-op/config/rbac/service_account.yaml"
+        block: |
+          imagePullSecrets:
+            - name: quay-secret
+        insertafter: EOF
+        state: present
+      check_mode: no
+
+    - name: Build and push Nginx-helm operator image
+      command: make docker-build docker-push IMG="{{ helm_op_image }}"
+      args:
+        chdir: "{{ op_api_dir }}/helm-op"
+
+    - name: Deploy helm based nginx operator
+      command: make deploy IMG="{{ helm_op_image }}"
+      args:
+        chdir: "{{ op_api_dir }}/helm-op"
+
+    - name: Verify helm based nginx operator is deployed successfully
+      shell: oc get pods -n helm-op-system --no-headers | grep -v "Running\|Completed" | wc -l
+      register: helm_nginx_pods
+      until: helm_nginx_pods.stdout|int == 0 and helm_nginx_pods.stderr == ""
+      retries: 10
+      delay: 10
+
+    - name: Create a instance of Nginx
+      command: oc create -f "{{ op_api_dir }}/helm-op/config/samples/helm_v1_nginx.yaml"
+
+    - name: Verify if instance of Nginx is created successfully
+      shell: oc get pods --no-headers | grep -v "Running\|Completed" | grep nginx-sample |wc -l
+      register: nginx_instance_pods
+      until: nginx_instance_pods.stdout|int == 0 and nginx_instance_pods.stderr == ""
+      retries: 10
+      delay: 10
+  when: helm_op
+
+
+- name: Test ansible based operator
+  block: 
+    - name: Create working directory for ansible based memcached operator
+      ansible.builtin.file:
+        path: "{{ op_api_dir }}/ansible-op"
+        state: directory
+        mode: '0755'
+
+    - name: Intialize ansible based memcached operator project
+      command: operator-sdk init --domain=example.com --plugins=ansible
+      args:
+        chdir: "{{ op_api_dir }}/ansible-op"
+    
+    - name: Create api for ansible based memcached operator project
+      command: operator-sdk create api --group cache --version v1 --kind Memcached --generate-role
+      args:
+        chdir: "{{ op_api_dir }}/ansible-op"
+
+    - name: Copy secrets yaml file in memcached operator project directory
+      copy:
+        src: "{{ op_api_dir }}/secrets.yaml"
+        dest: "{{ op_api_dir }}/ansible-op/config/rbac/secrets.yaml"
+
+    - name: Add secrets.yaml file in kustomization.yaml file
+      lineinfile:
+        path: "{{ op_api_dir }}/ansible-op/config/rbac/kustomization.yaml"
+        line: "- secrets.yaml"
+        insertbefore: "- service_account.yaml"
+        state: present
+      check_mode: no
+
+    - name: Add imagesPullSecrets to service_account.yaml file
+      blockinfile:
+        path: "{{ op_api_dir }}/ansible-op/config/rbac/service_account.yaml"
+        block: |
+          imagePullSecrets:
+            - name: quay-secret
+        insertafter: EOF
+        state: present
+      check_mode: no
+
+    - name: Update the memcached role main.yaml file to provide the reconcile logic
+      copy:
+        src: memcached-role.yaml
+        dest: "{{ op_api_dir }}/ansible-op/roles/memcached/tasks/main.yml"
+        owner: root
+        group: root 
+
+    - name: Add size variable in defaults/main.yaml
+      lineinfile:
+        path: "{{ op_api_dir }}/ansible-op/roles/memcached/defaults/main.yml"
+        line: "size: 1"
+        insertafter: "---"
+
+    - name: Add spec in the Memcached resource sample yaml file
+      lineinfile:
+        path: "{{ op_api_dir }}/ansible-op/config/samples/cache_v1_memcached.yaml"
+        line: "  size: 3"
+        insertafter: EOF
+        state: present
+
+    - name: Build and push memcached operator image
+      command: make docker-build docker-push IMG="{{ ansible_op_image }}"
+      args:
+        chdir: "{{ op_api_dir }}/ansible-op"
+
+    - name: Deploy ansible based memcached operator
+      command: make deploy IMG="{{ ansible_op_image }}"
+      args:
+        chdir: "{{ op_api_dir }}/ansible-op"    
+
+    - name: Verify ansible based memcached operator
+      shell: oc get pods -n ansible-op-system --no-headers | grep -v "Running\|Completed" | wc -l
+      register: ansible_mem_pods
+      until: ansible_mem_pods.stdout|int == 0 and ansible_mem_pods.stderr == ""
+      retries: 10
+      delay: 10
+
+    - name: Create a instance of Memcached resource
+      command: oc create -f "{{ op_api_dir }}/ansible-op/config/samples/cache_v1_memcached.yaml"
+
+    - name: Verify the instance of memcached operator is created successfully
+      shell: oc get pods --no-headers | grep -v "Running\|Completed" | grep memcached-sample |wc -l
+      register: memcached_instance_pods
+      until: memcached_instance_pods.stdout|int == 0 and memcached_instance_pods.stderr == ""
+      retries: 10
+      delay: 10
+
+  when: ansible_op
+
+- name: Test go based operator
+  block:
+    - name: Create working directory for go based memcached operator
+      ansible.builtin.file:
+        path: "{{ op_api_dir }}/go-op"
+        state: directory
+        mode: '0755'
+
+    - name: Intialize go based memcached operator project
+      command: operator-sdk init --domain=memcached.com --repo=github.com/example-inc/memcached-operator
+      args:
+        chdir: "{{ op_api_dir }}/go-op"
+
+    - name: Create api for go based memcached operator project
+      command: operator-sdk create api --resource=true --controller=true --group cache1 --version v1 --kind MemcachedGo
+      args:
+        chdir: "{{ op_api_dir }}/go-op"
+
+    - name: Copy secrets yaml file in memcached operator project directory
+      copy:
+        src: "{{ op_api_dir }}/secrets.yaml"
+        dest: "{{ op_api_dir }}/go-op/config/rbac/secrets.yaml"
+
+    - name: Add secrets.yaml file in kustmization.yaml file
+      lineinfile:
+        path: "{{ op_api_dir }}/go-op/config/rbac/kustomization.yaml"
+        line: "- secrets.yaml"
+        insertbefore: "- service_account.yaml"
+        state: present
+      check_mode: no
+
+    - name: Add imagesPullSecrets to service_account.yaml file
+      blockinfile:
+        path: "{{ op_api_dir }}/go-op/config/rbac/service_account.yaml"
+        block: |
+          imagePullSecrets:
+            - name: quay-secret
+        insertafter: EOF
+        state: present
+      check_mode: no
+
+    - name: Add test target as pre-check before running docker-build target in Makefile
+      replace:
+        path: "{{ op_api_dir }}/go-op/Makefile"
+        regexp: '^docker-build:\s*(#.*)?$'
+        replace: 'docker-build: test \1'
+
+    - name: Remove the default recipe defined for docker-build target
+      replace:
+        path: "{{ op_api_dir }}/go-op/Makefile"
+        regexp: '^(docker-build:\s+test.*\n).*?(\n)'
+        replace: '\1'
+
+    - name: Add new recipe for docker-build target to setup test env and execute docker build command
+      blockinfile:
+        path: "{{ op_api_dir }}/go-op/Makefile"
+        block: "\tgo install sigs.k8s.io/controller-runtime/tools/setup-envtest@release-0.16\n \tdocker build --build-arg GOARCH=${GOARCH} -t ${IMG} ."
+        insertafter: "docker-build: test"
+        state: present
+      check_mode: no
+
+    - name: Build and push memcached-go operator image
+      command: make docker-build docker-push IMG="{{ go_op_image }}" GOARCH=$(arch)
+      args:
+        chdir: "{{ op_api_dir }}/go-op"
+
+    - name: Install CRD
+      command: make install
+      args:
+        chdir: "{{ op_api_dir }}/go-op"
+
+    - name: Deploy memcached-go operator
+      command: make deploy IMG="{{ go_op_image }}"
+      args:
+        chdir: "{{ op_api_dir }}/go-op"
+
+    - name: Verify go based memcached operator is deployed successfuly
+      shell: oc get pods -n go-op-system --no-headers | grep -v "Running\|Completed" | wc -l
+      register: go_operator_pods
+      until: go_operator_pods.stdout|int == 0 and go_operator_pods.stderr == ""
+      retries: 10
+      delay: 10
+
+    - name: Create sample CR of MemcachedGo resource
+      command: oc create -f "{{ op_api_dir }}/go-op/config/samples/cache1_v1_memcachedgo.yaml"
+
+    - name: Get sample CR reconcile logs
+      command: oc logs deployment.apps/go-op-controller-manager -c manager -n go-op-system
+      register: go_manager_logs
+
+    - name: Disply Memcached CR reconcile logs
+      debug:
+        var: go_manager_logs.stdout_lines
+
+  when: go_op
