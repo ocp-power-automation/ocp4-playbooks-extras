@@ -1,0 +1,14 @@
+---
+# ocp-sso vars
+sso_enabled: false
+sso_directory: "/tmp/sso"
+sso_catalogsource_image: ""        # "brew.registry.redhat.io/rh-osbs/iib:327237"
+sso_upgrade_channel: "stable"
+sso_schedulerImage: "registry.k8s.io/scheduler-plugins/kube-scheduler:v0.30.6"
+sso_go_tarball: "https://go.dev/dl/go1.22.4.linux-ppc64le.tar.gz"
+sso_e2e: false
+sso_e2e_github_repo: ""
+sso_e2e_github_branch: ""
+sso_github_username: ""
+sso_github_token: ""
+sso_cleanup: true

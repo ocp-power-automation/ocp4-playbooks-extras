@@ -1,0 +1,6 @@
+#ocp-sso.yml
+---
+- name: Deploy Secondary Scheduler Operator and run e2e
+  hosts: bastion
+  roles:
+  - ocp-sso
