@@ -1,0 +1,5 @@
+---
+- name: Validating Scheduler-plugins
+  hosts: bastion
+  roles:
+  - scheduler-plugins

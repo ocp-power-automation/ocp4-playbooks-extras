@@ -1,0 +1,69 @@
+- name: Set OpenShift project to "scheduler-plugins"
+  command: oc project scheduler-plugins
+  register: project_output
+
+- name: Create PodGroup
+  k8s:
+    state: present
+    definition:
+      apiVersion: scheduling.x-k8s.io/v1alpha1
+      kind: PodGroup
+      metadata:
+        name: pg1
+        namespace: scheduler-plugins
+      spec:
+        scheduleTimeoutSeconds: 10
+        minMember: 3
+  register: podgroup_create_output
+
+- name: Verify PodGroup creation
+  command: oc get podgroup
+  register: podgroup_status
+  until: "'pg1' in podgroup_status.stdout"
+  retries: 5
+  delay: 10
+
+- name: Create Deployment
+  k8s:
+    state: present
+    definition:
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: pause
+        namespace: scheduler-plugins
+      spec:
+        replicas: 2
+        selector:
+          matchLabels:
+            app: pause
+        template:
+          metadata:
+            labels:
+              app: pause
+              scheduling.x-k8s.io/pod-group: pg1
+          spec:
+            containers:
+              - name: pause
+                image: "{{ pause_image }}"
+  register: deploy_create_output
+
+- name: Scale Deployment to 3 replicas
+  k8s:
+    state: present
+    definition:
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: pause
+        namespace: scheduler-plugins
+      spec:
+        replicas: 3
+  register: scale_output
+
+- name: Verify Pods are running
+  command: oc get po
+  register: pod_status
+  until: "'pause' in pod_status.stdout and 'Running' in pod_status.stdout"
+  retries: 5
+  delay: 10

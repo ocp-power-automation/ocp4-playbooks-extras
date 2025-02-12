@@ -1,0 +1,68 @@
+---
+- name: Set the OpenShift project to 'scheduler-plugins'
+  shell: oc project scheduler-plugins
+  register: project_set
+  failed_when: false
+
+- name: Get the pod name that starts with 'scheduler-plugins-scheduler'
+  shell: oc get pods -n scheduler-plugins -o custom-columns=":metadata.name" | grep '^scheduler-plugins-scheduler' | head -n 1
+  register: scheduler_pod_name
+  failed_when: false
+
+- name: Check if scheduler pod name was found
+  fail:
+    msg: "No scheduler pod found!"
+  when: scheduler_pod_name.stdout == ""
+
+- name: Check if the ConfigMap 'customized' already exists
+  shell: |
+    oc get configmap customized -n scheduler-plugins
+  register: cm_exists
+  ignore_errors: true
+
+- name: Create the 'customized' ConfigMap if not found
+  k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: customized
+        namespace: scheduler-plugins
+      data:
+        config.yaml: |
+          apiVersion: kubescheduler.config.k8s.io/v1
+          kind: KubeSchedulerConfiguration
+          leaderElection:
+            leaderElect: false
+          profiles:
+            - schedulerName: {{ scheduler_pod_name.stdout }}
+              plugins:
+                multiPoint:
+                  enabled:
+                    - name: NodeResourcesAllocatable
+                queueSort:
+                  enabled:
+                    - name: NodeResourcesAllocatable
+                  disabled:
+                    - name: "*"
+              pluginConfig:
+                - name: NodeResourcesAllocatable
+                  args:
+                    permitWaitingTimeSeconds: 10
+  when: cm_exists.rc != 0
+
+- name: Force a rolling restart of the deployment
+  shell: |
+    oc rollout restart deployment/scheduler-plugins-scheduler -n scheduler-plugins
+    oc rollout restart deployment/scheduler-plugins-operator -n scheduler-plugins
+  register: restart_deployments
+  failed_when: false
+
+- name: Check the status of both scheduler-plugins-controller and scheduler-plugins-scheduler pods
+  shell: |
+    oc get pods -n scheduler-plugins -o custom-columns=":metadata.name,:status.phase" | grep -E 'scheduler-plugins-(controller|scheduler)' | grep "Running"
+  register: pods_status
+  retries: 7
+  delay: 10
+  until: pods_status.stdout | count > 1

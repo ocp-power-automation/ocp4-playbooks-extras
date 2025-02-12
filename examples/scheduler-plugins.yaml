@@ -1,0 +1,7 @@
+ocp_scheduler_plugins_enable: false
+kubeconfig_path: "/root/openstack-upi/auth/kubeconfig"  # Path to the kubeconfig file for accessing the cluster
+scheduler_plugins_repo: "https://github.com/kubernetes-sigs/scheduler-plugins.git"  # Repo URL for scheduler plugins
+scheduler_plugins_chart_dir: "/root/scheduler-plugins/manifests/install/charts"  # Path to the Helm chart for scheduler plugins
+scheduler_image: ""  # Image for the scheduler plugin
+nginx_image: "quay.io/powercloud/nginx-unprivileged:latest"  # Image for nginx deployment
+pause_image: "registry.k8s.io/pause:3.6"  # Image for the pause container
