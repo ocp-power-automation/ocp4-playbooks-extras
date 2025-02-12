@@ -1,0 +1,12 @@
+---
+- name: Setup scheduler plugins
+  include_tasks: scheduler_plugins_setup.yml
+
+- name: Test Capacity Scheduler Plugin
+  include_tasks: capacity_scheduler_plugin.yml
+
+- name: Test Co-Scheduling Plugin
+  include_tasks: co_scheduling_plugin.yml
+
+- name: Test NodeResourcesAllocatable Scheduler Plugin
+  include_tasks: node_resources_allocatable_plugin.yml
