@@ -3,6 +3,4 @@ namespace_quota1: "quota1"
 namespace_quota2: "quota2"
 namespace_scheduler_plugins: "scheduler-plugins"
 scheduler_pod_name_prefix: "scheduler-plugins-scheduler"
-
-# Dynamically set KUBECONFIG path using ansible_env.HOME
-kubeconfig_path: "{{ ansible_env.HOME }}/openstack-upi/auth/kubeconfig"
+KUBECONFIG: "{{ ansible_env.HOME }}/.kube/config"

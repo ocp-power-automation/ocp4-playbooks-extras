@@ -22,7 +22,6 @@
 
 - name: Create the 'customized' ConfigMap if not found
   k8s:
-    #kubeconfig: "{{ kubeconfig_path }}"  # Optional: specify the kubeconfig if needed
     state: present
     definition:
       apiVersion: v1

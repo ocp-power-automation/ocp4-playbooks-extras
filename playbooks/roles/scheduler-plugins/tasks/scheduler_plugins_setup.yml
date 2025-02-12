@@ -1,7 +1,6 @@
 ---
 - name: Create the scheduler-plugins namespace in Kubernetes
   k8s:
-    #kubeconfig: "{{ kubeconfig_path }}"
     state: present
     definition:
       apiVersion: v1
@@ -11,8 +10,6 @@
 
 - name: Switch to the scheduler-plugins project
   command: oc project scheduler-plugins
-  environment:
-    KUBECONFIG: "{{ kubeconfig_path }}"
 
 - name: Clone the scheduler-plugins repository from GitHub
   git:
@@ -42,5 +39,3 @@
 
 - name: Update scheduler-plugins-scheduler image
   command: kubectl set image deployment/scheduler-plugins-scheduler -n scheduler-plugins scheduler-plugins-scheduler={{ scheduler_image }}
-  environment:
-    KUBECONFIG: "{{ kubeconfig_path }}"

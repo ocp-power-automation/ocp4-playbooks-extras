@@ -4,7 +4,6 @@
 
 - name: Create PodGroup
   k8s:
-    kubeconfig: "{{ kubeconfig_path }}"
     state: present
     definition:
       apiVersion: scheduling.x-k8s.io/v1alpha1
@@ -26,7 +25,6 @@
 
 - name: Create Deployment
   k8s:
-    kubeconfig: "{{ kubeconfig_path }}"
     state: present
     definition:
       apiVersion: apps/v1
@@ -52,7 +50,6 @@
 
 - name: Scale Deployment to 3 replicas
   k8s:
-    kubeconfig: "{{ kubeconfig_path }}"
     state: present
     definition:
       apiVersion: apps/v1
