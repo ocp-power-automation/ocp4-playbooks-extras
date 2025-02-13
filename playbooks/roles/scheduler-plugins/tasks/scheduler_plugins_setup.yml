@@ -1,0 +1,38 @@
+---
+- name: Create the scheduler-plugins namespace in Kubernetes
+  k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: scheduler-plugins
+
+- name: Clone the scheduler-plugins repository from GitHub
+  git:
+    repo: "{{ scheduler_plugins_repo }}"
+    dest: '/root/scheduler-plugins'
+    version: 'master'
+
+- name: Check if Helm is installed
+  command: helm version --short
+  register: helm_version
+  failed_when: helm_version.rc != 0
+  changed_when: false
+  ignore_errors: true
+
+- name: Install Helm if not installed
+  shell: |
+    curl https://get.helm.sh/helm-v3.9.0-linux-ppc64le.tar.gz -o /tmp/helm-v3.9.0-linux-ppc64le.tar.gz
+    tar -zxvf /tmp/helm-v3.9.0-linux-ppc64le.tar.gz -C /tmp
+    mv /tmp/linux-ppc64le/helm /usr/local/bin/helm
+    helm version --short
+  when: helm_version.rc != 0
+
+- name: Install scheduler-plugins Helm chart
+  command: helm upgrade --install scheduler-plugins --repo https://scheduler-plugins.sigs.k8s.io scheduler-plugins --namespace scheduler-plugins
+  args:
+    chdir: "{{ scheduler_plugins_chart_dir }}"
+
+- name: Update scheduler-plugins-scheduler image
+  command: kubectl set image deployment/scheduler-plugins-scheduler -n scheduler-plugins scheduler-plugins-scheduler={{ scheduler_image }}
