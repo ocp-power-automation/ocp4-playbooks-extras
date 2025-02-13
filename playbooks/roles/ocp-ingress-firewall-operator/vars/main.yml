@@ -1,0 +1,8 @@
+---
+#  var for playbooks/roles/ocp-ingress-firewall-operator
+
+ingress_e2e_env:
+  KUBECONFIG: "{{ ansible_env.HOME }}/.kube/config"
+  INGRESS_WORKDIR: "{{ ingress_directory }}"
+  PATH: "/usr/local/go/bin:{{ ansible_env.PATH }}"
+  
