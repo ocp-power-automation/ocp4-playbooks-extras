@@ -1,0 +1,251 @@
+---
+# tasks file for playbooks/roles/ocp-lso
+
+# Check the health of Cluster Operators
+- name: Check if cluster operators and nodes are healthy
+  include_role:
+    name: check-cluster-health
+
+# Checking if worker node contains 500 Gb volume attached
+- name: Check if 500GB volume is attached to all worker nodes
+  shell: ssh -o StrictHostKeyChecking=no core@{{ item }} lsblk | grep 500
+  register: volume_check
+  loop: "{{ groups['workers'] }}"  
+  when: "'workers' in group_names and ansible_facts.devices is defined and ansible_facts.devices | selectattr('size', 'equalto', 500000000000) | list | length > 0"
+
+- name: Fail if 500GB volume is not found on any worker node
+  fail:
+    msg: "500GB volume is not attached to the worker node {{ item }}. Please add a 500GB attached volume to each worker node and try again."
+  loop: "{{ groups['workers'] }}"  
+  when:
+    - volume_check is not defined
+    - volume_check.rc != 0
+
+- name: Check if lso_namespace is defined, and set default if not
+  set_fact:
+    lso_namespace: "{{ lso_namespace | default('openshift-local-storage') }}"  # Set default namespace if not defined
+
+# Check if the openshift-local-storage project exists
+- name: Create a target namespace
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: "{{ lso_namespace }}"
+  when: lso_namespace is defined      
+
+# Disable all default operator sources
+- name: Disable all default operator sources
+  command: oc patch operatorhub.config.openshift.io/cluster -p='{"spec":{"disableAllDefaultSources":true}}' --type=merge
+  register: patch_operatorhub
+  failed_when: patch_operatorhub.rc != 0  
+
+# Create ICSP & catalogsource for installing local storage operator
+- name: Local Storage Operator deployment
+  block:
+    - name: Setup a catalogsource for installing local storage operator
+      block:
+        - name: Include the global pull-secret update role to extract podman-secret
+          include_role:
+            name: global-secret-update
+
+    - name: Include role to create ImageContentSourcePolicy and CatalogSource
+      include_role:
+        name: set-custom-catalogsource
+      vars:
+        custom_catalogsource_name: "{{ lso_catalogsource_name }}"
+        custom_catalogsource_display_name: "lso-catalog"
+        custom_catalogsource_image: "{{ lso_catalogsource_image }}"
+      when: lso_catalogsource_image != '' and lso_catalogsource_image != None
+
+# Create LocalStorage Operator YAML content (OperatorGroup and Subscription)
+- name: Create operator group for LocalStorage Operator
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: operators.coreos.com/v1
+      kind: OperatorGroup
+      metadata:
+        name: local-operator-group
+        namespace: "{{ lso_namespace }}"
+      spec:
+        targetNamespaces:
+          - "{{ lso_namespace }}"
+
+# Create Subscription for the LocalStorage Operator
+- name: Create LocalStorage Operator Subscription
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: operators.coreos.com/v1alpha1
+      kind: Subscription
+      metadata:
+        name: local-storage-operator
+        namespace: "{{ lso_namespace }}"
+      spec:
+        channel: "{{ lso_channel }}"
+        installPlanApproval: Automatic
+        name: local-storage-operator
+        source: "{{ lso_catalogsource_name }}"
+        sourceNamespace: openshift-marketplace
+
+- name: Wait for CSV to be created
+  pause:
+    seconds: 30 
+
+# Check LocalStorage Operator progress
+- name: Check LocalStorage Operator progress
+  command: oc get ip -n "{{ lso_namespace }}"
+  register: ip_status
+  failed_when:
+    - ip_status.rc != 0  
+    - ip_status.stdout == ""  
+
+# Check the ClusterServiceVersion (CSV) for the LocalStorage Operator
+- name: Check LocalStorage Operator CSV
+  shell: "oc get csv -A | grep local-storage-operator | grep Succeeded"
+  register: csv_status
+  failed_when: csv_status.rc != 0  
+  when:
+    - lso_namespace is defined
+
+- name: Verify if local-storage-operator is present in the CSV output
+  debug:
+    msg: "The LocalStorage Operator CSV is available."
+  when: "'local-storage-operator' in csv_status.stdout"
+
+# Create LocalVolumeSet YAML content for local block volumes
+- name: Create LocalVolumeSet YAML for local block volumes
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      kind: LocalVolumeSet
+      apiVersion: local.storage.openshift.io/v1alpha1
+      metadata:
+        name: localblock
+        namespace: "{{ lso_namespace }}"
+      spec:
+        deviceInclusionSpec:
+          deviceMechanicalProperties:
+            - Rotational
+            - NonRotational
+          deviceTypes:
+            - disk
+            - mpath
+          maxSize: 500Gi
+          minSize: 500Gi
+        maxDeviceCount: 10
+        nodeSelector:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: kubernetes.io/hostname
+                  operator: In
+                  values:
+                    - worker-0
+                    - worker-1
+                    - worker-2
+        storageClassName: localblock
+        volumeMode: Block
+
+# Wait for LocalVolumeSet to be created
+- name: Wait for LocalVolumeSet to be created
+  command: oc get localvolumeset localblock -n "{{ lso_namespace }}"
+  register: lvs_status
+  retries: 5
+  delay: 10
+  until: lvs_status.rc == 0
+  failed_when: lvs_status.rc != 0  
+
+- name: Verify creation of diskmanager pods
+  shell: "oc get pods -n openshift-local-storage --selector=app=diskmaker-manager | grep Running"
+  register: check_pods
+  failed_when: check_pods.rc != 0
+
+- name: Verify the creation of StorageClass
+  command: oc get sc localblock
+  register: check_sc
+  failed_when: check_sc.rc != 0
+
+- name: Wait for persistent volumes to be created
+  pause:
+    minutes: 1
+
+- name: Delete existing PersistentVolumeClaim and Pod (if they exist)
+  kubernetes.core.k8s:
+    state: absent
+    definition:
+      - kind: PersistentVolumeClaim
+        apiVersion: v1
+        metadata:
+          name: test-local-claim
+      - apiVersion: v1
+        kind: Pod
+        metadata:
+          name: busybox-lso
+          namespace: default
+  register: delete_pvc
+  changed_when: delete_pvc is changed  
+
+# Testing localblock storage class
+# Creating PVC
+- name: Create PersistentVolumeClaim YAML
+  kubernetes.core.k8s:
+    definition:
+      - kind: PersistentVolumeClaim
+        apiVersion: v1
+        metadata:
+          name: test-local-claim
+          namespace: default
+        spec:
+          accessModes:
+          - ReadWriteOnce
+          volumeMode: Block
+          resources:
+            requests:
+              storage: 100Gi
+          storageClassName: localblock
+
+# Creating POD for PersistentVolumeClaim
+- name: Create POD for PersistentVolumeClaim
+  kubernetes.core.k8s:
+    definition:
+      - apiVersion: v1
+        kind: Pod
+        metadata:
+          name: busybox-lso
+          namespace: default
+        spec:
+          volumes:
+            - name: local-data
+              persistentVolumeClaim:
+                claimName: test-local-claim
+          containers:
+            - name: busybox
+              image: quay.io/powercloud/busybox:ubi
+              command: ['sh', '-c', 'echo "Hello, Kubernetes!" && sleep 600']
+              volumeDevices:
+                - devicePath: "{{ device_path }}"
+                  name: local-data
+
+- name: Wait for pods to be created
+  pause:
+    seconds: 30
+
+- name: Verify the status of Persistent Volumes
+  shell: "oc get pv --selector storage.openshift.com/owner-kind=LocalVolumeSet | grep Bound"
+  register: check_pv
+  failed_when: check_pv.rc != 0
+
+- name: Verify PVC status
+  shell: "oc get pvc test-local-claim -n default | grep Bound"
+  register: pvc_status
+  failed_when: pvc_status.rc != 0
+
+- name: Verify Pod status
+  shell: "oc get pods busybox-lso -n default -o jsonpath='{.status.phase}'"
+  register: pod_status
+  retries: 5
+  delay: 10
+  failed_when: pod_status.stdout != "Running"
