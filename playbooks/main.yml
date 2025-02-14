@@ -62,6 +62,8 @@
 - import_playbook: ocp-cli-plugins.yml
   when: enable_cli_plugins_test is defined and enable_cli_plugins_test
 
+- import_playbook: ocp-sso.yml
+  when: sso_enabled is defined and sso_enabled
 
 - import_playbook: ocp-compliance.yml
   when: compliance_enabled is defined and compliance_enabled
