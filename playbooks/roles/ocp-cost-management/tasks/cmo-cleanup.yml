@@ -60,7 +60,7 @@
 - name: Check if all the custom resource definitions has been deleted
   shell: oc get crd | awk '{print $1}'| grep costmanagement
   register: cost_management_crds
-  failed_when: ccost_management_crds.stdout_lines|length != 0
+  failed_when: cost_management_crds.stdout_lines|length != 0
 
 - name: Delete the Cost Management Operator if exists
   kubernetes.core.k8s:
