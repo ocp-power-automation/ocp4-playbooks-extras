@@ -126,3 +126,10 @@
   
 - import_playbook: ocp-lso.yml
   when: lso_enabled is defined and lso_enabled
+
+- import_playbook: ocp-cluster-etcd-operator.yml
+  when: cluster_etcd_enabled is defined and cluster_etcd_enabled
+
+- import_playbook: ocp-kube-burner.yml
+  when: enable_kube_burner is defined and enable_kube_burner
+

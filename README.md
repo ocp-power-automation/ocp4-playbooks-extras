@@ -41,6 +41,8 @@ This repository consists of additional ansible playbooks for the following:
 1. Deploy MetalLB operator and run e2e
 1. Hypershift Agent based installation
 1. Deploy Local Storage Operator
+1. Cluster ETCD operator, Workload and e2e test run
+1. Kube burner workload
 
 ## Assumptions:
 

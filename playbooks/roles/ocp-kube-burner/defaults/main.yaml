@@ -1,0 +1,7 @@
+## ocp_kube_burner vars
+enable_kube_burner: false
+kube_burner_repo: "https://github.com/kube-burner/kube-burner.git"
+kube_burner_dir: "/root/kube-burner"
+kube_burner_path: "/root/kube-burner/examples/workloads"
+kube_burner_version: "1.10.4"
+
