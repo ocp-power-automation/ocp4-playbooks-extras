@@ -27,9 +27,9 @@
     api_version: operators.coreos.com/v1
     state: absent
     kind: OperatorGroup
-    name: "{{ cost_management_group.stdout }}"
+    name: "{{ cost_management_operator_group.stdout }}"
     namespace: costmanagement-metrics-operator
-  when: cost_management_group.stdout|length > 0
+  when: cost_management_operator_group.stdout|length > 0
 
 - name: Delete the cluster service version if exists
   kubernetes.core.k8s:

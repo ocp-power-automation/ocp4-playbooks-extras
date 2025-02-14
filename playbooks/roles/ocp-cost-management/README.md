@@ -14,7 +14,7 @@ Role Variables
 
 | Variable                                   | Required | Default                                                                              | Comments                                                                                                                       |
 |--------------------------------------------|----------|--------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------|
-| cost_management_enabled                            | yes       | false                                                                                |                                                                        |
+| cost_management_enabled                            | yes       | false                                                                                |   enable the cost management if required                                                                       |
 | cost_management_directory                   | yes       | /tmp/compliance                                                                                |  cost management temporary directory                                                                     |
 | cost_management_catalogsource_image               | yes       | ""                                                                                 |  index image build id                                                                           |
 | cost_management_upgrade_channel                   | no       | stable                                                                              | channel                                                                                                       |
@@ -59,7 +59,7 @@ Execution process
 examples/ocp_cost_management_vars.yaml
 
 **main.yml**
-This is the main yaml file which is used to install,verify and validate cost managemenent operator.
+This is the main yaml file which is used to install,verify and validate cost management operator.
 
 **cmo-setup.yml**
 This file is responsible for install iqe cost management plugin and dependencies on your machine,

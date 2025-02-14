@@ -25,60 +25,21 @@
         custom_catalogsource_display_name: "my-operator-catalog"
         custom_catalogsource_image: "brew.registry.redhat.io/rh-osbs/iib:{{ cost_management_catalogsource_image }}"
 
-    - name: Modify install_cost_operator method in cluster.py
-      ansible.builtin.replace:
-        path: "~/iqe-workspace-dev2/iqe-cost-management-plugin/operator_api/cluster.py"
-        regexp: '("source": "redhat-operators",)'
-        replace: '"source": "my-operator-catalog",'
-
-    - name: Run IQE basic test for Cost Management
+    - name: Run IQE tests for Cost Management
       ansible.builtin.shell: >
-        iqe tests plugin cost_management -k "test_basic.py" -m cost_operator
+        iqe tests plugin cost_management -k "{{ item.test_file }}" -m "{{ item.marker }}"
       args:
         chdir: "~/iqe-workspace-dev2/iqe-cost-management-plugin/iqe_cost_management/tests/operator"
       environment:
         ENV_FOR_DYNACONF: prod
-      register: iqe_test_output
+      register: iqe_test_results
+      loop:
+        - { test_file: "test_basic.py", marker: "cost_operator" }
+        - { test_file: "test_default_config.py", marker: "cost_operator" }
+        - { test_file: "test_interop.py", marker: "cost_interop" }
+        - { test_file: "test_operator.py", marker: "manual" }
 
-    - name: Show basic test results
+    - name: Show IQE test results
       ansible.builtin.debug:
-        msg: "{{ iqe_test_output.stdout }}"
-
-    - name: Run IQE default config test
-      ansible.builtin.shell: >
-        iqe tests plugin cost_management -k "test_default_config.py" -m cost_operator
-      args:
-        chdir: "~/iqe-workspace-dev2/iqe-cost-management-plugin/iqe_cost_management/tests/operator"
-      environment:
-        ENV_FOR_DYNACONF: prod
-      register: iqe_test_default_config_output
-
-    - name: Show default config test results
-      ansible.builtin.debug:
-        msg: "{{ iqe_test_default_config_output.stdout }}"
-
-    - name: Run IQE interop test
-      ansible.builtin.shell: >
-        iqe tests plugin cost_management -k "test_interop.py" -m cost_interop
-      args:
-        chdir: "~/iqe-workspace-dev2/iqe-cost-management-plugin/iqe_cost_management/tests/operator"
-      environment:
-        ENV_FOR_DYNACONF: prod
-      register: iqe_test_interop_output
-
-    - name: Show interop test results
-      ansible.builtin.debug:
-        msg: "{{ iqe_test_interop_output.stdout }}"
-
-    - name: Run IQE operator test
-      ansible.builtin.shell: >
-        iqe tests plugin cost_management -k "test_operator.py" -m manual
-      args:
-        chdir: "~/iqe-workspace-dev2/iqe-cost-management-plugin/iqe_cost_management/tests/operator"
-      environment:
-        ENV_FOR_DYNACONF: prod
-      register: iqe_test_operator_output
-
-    - name: Show operator test results
-      ansible.builtin.debug:
-        msg: "{{ iqe_test_operator_output.stdout }}"
+        msg: "{{ item.stdout }}"
+      loop: "{{ iqe_test_results.results }}"
