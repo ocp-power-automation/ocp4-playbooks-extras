@@ -1,0 +1,7 @@
+## ocp_cluster_etcd-operator vars
+cluster_etcd_enabled: false
+etcd_namespace: openshift-etcd
+install_acme_air: false
+run_e2e: false
+install_kube_burner: false
+

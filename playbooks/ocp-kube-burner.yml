@@ -1,0 +1,7 @@
+---
+
+- name: OCP kube burner tests
+  hosts: bastion
+  roles: 
+  - ocp-kube-burner
+
