@@ -143,3 +143,6 @@
 
 - import_playbook: ocp-ingress-firewall-operator.yml
   when: ingress_firewall_enabled is defined and ingress_firewall_enabled
+
+- import_playbook: ocp-cpu-manager.yml
+  when: validate_cpum is defined and validate_cpum
