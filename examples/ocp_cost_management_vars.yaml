@@ -1,7 +1,7 @@
 ---
 # ocp-cmo vars
 cost_management_enabled: false
-cost_management_directory: "/tmp/compliance"
+cost_management_directory: "/tmp/costmanagement"
 cost_management_catalogsource_image: ""         # "brew.registry.redhat.io/rh-osbs/iib:327237"
 cost_management_upgrade_channel: "stable"
 cost_management_e2e: false

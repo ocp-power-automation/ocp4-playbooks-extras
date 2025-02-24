@@ -6,8 +6,8 @@ This role is used to deploy Cost Management Operator.
 Requirements
 ------------
 
-- OCP 4.x healthy cluster on PowerVS.
-- Need to connect to Sgnvpn and Redhat VPN on your machine.
+- OCP 4.x healthy cluster on Power.
+- Need to connect to Sgnvpn and Redhat VPN on your machine inorder to running tests.
 
 Role Variables
 --------------
@@ -15,7 +15,7 @@ Role Variables
 | Variable                                   | Required | Default                                                                              | Comments                                                                                                                       |
 |--------------------------------------------|----------|--------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------|
 | cost_management_enabled                            | yes       | false                                                                                |   enable the cost management if required                                                                       |
-| cost_management_directory                   | yes       | /tmp/compliance                                                                                |  cost management temporary directory                                                                     |
+| cost_management_directory                   | yes       | /tmp/costmanagement                                                                                |  cost management temporary directory                                                                     |
 | cost_management_catalogsource_image               | yes       | ""                                                                                 |  index image build id                                                                           |
 | cost_management_upgrade_channel                   | no       | stable                                                                              | channel                                                                                                       |
 | cost_management_e2e                      | yes       |  false                                                                   |                                                                                                          |
