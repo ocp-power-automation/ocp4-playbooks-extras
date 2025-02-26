@@ -46,6 +46,7 @@ This repository consists of additional ansible playbooks for the following:
 1. Cluster ETCD operator, Workload and e2e test run
 1. Kube burner workload
 1. Validate Scheduler-Plugins
+1. Deploy Ingress Firewall Operator and run e2e.
 
 ## Assumptions:
 

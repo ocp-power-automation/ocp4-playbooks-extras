@@ -141,4 +141,5 @@
 - import_playbook: scheduler-plugins.yml
   when: ocp_scheduler_plugins_enable is defined and ocp_scheduler_plugins_enable  
 
-  
+- import_playbook: ocp-ingress-firewall-operator.yml
+  when: ingress_firewall_enabled is defined and ingress_firewall_enabled

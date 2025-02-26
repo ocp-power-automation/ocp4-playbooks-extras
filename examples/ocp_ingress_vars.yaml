@@ -1,0 +1,12 @@
+---
+#ocp-ingress vars
+
+ingress_firewall_enabled: false            #set to true for ingress firewall operator installation
+ingress_catalogsource_image: ""   #quay.io/openshift-qe-optional-operators/aosqe-index:v4.17
+ingress_catalogsource_name: ""       #qe-app-registry
+ingress_namespace: ""                   #openshift-ingress-node-firewall
+ingress_directory: "/tmp/ingress"
+ingress_go_tarball: "https://dl.google.com/go/go1.22.1.linux-ppc64le.tar.gz"
+ingress_e2e: false
+ingress_e2e_github_repo: ""
+ingress_e2e_github_branch: "master"
