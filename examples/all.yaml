@@ -481,3 +481,11 @@ scheduler_image: "registry.k8s.io/scheduler-plugins/kube-scheduler:v0.30.6"  # I
 nginx_image: "quay.io/powercloud/nginx-unprivileged:latest"  # Image for nginx deployment
 pause_image: "registry.k8s.io/pause:3.6"  # Image for the pause container
 
+# ocp-odf-operator required vars
+odf_enabled: false
+update_channel: ""
+odf_catalogsource_image: "" #Example - quay.io/rhceph-dev/ocs-registry:4.16.3
+worker0_name: "worker-0"
+worker1_name: "worker-1"
+worker2_name: "worker-2"
+test_pod_image: "quay.io/powercloud/nginx-unprivileged:latest"
