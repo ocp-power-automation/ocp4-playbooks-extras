@@ -137,5 +137,8 @@
 
 - import_playbook: ocp-kube-burner.yml
   when: enable_kube_burner is defined and enable_kube_burner
+  
+- import_playbook: scheduler-plugins.yml
+  when: ocp_scheduler_plugins_enable is defined and ocp_scheduler_plugins_enable  
 
   

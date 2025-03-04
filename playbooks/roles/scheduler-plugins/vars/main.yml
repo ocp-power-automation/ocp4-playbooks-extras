@@ -1,0 +1,6 @@
+---
+namespace_quota1: "quota1"
+namespace_quota2: "quota2"
+namespace_scheduler_plugins: "scheduler-plugins"
+scheduler_pod_name_prefix: "scheduler-plugins-scheduler"
+KUBECONFIG: "{{ ansible_env.HOME }}/.kube/config"
