@@ -68,6 +68,9 @@
 - import_playbook: ocp-compliance.yml
   when: compliance_enabled is defined and compliance_enabled
 
+- import_playbook: ocp-disa-stig-compliance.yml
+  when: stig_compliance_enabled is defined and stig_compliance_enabled
+
 - import_playbook: hypershift.yml
   when: >
         (hypershift_install is defined and hypershift_install) or 

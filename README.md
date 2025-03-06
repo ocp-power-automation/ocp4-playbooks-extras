@@ -48,6 +48,7 @@ This repository consists of additional ansible playbooks for the following:
 1. Validate Scheduler-Plugins
 1. Deploy Ingress Firewall Operator and run e2e.
 1. Validate CPU manager feature and run e2e.
+1. Enable DISA-STIG profiles for CO on P and remediate various rules
 
 ## Assumptions:
 
