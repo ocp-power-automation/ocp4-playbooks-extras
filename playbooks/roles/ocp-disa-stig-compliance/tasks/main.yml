@@ -1,0 +1,101 @@
+---
+# tasks file for playbooks/roles/ocp-disa-stig-compliance
+
+- name: Check if cluster operators and nodes are healthy
+  include_role:
+    name: check-cluster-health
+
+- name: Search for the StorageClass
+  kubernetes.core.k8s_info:
+    kind: StorageClass
+  register: storage_class
+
+- name: Check for default StorageClass annotations
+  set_fact:
+    default_storage_class: "{{ storage_class.resources[0].metadata.annotations }}"
+  when:
+  - storage_class.resources|length != 0 and storage_class.resources[0].metadata.annotations is defined
+  - "'storageclass.kubernetes.io/is-default-class' in storage_class.resources[0].metadata.annotations"
+
+- name: Fail if default StorageClass does not exist
+  fail:
+    msg: 'Default StorageClass does not exist'
+  when: >
+    (default_storage_class is undefined) or
+    (default_storage_class is defined and not default_storage_class["storageclass.kubernetes.io/is-default-class"]|bool)
+
+- name: Deploy Compliance Operator
+  block:
+  - name: Create namespace for Compliance Operator
+    kubernetes.core.k8s:
+      state: present
+      definition:
+        apiVersion: v1
+        kind: Namespace
+        metadata:
+          labels:
+            pod-security.kubernetes.io/audit: privileged
+            pod-security.kubernetes.io/enforce: privileged
+            pod-security.kubernetes.io/warn: privileged
+            security.openshift.io/scc.podSecurityLabelSync: "false"
+          name: openshift-compliance
+        spec:
+          targetNamespaces:
+          - openshift-compliance
+
+  - name: Create operator group for Compliance Operator
+    kubernetes.core.k8s:
+      state: present
+      definition:
+        apiVersion: operators.coreos.com/v1
+        kind: OperatorGroup
+        metadata:
+          name: openshift-compliance
+          namespace: openshift-compliance
+        spec:
+          targetNamespaces:
+          - openshift-compliance
+
+  - name: Create subscription for Compliance Operator
+    kubernetes.core.k8s:
+      state: present
+      definition:
+        apiVersion: operators.coreos.com/v1alpha1
+        kind: Subscription
+        metadata:
+          name: compliance-operator
+          namespace: openshift-compliance
+        spec:
+          channel: "{{ compliance_upgrade_channel }}"
+          installPlanApproval: Automatic
+          name: compliance-operator
+          source: "{{ compliance_catalogsource }}"
+          sourceNamespace: openshift-marketplace
+
+  - name: Verification of operator installation
+    block:
+    - name: Check if the cluster service version has succeeded
+      shell: oc get csv -n openshift-compliance --no-headers | awk '{ if (($1 ~ /^compliance-operator/) && $NF=="Succeeded") print $1 }'| wc -l
+      register: compliance_operators_csv
+      until: compliance_operators_csv.stdout|int == 1
+      retries: 15
+      delay: 120
+
+    - name: Check if pods are running
+      shell: oc get pods -n openshift-compliance --no-headers | grep "Running" | wc -l
+      register: compliance_pods
+      until: compliance_pods.stdout|int == 2
+      retries: 15
+      delay: 60
+
+- name: Switch to openshift-compliance project
+  shell: oc project openshift-compliance
+
+- name: Enable rhcos4-disa-stig profiles
+  include_tasks: rhcos4_disa_stig.yml
+
+- name: Enable ocp4-disa-stig profiles part1
+  include_tasks: ocp4_disa_stig1.yml
+
+- name: Enable ocp4-disa-stig profiles part2
+  include_tasks: ocp4_disa_stig2.yml

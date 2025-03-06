@@ -1,0 +1,284 @@
+---
+- name: Remediate rule oauth-login-template-set
+  debug:
+    msg: "Remediate rule oauth-login-template-set" 
+
+- name: Create login template
+  shell: oc adm create-login-template > login.html
+  args:
+    creates: login.html
+
+- name: Create provider selection template
+  shell: oc adm create-provider-selection-template > providers.html
+  args:
+    creates: providers.html
+
+- name: Create error template
+  shell: oc adm create-error-template > errors.html
+  args:
+    creates: errors.html
+
+- name: Check if login-template secret exists
+  shell: oc get secret login-template -n openshift-config --no-headers
+  register: login_secret_status
+  changed_when: false
+  failed_when: false
+
+- name: Create secret login-template (if not exists)
+  shell: oc create secret generic login-template --from-file=login.html -n openshift-config
+  when: "'login-template' not in login_secret_status.stdout"
+
+- name: Check if provider-template secret exists
+  shell: oc get secret providers-template -n openshift-config --no-headers
+  register: provider_secret_status
+  changed_when: false
+  failed_when: false
+
+- name: Create secret provider-template (if not exists)
+  shell: oc create secret generic providers-template --from-file=providers.html -n openshift-config
+  when: "'providers-template' not in provider_secret_status.stdout"
+
+- name: Check if error-template secret exists
+  shell: oc get secret error-template -n openshift-config --no-headers
+  register: error_secret_status
+  changed_when: false
+  failed_when: false
+
+- name: Create secret error-template (if not exists)
+  shell: oc create secret generic error-template --from-file=errors.html -n openshift-config
+  when: "'error-template' not in error_secret_status.stdout"
+
+- name: Patch OAuth configuration with custom templates
+  shell: >
+    oc patch oauths cluster --type=json -p '[{"op": "add", "path": "/spec/templates", "value": {
+      "error": {"name": "error-template"},
+      "login": {"name": "login-template"},
+      "providerSelection": {"name": "providers-template"}
+    }}]'
+  register: oauth_patch_result
+  changed_when: "'patched' in oauth_patch_result.stdout"
+
+- name: Rerun scans
+  shell: oc -n openshift-compliance annotate compliancescans/ocp4-disa-stig-stig compliance.openshift.io/rescan=
+
+- name: Wait for 1 minute to relaunch scans
+  pause:
+    minutes: 1
+
+- name: Check the scan result
+  shell: oc get scan ocp4-disa-stig-stig --no-headers | awk '{print $3}'
+  register: result
+  until: result.stdout == 'NON-COMPLIANT'
+  retries: 10
+  delay: 60
+
+- name: Verify rule oauth-login-template-set should pass
+  shell: oc get compliancecheckresult -n openshift-compliance | grep  oauth-login-template-set | awk '{print $2}'
+  register: failed_checks
+  failed_when: failed_checks.stdout != "PASS"
+
+- name: Remediate rule oauth-logiut-url-set 
+  debug:
+    msg: "Remediate rule oauth-logiut-url-set" 
+
+- name: Patch OAuth configuration with custom templates
+  shell: oc patch console.config.openshift.io cluster --type merge -p '{"spec":{"authentication":{"logoutRedirect":"https://www.google.com/"}}}'
+
+- name: Verify if its properly set
+  shell: oc get console.config.openshift.io cluster -o jsonpath='{.spec.authentication.logoutRedirect}{"\n"}'
+  register: url_output
+
+- name: Show extracted logoutRedirect URL
+  debug:
+    var: url_output.stdout
+
+- name: Rerun scans
+  shell: oc -n openshift-compliance annotate compliancescans/ocp4-disa-stig-stig compliance.openshift.io/rescan=
+
+- name: Wait for 1 minute to relaunch scans
+  pause:
+    minutes: 1
+
+- name: Check the scan result
+  shell: oc get scan ocp4-disa-stig-stig --no-headers | awk '{print $3}'
+  register: result
+  until: result.stdout == 'NON-COMPLIANT'
+  retries: 10
+  delay: 60
+
+- name: Verify rule oauth-logout-url-set should pass
+  shell: oc get compliancecheckresult -n openshift-compliance | grep  oauth-logout-url-set | awk '{print $2}'
+  register: failed_checks
+  failed_when: failed_checks.stdout != "PASS"
+
+- name: Remediate rule project-config-and-template-network-policy
+  debug:
+    msg: "Remediate rule project-config-and-template-network-policy" 
+
+- name: Create template
+  shell: oc adm create-bootstrap-project-template -o yaml > template.yaml
+  args:
+    creates: template.yaml
+
+- name: Create project template must be created in the openshift-config namespace
+  shell: oc apply -f template.yaml -n openshift-config
+
+- name: Patch the project.config.openshift.io/cluster resource
+  shell: oc patch project.config.openshift.io/cluster --type=merge -p '{"spec":{"projectRequestTemplate":{"name":"project-request"}}}'
+
+- name: Modify project template to include NetworkPolicies
+  blockinfile:
+    path: template.yaml
+    marker: "# {mark} ANSIBLE MANAGED BLOCK"
+    insertbefore: "^parameters:"
+    block: |
+     - apiVersion: networking.k8s.io/v1
+       kind: NetworkPolicy
+       metadata:
+         name: allow-from-same-namespace
+       spec:
+         ingress:
+         - from:
+           - podSelector: {}
+         podSelector: {}
+
+     - apiVersion: networking.k8s.io/v1
+       kind: NetworkPolicy
+       metadata:
+         name: allow-from-openshift-ingress
+       spec:
+         ingress:
+         - from:
+           - namespaceSelector:
+               matchLabels:
+                 network.openshift.io/policy-group: ingress
+         podSelector: {}
+         policyTypes:
+         - Ingress
+
+- name: Apply modified project template 
+  shell: oc apply -f template.yaml -n openshift-config
+
+- name: Check if NetworkPolicy exists in the project-request template
+  shell: > 
+    oc get -n openshift-config template -ojson | 
+    jq -r '[.items[] | any(.objects[]?; .kind == "NetworkPolicy") ]'
+  register: network_policy_check
+
+- name: Verify the NetworkPolicy check result
+  debug:
+    var: network_policy_check.stdout
+
+- name: Rerun scans
+  shell: oc -n openshift-compliance annotate compliancescans/ocp4-disa-stig-stig compliance.openshift.io/rescan=
+
+- name: Wait for 1 minute to relaunch scans
+  pause:
+    minutes: 1
+
+- name: Check the scan result
+  shell: oc get scan ocp4-disa-stig-stig --no-headers | awk '{print $3}'
+  register: result
+  until: result.stdout == 'NON-COMPLIANT'
+  retries: 10
+  delay: 60
+
+- name: Verify rule project-config-and-template-network-policy should pass
+  shell: oc get compliancecheckresult -n openshift-compliance | grep  project-config-and-template-network-policy | awk '{print $2}'
+  register: failed_checks
+  failed_when: failed_checks.stdout != "PASS"
+
+- name: Remediate oauth-or-oauthclient-token-maxage
+  debug:
+    msg: "Remediate oauth-or-oauthclient-token-maxage"
+
+- name: Patch the project.config.openshift.io/cluster resource
+  shell: oc patch oauths cluster --type=merge -p '{"spec":{"tokenConfig":{"accessTokenMaxAgeSeconds":28800}}}'
+
+- name: Rerun scans
+  shell: oc -n openshift-compliance annotate compliancescans/ocp4-disa-stig-stig compliance.openshift.io/rescan=
+
+- name: Wait for 1 minute to relaunch scans
+  pause:
+    minutes: 1
+
+- name: Check the scan result
+  shell: oc get scan ocp4-disa-stig-stig --no-headers | awk '{print $3}'
+  register: result
+  until: result.stdout == 'NON-COMPLIANT'
+  retries: 10
+  delay: 60
+
+- name: Verify rule oauth-or-oauthclient-token-maxage should pass
+  shell: oc get compliancecheckresult -n openshift-compliance | grep   oauth-or-oauthclient-token-maxage | awk '{print $2}'
+  register: failed_checks
+  failed_when: failed_checks.stdout != "PASS"
+
+- name: Remediate rule project-config-and-template-resource-quota 
+  debug:
+    msg: "Remediate rule project-config-and-template-resource-quota " 
+
+- name: Create template
+  shell: oc adm create-bootstrap-project-template -o yaml > template.yaml
+  args:
+    creates: template.yaml
+
+- name: Create project template in the openshift-config namespace
+  shell: oc apply -f template.yaml -n openshift-config
+
+- name: Patch the project.config.openshift.io/cluster resource
+  shell: oc patch project.config.openshift.io cluster --type=merge -p '{"spec":{"projectRequestTemplate":{"name":"project-request"}}}'
+
+- name: Modify project template to include NetworkPolicies
+  blockinfile:
+    path: template.yaml
+    marker: "# {mark} ANSIBLE MANAGED BLOCK"
+    insertbefore: "^parameters:"
+    block: |
+     - apiVersion: v1
+       kind: ResourceQuota
+       metadata:
+         name: storage-consumption
+         namespace: ${PROJECT_NAME}
+       spec:
+         hard:
+           persistentvolumeclaims: "10" 
+           requests.storage: "50Gi" 
+           gold.storageclass.storage.k8s.io/requests.storage: "10Gi" 
+           silver.storageclass.storage.k8s.io/requests.storage: "20Gi" 
+           silver.storageclass.storage.k8s.io/persistentvolumeclaims: "5" 
+           bronze.storageclass.storage.k8s.io/requests.storage: "0" 
+           bronze.storageclass.storage.k8s.io/persistentvolumeclaims: "0"
+
+- name: Apply modified project template 
+  shell: oc apply -f template.yaml -n openshift-config
+
+- name: Check if ResourceQuota exists in the project-request template
+  shell: > 
+    oc get -n openshift-config template -ojson |  
+    jq -r '[.items[] | any(.objects[]?; .kind == "ResourceQuota") ]'
+  register: resource_quota_check
+
+- name: Debug Resourcequota check result
+  debug:
+    var: resource_quota_check.stdout
+
+- name: Rerun scans
+  shell: oc -n openshift-compliance annotate compliancescans/ocp4-disa-stig-stig compliance.openshift.io/rescan=
+
+- name: Wait for 1 minute to relaunch scans
+  pause:
+    minutes: 1
+
+- name: Check the scan result
+  shell: oc get scan ocp4-disa-stig-stig --no-headers | awk '{print $3}'
+  register: result
+  until: result.stdout == 'NON-COMPLIANT'
+  retries: 10
+  delay: 60
+
+- name: Verify rule project-config-and-template-resource-quota should pass
+  shell: oc get compliancecheckresult -n openshift-compliance | grep project-config-and-template-resource-quota | awk '{print $2}'
+  register: failed_checks
+  failed_when: failed_checks.stdout != "PASS" 
+

@@ -1,0 +1,258 @@
+---
+- name: Create Compliance suite
+  block:
+  - name: Create suite
+    kubernetes.core.k8s:
+      state: present
+      definition:
+        apiVersion: compliance.openshift.io/v1alpha1
+        kind: ComplianceSuite
+        metadata:
+          name: rhcos4-stig-compliancesuite
+          namespace: openshift-compliance
+        spec:
+          scans:
+          - name: rhcos4-stig-scan-x
+            profile: xccdf_org.ssgproject.content_profile_stig
+            content: "{{ rhcos4_contentfile }}"
+            contentImage: "{{ content_image }}"
+            debug: true
+            nodeSelector:
+              node-role.kubernetes.io/worker: ""
+
+  - name: Check the suite result
+    shell: oc get suite rhcos4-stig-compliancesuite --no-headers | grep "NON-COMPLIANT" | wc -l
+    register: suite_result
+    until: suite_result.stdout|int == 1
+    retries: 10
+    delay: 60
+
+- name: Create Profile Bundle
+  block:
+  - name: Create Profile Bundle
+    kubernetes.core.k8s:
+      state: present
+      definition:
+        apiVersion: compliance.openshift.io/v1alpha1
+        kind: ProfileBundle
+        metadata:
+          name: rhcos4-disa-stig
+          namespace: openshift-compliance
+        spec:
+          contentFile: "{{ rhcos4_contentfile }}"
+          contentImage: "{{ content_image }}"
+
+  - name: Check the profile bundle status
+    shell: oc get ProfileBundle rhcos4-disa-stig | awk 'NR==2 {print $4}'
+    register: pbstatus
+    until: pbstatus.stdout == "VALID"
+    retries: 10
+    delay: 60
+
+- name: Create SSB
+  block:
+  - name: Create SSB
+    kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: compliance.openshift.io/v1alpha1
+          kind: ScanSettingBinding
+          metadata:
+            name: disa-stig-compliance
+            namespace: openshift-compliance
+          profiles:
+          - name: rhcos4-disa-stig-stig
+            kind: Profile
+            apiGroup: compliance.openshift.io/v1alpha1
+          settingsRef:
+            apiGroup: compliance.openshift.io/v1alpha1
+            kind: ScanSetting
+            name: default
+
+  - name: Check the suite result
+    shell: oc get suite disa-stig-compliance --no-headers | grep "NON-COMPLIANT" | wc -l
+    register: suite_result
+    until: suite_result.stdout|int == 1
+    retries: 10
+    delay: 60
+
+  - name: Verify compliance scan
+    shell: oc get compliancescan | grep "rhcos4-disa" | grep "NON-COMPLIANT" | wc -l
+    register: scan_result
+
+  - name: Ensure scan result is 2
+    debug:
+      msg: "Scan result count is {{ scan_result.stdout }}"
+    when: scan_result.stdout | int == 2
+
+- name: Display compliance check results
+  shell: >
+    oc get compliancecheckresults -l 'compliance.openshift.io/scan-name in (rhcos4-disa-stig-stig-worker)' -ojson |
+    jq -r '.items[] | "\(.status),\(.metadata.annotations[])"' | grep -v PASS | grep FAIL
+  register: failed_checks
+
+- name: Show failed compliance check results
+  debug:
+    var: failed_checks.stdout_lines
+
+- name: Apply Machine Configs
+  block:
+  - name: Create MC1
+    kubernetes.core.k8s:
+      state: present
+      definition: "{{ lookup('file', 'files/MC1.yml') | from_yaml }}"
+
+  - name: Wait for 2 minutes before checking MCP status
+    pause:
+      minutes: 2
+
+  - name: Check mcp status
+    shell: oc get mcp worker | awk 'NR==2 {print $3}'
+    register: mcpstatus
+    until: mcpstatus.stdout == 'True'
+    retries: 20
+    delay: 60
+
+  - name: Create MC2
+    kubernetes.core.k8s:
+      state: present
+      definition: "{{ lookup('file', 'files/MC2.yml') | from_yaml }}"
+
+  - name: Wait for 2 minutes before checking MCP status
+    pause:
+      minutes: 2
+
+  - name: Check mcp status
+    shell: oc get mcp worker | awk 'NR==2 {print $3}'
+    register: mcpstatus
+    until: mcpstatus.stdout == 'True'
+    retries: 20
+    delay: 60
+
+  - name: Create MC3
+    kubernetes.core.k8s:
+      state: present
+      definition: "{{ lookup('file', 'files/MC3.yml') | from_yaml }}"
+
+  - name: Wait for 2 minutes before checking MCP status
+    pause:
+      minutes: 2
+
+  - name: Check mcp status
+    shell: oc get mcp worker | awk 'NR==2 {print $3}'
+    register: mcpstatus
+    until: mcpstatus.stdout == 'True'
+    retries: 20
+    delay: 60
+
+  - name: Create MC4
+    kubernetes.core.k8s:
+      state: present
+      definition: "{{ lookup('file', 'files/MC4.yml') | from_yaml }}"
+
+  - name: Wait for 2 minutes before checking MCP status
+    pause:
+      minutes: 2
+
+  - name: Check mcp status
+    shell: oc get mcp worker | awk 'NR==2 {print $3}'
+    register: mcpstatus
+    until: mcpstatus.stdout == 'True'
+    retries: 20
+    delay: 60
+
+  - name: Create MC5
+    kubernetes.core.k8s:
+      state: present
+      definition: "{{ lookup('file', 'files/MC5.yml') | from_yaml }}"
+
+  - name: Wait for 2 minutes before checking MCP status
+    pause:
+      minutes: 2
+
+  - name: Check mcp status
+    shell: oc get mcp worker | awk 'NR==2 {print $3}'
+    register: mcpstatus
+    until: mcpstatus.stdout == 'True'
+    retries: 20
+    delay: 60
+
+- name: Rescan the RHCOS4 profiles
+  shell: oc -n openshift-compliance annotate compliancescans/rhcos4-disa-stig-stig-worker compliance.openshift.io/rescan=
+
+- name: Check the suite result
+  shell: oc get scan rhcos4-disa-stig-stig-worker --no-headers | grep "NON-COMPLIANT" | wc -l
+  register: scan_result
+  until: scan_result.stdout|int == 1
+  retries: 10
+  delay: 60
+
+- name: Display compliance check results
+  shell: >
+    oc get compliancecheckresults -l 'compliance.openshift.io/scan-name in (rhcos4-disa-stig-stig-worker)' -ojson |
+    jq -r '.items[] | "\(.status),\(.metadata.annotations[])"' | grep -v FAIL | grep PASS
+  register: pass_checks
+
+- name: Verify all usbguard rules should pass
+  debug:
+    var: pass_checks.stdout_lines
+
+- name: Remediate audit rules
+  block:
+  - name: Copy shell script to target
+    copy:
+      src: autoremediation-script.sh
+      dest: /tmp/autoremediation-script.sh
+      mode: '0755'
+
+  - name: Execute the shell script
+    shell: sh /tmp/autoremediation-script.sh
+    register: script_output
+
+  - name: Show script output
+    debug:
+      var: script_output.stdout_lines
+
+  - name: Wait for 2 minutes before checking MCP status
+    pause:
+      minutes: 2
+
+  - name: Wait for both MCPs to be updated
+    block:
+    - name: Wait for worker MCP to be True
+      shell: oc get mcp worker | awk 'NR==2 {print $3}'
+      register: worker_mcp_status
+      until: worker_mcp_status.stdout == 'True'
+      retries: 30
+      delay: 60
+
+    - name: Wait for master MCP to be True
+      shell: oc get mcp master | awk 'NR==2 {print $3}'
+      register: master_mcp_status
+      until: master_mcp_status.stdout == 'True'
+      retries: 30
+      delay: 60
+
+  - name: Rescan the RHCOS4 profiles
+    shell: oc -n openshift-compliance annotate compliancescans/rhcos4-disa-stig-stig-worker compliance.openshift.io/rescan=
+
+  - name: Wait for 1 minute to relaunch scan
+    pause:
+      minutes: 1
+
+  - name: Check the scan result
+    shell: oc get scan rhcos4-disa-stig-stig-worker --no-headers | awk '{print $3}'
+    register: result
+    until: result.stdout == 'COMPLIANT'
+    retries: 10
+    delay: 60 
+
+  - name: Check for failed compliance check results
+    shell: oc get compliancecheckresults -l 'compliance.openshift.io/scan-name in (rhcos4-disa-stig-stig-worker)' -ojson | jq -r '.items[] | "\(.status),\(.metadata.annotations[])"' | grep -v PASS | grep FAIL
+    register: failed_checks
+    failed_when: failed_checks.stdout != ""
+
+  - name: Confirm no failed compliance check results
+    debug:
+      msg: "No failed compliance check results found."
+
