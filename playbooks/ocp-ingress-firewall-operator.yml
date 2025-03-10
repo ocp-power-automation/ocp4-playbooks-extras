@@ -1,0 +1,5 @@
+---
+- name: Automate ingress firewall operator in OpenShift
+  hosts: bastion 
+  roles:
+  - ocp-ingress-firewall-operator

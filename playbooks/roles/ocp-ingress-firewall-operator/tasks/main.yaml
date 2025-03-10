@@ -1,0 +1,303 @@
+---
+# tasks file for playbooks/roles/ocp-ingress-firewall-operator
+
+- set_fact:
+    ingress_github_username: "{{ lookup('ansible.builtin.env','GITHUB_USERNAME') }}"
+    ingress_github_token: "{{ lookup('ansible.builtin.env','GITHUB_ACCESS_TOKEN') }}"
+
+# Check the health of Cluster Operators
+- name: Check if cluster operators and nodes are healthy
+  include_role:
+    name: check-cluster-health
+
+# Create ICSP & login to podman
+- name: Include the global pull-secret update role to extract podman-secret
+  include_role:
+    name: global-secret-update
+
+- name: Include role to create ImageContentSourcePolicy and CatalogSource
+  include_role:
+    name: set-custom-catalogsource
+  vars:
+    custom_catalogsource_name: "{{ ingress_catalogsource_name }}"
+    custom_catalogsource_display_name: "ingress_catalog"
+    custom_catalogsource_image: "{{ ingress_catalogsource_image }}"
+  when: ingress_catalogsource_image != '' and ingress_catalogsource_image != None
+
+- name: Verify creation of Catsrc
+  shell: oc get catsrc -A | grep "{{ ingress_catalogsource_name }}"
+  register: catsrc
+  until: catsrc.stdout|int == 0 and catsrc.stderr == ""
+  retries: 10
+  delay: 30
+
+- name: Verify creation of pods
+  command: "oc get pods -n openshift-marketplace -o jsonpath='{.items[?(@.metadata.name==\"{{ ingress_catalogsource_name }}\")].status.phase}'"
+  register: check_pods
+  failed_when: check_pods.rc != 0
+
+# Create Namespace for openshift-ingress-node-firewall operator
+- name: Create Namespace for Ingress Node Firewall Operator
+  kubernetes.core.k8s:
+    state: present
+    resource_definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        labels:
+          pod-security.kubernetes.io/enforce: privileged
+          pod-security.kubernetes.io/enforce-version: v1.24
+        name: "{{ ingress_namespace }}"
+
+# Create OperatorGroup for openshift-ingress-node-firewall operator
+- name: Create OperatorGroup for Ingress Node Firewall Operator
+  kubernetes.core.k8s:
+    state: present
+    resource_definition:
+      apiVersion: operators.coreos.com/v1
+      kind: OperatorGroup
+      metadata:
+        name: ingress-node-firewall-operators
+        namespace: openshift-ingress-node-firewall
+
+# Create Subscription for openshift-ingress-node-firewall operator
+- name: Create Subscription for Ingress Node Firewall Operator
+  kubernetes.core.k8s:
+    state: present
+    resource_definition:
+      apiVersion: operators.coreos.com/v1alpha1
+      kind: Subscription
+      metadata:
+        name: ingress-node-firewall-sub
+        namespace: "{{ ingress_namespace }}"
+      spec:
+        name: ingress-node-firewall
+        channel: stable
+        source: "{{ ingress_catalogsource_name }}"
+        sourceNamespace: openshift-marketplace
+        installPlanApproval: Automatic
+
+# Check Install-Plan of Operator
+- name: Check Ingress Node Firewall Operator progress
+  command: oc get ip -n "{{ ingress_namespace }}"
+  register: ip_status
+  until: ip_status.stdout|int == 0 and ip_status.stderr == ""
+  retries: 10
+  delay: 30
+  failed_when:
+    - ip_status.rc != 0  # Fail if the command fails
+    - ip_status.stdout == ""  # If no installation plan is found
+
+# Check the ClusterServiceVersion (CSV) for the Ingress-Firewall Operator
+- name: Check Ingress Node Firewall Operator Operator CSV
+  shell: oc get csv -A | grep "{{ ingress_namespace }}"
+  register: csv_status
+  failed_when: csv_status.rc != 0  # Fail if the command fails
+  when:
+    - ingress_namespace is defined
+
+# Check the pods 
+- name: Verify creation of pods
+  shell: oc get pods -n "{{ ingress_namespace }}" | grep Running
+  register: check_pods
+  until: check_pods.stdout|int == 0 and check_pods.stderr == ""
+  retries: 10
+  delay: 30
+  failed_when: check_pods.rc != 0
+
+# Create a IngressNodeFirewallConfig custom resource that will deploy the Operator’s daemon set
+- name: Create for Ingress Node Firewall Operator
+  kubernetes.core.k8s:
+    state: present
+    resource_definition:
+      apiVersion: ingressnodefirewall.openshift.io/v1alpha1
+      kind: IngressNodeFirewallConfig
+      metadata:
+        name: ingressnodefirewallconfig
+        namespace: "{{ ingress_namespace }}"
+        generation: 1
+        managedFields:
+          - apiVersion: ingressnodefirewall.openshift.io/v1alpha1
+            fieldsType: FieldsV1
+            fieldsV1:
+              'f:spec':
+                .: {}
+                'f:debug': {}
+                'f:nodeSelector':
+                  .: {}
+                  'f:node-role.kubernetes.io/worker': {}
+            manager: Mozilla
+            operation: Update
+          - apiVersion: ingressnodefirewall.openshift.io/v1alpha1
+            fieldsType: FieldsV1
+            fieldsV1:
+              'f:status':
+                .: {}
+                'f:conditions': {}
+            manager: manager
+            operation: Update
+            subresource: status
+      spec:
+        debug: false
+        nodeSelector:
+          node-role.kubernetes.io/worker: ''
+      status:
+        conditions:
+          - message: ''
+            reason: Available
+            status: 'True'
+            type: Available
+          - message: ''
+            reason: Progressing
+            status: 'False'
+            type: Progressing
+          - message: ''
+            reason: Degraded
+            status: 'False'
+            type: Degraded
+
+# Deploying Ingress Node Firewall rules object
+- name: Create for Ingress Node Firewall rules object
+  kubernetes.core.k8s:
+    state: present
+    resource_definition:
+      apiVersion: ingressnodefirewall.openshift.io/v1alpha1
+      kind: IngressNodeFirewall
+      metadata:
+        name: ingressnodefirewall
+        namespace: "{{ ingress_namespace }}"
+      spec:
+        interfaces:
+          - eth0
+        nodeSelector:
+        ingress:
+          - sourceCIDRs:
+              - 10.128.0.0/14
+            rules:
+              - order: 10
+                protocolConfig:
+                  protocol: ICMP
+                  icmp:
+                    icmpType: 8 # ICMP Echo request
+                action: Deny
+              - order: 20
+                protocolConfig:
+                  protocol: TCP
+                  tcp:
+                    ports: "8000-9000"
+                action: Deny
+          - sourceCIDRs:
+              - fc00:f853:ccd:e793::0/64
+            rules:
+              - order: 10
+                protocolConfig:
+                  protocol: ICMPv6
+                  icmpv6:
+                    icmpType: 128 # ICMPv6 Echo request
+                action: Deny
+
+# Deploying Zero trust Ingress Node Firewall rules object
+- name: Create Zero trust Ingress Node Firewall rules object
+  kubernetes.core.k8s:
+    state: present
+    resource_definition:
+      apiVersion: ingressnodefirewall.openshift.io/v1alpha1
+      kind: IngressNodeFirewall
+      metadata:
+        name: ingressnodefirewall-zero-trust
+        namespace: "{{ ingress_namespace }}"
+      spec:
+        interfaces:
+          - eth1
+        nodeSelector:
+        ingress:
+          - sourceCIDRs:
+              - 0.0.0.0/0
+            rules:
+              - order: 10
+                protocolConfig:
+                  protocol: TCP
+                  tcp:
+                    ports: 22
+                action: Allow
+              - order: 20
+                action: Deny
+
+- name: Verify ingressfirewall deployment
+  shell: "oc get ingressnodefirewall"
+  register: check_ig
+  failed_when: check_ig.rc != 0
+
+# Check the pods 
+- name: Verify creation of pods
+  shell: oc get pods -n "{{ ingress_namespace }}" | grep Running
+  register: check_pods
+  failed_when: check_pods.rc != 0
+
+# Check the crds
+- name: Verify creation of crds
+  shell: " oc get crds | grep ingressnodefirewall"
+  register: check_crds
+  failed_when: check_crds.rc != 0
+
+# Delete the Dual operator group
+- name: Delete Ingress Node Firewall OperatorGroup
+  kubernetes.core.k8s:
+    api_version: operators.coreos.com/v1
+    kind: OperatorGroup
+    name: ingress-node-firewall-operators
+    namespace: "{{ ingress_namespace }}"
+    state: absent
+
+# e2e test for Ingress Firewall Operator
+- name: Run e2e test cases
+  block:
+  - fail:
+      msg: "Please set the environment variables GITHUB_USERNAME and GITHUB_ACCESS_TOKEN"
+    when: github_username == "" and github_personal_access_token == ""
+
+  - name: Install dependencies for running e2e tests
+    dnf:
+      name: make
+      state: present
+
+  - name: Include role for installation of Go lang
+    include_role:
+      name: golang-installation
+    vars:
+      golang_tarball_url: "{{ ingress_go_tarball }}"
+      golang_installation_path: "/usr/local"
+
+  - name: Clone the opeshift-test-private repository
+    git:
+      repo: "https://{{ ingress_github_username }}:{{ ingress_github_token }}@github.com{{ ingress_e2e_github_repo | urlsplit('path') }}"
+      dest: "{{ ingress_directory }}/openshift-tests-private"
+      version: "{{ ingress_e2e_github_branch }}"
+
+  - name: Run make target
+    make:
+      chdir: "{{ ingress_directory }}/openshift-tests-private"
+      target: build
+
+  - name: Generate ingress Operators test cases list
+    shell: |
+      ./bin/extended-platform-tests run all --dry-run | grep "SDN infw" > tests.txt
+    args:
+      chdir: "{{ ingress_directory }}/openshift-tests-private"
+    ignore_errors: true
+
+  - name: Run ingress firewall e2e tests
+    shell: |
+      ./bin/extended-platform-tests run -f tests.txt -o {{ ingress_directory }}/e2e-output.txt > e2e_logs.txt
+    args:
+      chdir: "{{ ingress_directory }}/openshift-tests-private"
+    ignore_errors: true
+
+  - name: Re run failed tests 
+    script: "{{ role_path }}/files/run-e2e.sh"
+    args:
+      chdir: "{{ ingress_directory }}/openshift-tests-private"
+
+  environment: "{{ ingress_e2e_env }}"
+  ignore_errors: true
+  when: ingress_e2e
