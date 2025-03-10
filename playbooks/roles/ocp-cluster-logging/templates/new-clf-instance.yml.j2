@@ -1,0 +1,171 @@
+- name: Create an ClusterLogForwarder instance
+  k8s:
+    state: present
+    definition:
+      apiVersion: observability.openshift.io/v1
+      kind: ClusterLogForwarder
+      metadata:
+        name: collector
+        namespace: openshift-logging 
+      spec:
+        filters:
+          - name: my-app-label
+            openshiftLabels:
+              label: "{{ app_log_label }}"
+            type: openshiftLabels
+          - name: my-audit-label
+            openshiftLabels:
+              label: "{{ audit_log_label }}"
+            type: openshiftLabels
+          - name: my-infra-label
+            openshiftLabels:
+              label: "{{ infra_log_label }}"
+            type: openshiftLabels
+        outputs:
+{% if elasticsearch_server_url is defined %}
+          - name: es-user
+            type: elasticsearch
+            elasticsearch:
+              index: '{.log_type||"none"}'
+              tuning:
+                compression: zlib
+                deliveryMode: AtLeastOnce
+                maxRetryDuration: 30
+                maxWrite: 20M
+                minRetryDuration: 10
+              version: 8
+              url: "{{ elasticsearch_server_url }}" 
+{% endif %}
+{% if kafka_server_url is defined %}
+          - kafka:
+              brokers:
+              - "{{ kafka_server_url }}/{{ app_log_label }}"
+              topic: {{ app_log_label }}
+              tuning:
+                compression: snappy
+                delivery: atLeastOnce
+            name: kafka-app-logs
+            type: kafka
+          - kafka:
+              brokers:
+              - "{{ kafka_server_url }}/{{ audit_log_label }}"
+              topic: {{ audit_log_label }}
+              tuning:
+                compression: snappy
+                delivery: atLeastOnce
+            name: kafka-audit-logs
+            type: kafka
+          - kafka:
+              brokers:
+              - "{{ kafka_server_url }}/{{ infra_log_label }}"
+              topic: {{ infra_log_label }}
+              tuning:
+                compression: snappy
+                delivery: atLeastOnce
+            name: kafka-infra-logs
+            type: kafka
+{% endif %}
+{% if loki_server_url is defined %}
+          - loki:
+              tuning:
+                compression: snappy
+                deliveryMode: AtLeastOnce
+                maxWrite: 10M
+              url: "{{ loki_server_url }}"
+            name: loki-user
+            type: loki
+{% endif %}
+{% if cw_secret is defined %}
+          - name: cloudwatch-user
+            type: cloudwatch
+            cloudwatch:
+              authentication:
+                awsAccessKey:
+                  keyId:
+                    key: aws_access_key_id
+                    secretName: "{{ cw_secret }}"
+                  keySecret:
+                    key: aws_secret_access_key
+                    secretName: "{{ cw_secret }}"
+                type: awsAccessKey
+              groupName: 'ocp-logtest.{.log_type||"none-typed-logs"}'
+              region: "{{ aws_cw_region }}"
+{% endif %}
+        pipelines:
+        - name: application-logs
+          filterRefs:
+          - my-app-label
+          inputRefs: 
+          - application
+          outputRefs:
+{% if elasticsearch_server_url is defined %}
+          - es-user
+{% endif %}
+{% if kafka_server_url is defined %}
+          - kafka-app-logs
+{% endif %}
+{% if loki_server_url is defined %}
+          - loki-user
+{% endif %}
+{% if cw_secret is defined %}
+          - cloudwatch-user
+{% endif %}
+          parse: json 
+        - name: infrastructure-logs
+          filterRefs:
+          - my-infra-label 
+          inputRefs:
+          - infrastructure
+          outputRefs:
+{% if elasticsearch_server_url is defined %}
+          - es-user
+{% endif %}
+{% if kafka_server_url is defined %}
+          - kafka-infra-logs
+{% endif %}
+{% if loki_server_url is defined %}
+          - loki-user
+{% endif %}
+{% if cw_secret is defined %}
+          - cloudwatch-user
+{% endif %}
+          parse: json 
+        - name: audit-logs
+          filterRefs:
+          - my-audit-label 
+          inputRefs:
+          - audit
+          outputRefs:
+{% if elasticsearch_server_url is defined %}
+          - es-user
+{% endif %}
+{% if kafka_server_url is defined %}
+          - kafka-audit-logs
+{% endif %}
+{% if loki_server_url is defined %}
+          - loki-user
+{% endif %}
+{% if cw_secret is defined %}
+          - cloudwatch-user
+{% endif %}
+          parse: json 
+        serviceAccount:
+          name: logcollector
+  register: clf_cr
+
+- name: Check the logging Pods are restarting if CR for CLF has changed
+  block:
+    # check pods are in restarting state
+    - name: Check the logging Pods are restarting
+      shell: oc get pods -n openshift-logging --no-headers | awk '{if ($3 == "Terminating" ) print $1}' | wc -l
+      register: pods
+      until: pods.stdout|int > 0
+      retries: 20
+      delay: 5
+      ignore_errors: yes
+
+    - name: Delete PODs if not restarted Automatic
+      shell: oc delete pod $(kubectl get pods -n openshift-logging| grep 'collector' | awk '{print $1}') -n openshift-logging
+      when: pods.failed
+  when: clf_cr.changed
+
