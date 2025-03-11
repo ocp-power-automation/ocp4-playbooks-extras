@@ -491,3 +491,14 @@ ingress_go_tarball: https://dl.google.com/go/go1.22.1.linux-ppc64le.tar.gz
 ingress_e2e: true
 ingress_e2e_github_repo: "https://github.com/openshift/openshift-tests-private"
 ingress_e2e_github_branch: "master"
+
+#ocp-cpu-manager vars
+validate_cpum: false
+node_name: "worker-0"
+pod_namespace: "cpumanager-test"
+pod_cpu: 4
+openshift_tests_private_repository: "https://github.com/openshift/openshift-tests-private.git"
+openshift_tests_private_git_branch: "master"
+cpu_manager_directory: "/tmp/cpu-manager-test-logs"
+cpu_golang_tarball: "https://go.dev/dl/go1.24.1.linux-ppc64le.tar.gz"
+cpum_test_image: "gcr.io/google_containers/pause:3.2"

@@ -1,0 +1,4 @@
+- name: Validate CPU manager enablement and run e2e
+  hosts: bastion
+  roles:
+  - ocp-cpu-manager
