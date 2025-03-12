@@ -88,12 +88,12 @@
       check_mode: no
 
     - name: Build and push Nginx-helm operator image
-      command: make docker-build docker-push IMG="{{ helm_op_image }}"
+      command: make docker-build docker-push IMG="{{ HELM_OP_IMAGE }}"
       args:
         chdir: "{{ op_api_dir }}/helm-op"
 
     - name: Deploy helm based nginx operator
-      command: make deploy IMG="{{ helm_op_image }}"
+      command: make deploy IMG="{{ HELM_OP_IMAGE }}"
       args:
         chdir: "{{ op_api_dir }}/helm-op"
 
@@ -178,12 +178,12 @@
         state: present
 
     - name: Build and push memcached operator image
-      command: make docker-build docker-push IMG="{{ ansible_op_image }}"
+      command: make docker-build docker-push IMG="{{ ANSIBLE_OP_IMAGE }}"
       args:
         chdir: "{{ op_api_dir }}/ansible-op"
 
     - name: Deploy ansible based memcached operator
-      command: make deploy IMG="{{ ansible_op_image }}"
+      command: make deploy IMG="{{ ANSIBLE_OP_IMAGE }}"
       args:
         chdir: "{{ op_api_dir }}/ansible-op"    
 
@@ -268,7 +268,7 @@
       check_mode: no
 
     - name: Build and push memcached-go operator image
-      command: make docker-build docker-push IMG="{{ go_op_image }}" GOARCH=$(arch)
+      command: make docker-build docker-push IMG="{{ GO_OP_IMAGE }}" GOARCH=$(arch)
       args:
         chdir: "{{ op_api_dir }}/go-op"
 
@@ -278,7 +278,7 @@
         chdir: "{{ op_api_dir }}/go-op"
 
     - name: Deploy memcached-go operator
-      command: make deploy IMG="{{ go_op_image }}"
+      command: make deploy IMG="{{ GO_OP_IMAGE }}"
       args:
         chdir: "{{ op_api_dir }}/go-op"
 

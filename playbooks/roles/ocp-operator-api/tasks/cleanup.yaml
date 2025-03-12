@@ -6,6 +6,7 @@
       command: oc delete -f "{{ op_api_dir }}/helm-op/config/samples/helm_v1_nginx.yaml"
       args:
         chdir: "{{ op_api_dir }}/helm-op"
+      ignore_errors: true
 
     - name: Verify Nginx instance is deleted
       shell: oc get Nginx --no-headers | wc -l
@@ -18,11 +19,13 @@
       command: make undeploy IMG="{{ HELM_OP_IMAGE }}"
       args:
         chdir: "{{ op_api_dir }}/helm-op"
+      ignore_errors: true
 
     - name: Delete Memcached instance
       command: oc delete -f "{{ op_api_dir }}/ansible-op/config/samples/cache_v1_memcached.yaml"
       args:
         chdir: "{{ op_api_dir }}/go-op"
+      ignore_errors: true
 
     - name: Verify Memcached instance is deleted
       shell: oc get Memcached --no-headers | wc -l
@@ -35,11 +38,13 @@
       command: make undeploy IMG="{{ ANSIBLE_OP_IMAGE }}"
       args:
         chdir: "{{ op_api_dir }}/ansible-op"
+      ignore_errors: true
 
     - name: Delete MemcachedGo instance
       command: oc delete -f "{{ op_api_dir }}/go-op/config/samples/cache1_v1_memcachedgo.yaml"
       args:
         chdir: "{{ op_api_dir }}/go-op"
+      ignore_errors: true
 
     - name: Verify Memcached instance is deleted
       shell: oc get MemcachedGo --no-headers | wc -l
@@ -52,6 +57,7 @@
       command: make undeploy IMG="{{ GO_OP_IMAGE }}"
       args:
         chdir: "{{ op_api_dir }}/go-op"
+      ignore_errors: true
 
     - name: Delete the workspace
       file:
