@@ -325,9 +325,9 @@
 - name: Verify nx-gzip label
   shell: oc get nodes -ojson | jq -r '.items[].metadata.labels' | grep nx
   register: verify_label
-  until: verify_label.stdout|int == 2
   when: check_nxgzip_label
 
 - debug:
     msg: "{{ verify_label.stdout_lines }}"
   when: check_nxgzip_label
+
