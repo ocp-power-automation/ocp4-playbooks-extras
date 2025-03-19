@@ -1,0 +1,82 @@
+---
+# this file is used for cleaning up the cost management operator resources
+
+- name: Get the name of cluster service version for Cost Management Operator
+  shell: oc get csv -n costmanagement-metrics-operator --no-headers | awk '{ print $1 }'
+  register: cost_management_csv
+
+- name: Get the subscription name
+  shell: oc get subscription -n costmanagement-metrics-operator --no-headers | awk '{print $1}'
+  register: cost_management_subscription
+
+- name: Delete the subscription if exists
+  kubernetes.core.k8s:
+    api_version: operators.coreos.com/v1alpha1
+    state: absent
+    kind: Subscription
+    name: "{{ cost_management_subscription.stdout }}"
+    namespace: costmanagement-metrics-operator
+  when: cost_management_subscription.stdout|length > 0
+
+- name: Get the operator group name
+  shell: oc get operatorgroup -n costmanagement-metrics-operator --no-headers | awk '{print $1}'
+  register: cost_management_operator_group
+
+- name: Delete the operator group if exists
+  kubernetes.core.k8s:
+    api_version: operators.coreos.com/v1
+    state: absent
+    kind: OperatorGroup
+    name: "{{ cost_management_operator_group.stdout }}"
+    namespace: costmanagement-metrics-operator
+  when: cost_management_operator_group.stdout|length > 0
+
+- name: Delete the cluster service version if exists
+  kubernetes.core.k8s:
+    api_version: operators.coreos.com/v1alpha1
+    state: absent
+    kind: ClusterServiceVersion
+    name: "{{ cost_management_csv.stdout }}"
+    namespace: costmanagement-metrics-operator
+  when: cost_management_csv.stdout|length > 0
+
+- name: Check if all the pods has been deleted
+  shell: oc get pods -n costmanagement-metrics-operator --no-headers
+  register: cost_management_pods
+  until: cost_management_pods.stdout|int == 0
+  retries: 15
+  delay: 60
+
+- name: Get custom resource definitions
+  shell: oc get crd | awk '{print $1}'| grep costmanagement
+  register: cost_management_crds
+  ignore_errors: true
+
+- name: Delete the custom resource definition if exists
+  shell: oc delete crd {{ item }}
+  loop: "{{ cost_management_crds.stdout_lines }}"
+  when: cost_management_crds.stdout_lines|length > 0
+
+- name: Check if all the custom resource definitions has been deleted
+  shell: oc get crd | awk '{print $1}'| grep costmanagement
+  register: cost_management_crds
+  failed_when: cost_management_crds.stdout_lines|length != 0
+
+- name: Delete the Cost Management Operator if exists
+  kubernetes.core.k8s:
+    state: absent
+    kind: Operator
+    name: cost-management-operator.costmanagement-metrics-operator
+
+- name: Delete the namespace if exists
+  kubernetes.core.k8s:
+    state: absent
+    kind: Namespace
+    name: costmanagement-metrics-operator
+
+- name: Check if the namespace gets deleted
+  shell: oc get namespace --no-headers | grep costmanagement-metrics-operator | wc -l
+  register: cost_management_namespace
+  until: cost_management_namespace.stdout|int == 0
+  retries: 15
+  delay: 30

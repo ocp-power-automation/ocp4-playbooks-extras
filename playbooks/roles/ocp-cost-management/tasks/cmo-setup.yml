@@ -1,0 +1,59 @@
+---
+- name: Setup and Test Cost Management Metrics Operator
+  tasks:
+    - name: Create workspace directory
+      file:
+        path: "{{ cost_management_directory }"
+        state: directory
+
+    - name: Clone IQE Core repository
+      git:
+        repo: "git@gitlab.cee.redhat.com:insights-qe/iqe-core.git"
+        dest: "{{ cost_management_directory }}/iqe-core"
+
+    - name: Create Python virtual environment
+      command: python3 -m venv .iqe-venv
+      args:
+        chdir: "{{ cost_management_directory }}/iqe-core"
+
+    - name: Activate virtual environment and install dependencies
+      shell: |
+        source .iqe-venv/bin/activate
+        pip install -U pip setuptools wheel
+      args:
+        chdir: "{{ cost_management_directory }}/iqe-core"
+
+    - name: Set PIP global index URL
+      shell: |
+        pip config set global.index-url https://repository.engineering.redhat.com/nexus/repository/insights-qe/simple --site
+        pip config set global.index https://repository.engineering.redhat.com/nexus/repository/insights-qe-search/pypi --site
+      args:
+        chdir: "{{ cost_management_directory }}/iqe-core"
+
+    - name: Install IQE core with constraints
+      shell: |
+        source .iqe-venv/bin/activate
+        pip install -e . -c iqe/data/all_external_constraints.linux.python3.11.txt
+      args:
+        chdir: "{{ cost_management_directory }}/iqe-core"
+        
+    - name: Create plugin directory
+      file:
+        path: "{{ cost_management_directory }}/iqe-cost-management-plugin"
+        state: directory
+
+    - name: Check if IQE Cost Management Plugin is already cloned
+      stat:
+        path: "{{ cost_management_directory }}/iqe-cost-management-plugin/.git"
+      register: git_repo
+
+    - name: Clone IQE Cost Management Plugin with SSL verification disabled
+      shell: git -c http.sslVerify=false clone https://gitlab.cee.redhat.com/insights-qe/iqe-cost-management-plugin ~/iqe-workspace-dev/iqe-cost-management-plugin
+      when: not git_repo.stat.exists
+
+    - name: Install IQE Cost Management Plugin
+      shell: |
+        source .iqe-venv/bin/activate
+        iqe plugin install --editable .
+      args:
+        chdir: "{{ cost_management_directory }}/iqe-cost-management-plugin"

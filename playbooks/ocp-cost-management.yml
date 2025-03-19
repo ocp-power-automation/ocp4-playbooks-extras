@@ -1,0 +1,5 @@
+---
+- name: Installation of the Cost Management Operator and run e2e
+  hosts: bastion
+  roles:
+  - ocp-cost-management

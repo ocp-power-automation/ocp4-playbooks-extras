@@ -446,6 +446,7 @@ lso_channel: ""               #stable,alpha,beta
 lso_catalogsource_name: ""       #my-operator-catalog
 device_path: "" 
 
+
 # ocp-operator-api vars
 op_api_role_enable: false
 helm_op: false
@@ -491,3 +492,18 @@ ingress_go_tarball: https://dl.google.com/go/go1.22.1.linux-ppc64le.tar.gz
 ingress_e2e: true
 ingress_e2e_github_repo: "https://github.com/openshift/openshift-tests-private"
 ingress_e2e_github_branch: "master"
+
+# ocp-cost_management vars
+cost_management_enabled: false
+cost_management_directory: "~/iqe-workspace-dev"
+cost_management_catalogsource_image: ""         # "brew.registry.redhat.io/rh-osbs/iib:327237"
+cost_management_upgrade_channel: "stable"
+cost_management_e2e: false
+cost_management_e2e_github_repo: ""
+cost_management_e2e_github_branch: ""
+cost_management_github_username: ""
+cost_management_github_token: ""
+cost_management_cleanup: true
+cost_management_setup: false
+cost_management_test: false
+openshift_console_password: ""
