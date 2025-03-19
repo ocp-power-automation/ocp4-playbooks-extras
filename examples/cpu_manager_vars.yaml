@@ -1,0 +1,12 @@
+---
+
+#ocp-cpu-manager vars
+validate_cpum: false
+node_name: "worker-0"
+pod_cpu: 4
+pod_namespace: "cpumanager-test"
+openshift_tests_private_repository: "https://github.com/openshift/openshift-tests-private.git"
+openshift_tests_private_git_branch: "master"
+cpu_manager_directory: "/tmp/cpu-manager-test-logs"
+cpu_golang_tarball: "https://go.dev/dl/go1.24.1.linux-ppc64le.tar.gz"
+cpum_test_image: "gcr.io/google_containers/pause:3.2"

@@ -1,0 +1,252 @@
+# Cluster health check
+
+- set_fact:
+    github_username: "{{ lookup('ansible.builtin.env','GITHUB_USERNAME') }}"
+    github_personal_access_token: "{{ lookup('ansible.builtin.env','GITHUB_ACCESS_TOKEN') }}"
+
+- name: Invoke the role check-cluster-health to check cluster status
+  include_role:
+    name: check-cluster-health
+
+- name: Validate CPU manager
+  block:
+    - fail:
+        msg: "Please set the environment variables GITHUB_USERNAME and GITHUB_ACCESS_TOKEN"
+      when: github_username == "" and github_personal_access_token == ""
+
+    - name: Include role for installation of Go lang
+      include_role:
+        name: golang-installation
+      vars:
+        go_tarball: "{{ cpu_golang_tarball }}"
+        golang_path: "/usr/local"
+
+    - name: Create cpu_manager working directory
+      file:
+        path: "{{ cpu_manager_directory }}"
+        state: directory
+        mode: '0755'
+
+    - name: Label a worker node
+      command: oc label node {{ node_name }} cpumanager=true
+
+    - name: Label a worker mcp 
+      command: oc label mcp worker custom-kubelet=cpumanager-enabled
+
+    - name: Create a KubeletConfig for enabling the cpumanager on the worker node
+      k8s:
+        state: present
+        definition:
+          apiVersion: machineconfiguration.openshift.io/v1
+          kind: KubeletConfig
+          metadata:
+            name: cpumanager-enabled
+          spec:
+            machineConfigPoolSelector:
+              matchLabels:
+                custom-kubelet: cpumanager-enabled
+            kubeletConfig:
+              cpuManagerPolicy: static
+              cpuManagerReconcilePeriod: 5s
+
+    - name: Check if the node are rebooting
+      shell: oc get nodes --no-headers | grep -w 'SchedulingDisabled\|NotReady' | wc -l
+      register: updating_nodes
+      until: updating_nodes.stdout|int > 0
+      retries: 10
+      delay: 60
+
+    - name: Check if the node is in ready state
+      shell: oc get nodes --no-headers | grep -w 'SchedulingDisabled\|NotReady' | wc -l
+      register: updated_nodes
+      until: updated_nodes.stdout|int == 0
+      retries: 50
+      delay: 30
+        
+    - name: Check if machineconfigpool in updated state 
+      shell: |
+        oc get machineconfigpool -n openshift-machine-config-operator --no-headers | awk '{ print $3 $4 $5 }' | grep -w  -v TrueFalseFalse  |  wc -l
+      register: operand_count
+      until: operand_count.stdout|int == 0
+      retries: 50
+      delay: 30
+
+    - name: Verify if the KubeletConfig is merged in the worker MachineConfig
+      shell: oc get machineconfig 99-worker-generated-kubelet -o json | grep ownerReference -A7
+      register: worker_mc
+
+    - debug:
+        msg: "{{ worker_mc.stdout_lines }}"
+
+    - name: Display updated kubelet.conf in worker node
+      shell: oc debug node/{{ node_name }} -- cat cat /host/etc/kubernetes/kubelet.conf | grep cpuManager
+      register: kubelet_op
+
+    - debug:
+        msg: "{{ kubelet_op.stdout_lines }}"
+
+    - name: Create a namespace
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: "{{ pod_namespace }}"
+        
+    - name: Create a cpu manager pod
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Pod
+          metadata:
+            generateName: cpumanager-
+            namespace: "{{ pod_namespace }}"
+          spec:
+            securityContext:
+              runAsNonRoot: true
+              seccompProfile:
+                type: RuntimeDefault
+            containers:
+            - name: cpumanager
+              image: "{{ cpum_test_image }}"
+              resources:
+                requests:
+                  cpu: "{{ pod_cpu }}"
+                  memory: "1G"
+                limits:
+                  cpu: "{{ pod_cpu }}"
+                  memory: "1G"
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: [ALL]
+            nodeSelector:
+              cpumanager: "true"
+        
+    - name: Verfify cpu-manager test pod is running
+      shell: oc get pods -n {{ pod_namespace }} --no-headers | grep -v "Running\|Completed" | wc -l
+      register: cpum_test_pod
+      until: cpum_test_pod.stdout|int == 0 and cpum_test_pod.stderr == ""
+      retries: 10
+      delay: 30
+
+    - name: Verify whether the CPU has been exclusively assigned to the cpu-manager test pod
+      shell: oc describe node --selector='cpumanager=true' | grep -i cpumanager- -B2
+      register: pod_cpu_op 
+
+    - debug:
+        msg: "{{ pod_cpu_op.stdout_lines }}"
+
+    - name: Verify the c-groups are setup correctly
+      shell: systemctl status | grep -B5 pause
+      delegate_to: "{{ groups['workers'][0] }}"
+      register: cg_op
+
+    - debug:
+        msg: "{{ cg_op.stdout_lines }}"
+
+    - name: Get process id of the pause process
+      set_fact:
+        process_no: "{{ cg_op.stdout | regex_search('([0-9]+)\\s*/pause','\\1') | first }}" 
+
+    - name: Get allowed cpu list for the task
+      shell: grep ^Cpus_allowed_list /proc/{{ process_no }}/status
+      delegate_to: "{{ groups['workers'][0] }}"
+      register: cpu_al 
+
+    - debug:
+        msg: "{{ cpu_al.stdout_lines }}"
+
+    - name: Deploy another cpu-manager test pod with huge cpu request
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Pod
+          metadata:
+            generateName: cpumanager-
+            namespace: "{{ pod_namespace }}"
+          spec:
+            securityContext:
+              runAsNonRoot: true
+              seccompProfile:
+                type: RuntimeDefault
+            containers:
+            - name: cpumanager
+              image: "{{ cpum_test_image }}"
+              resources:
+                requests:
+                  cpu: "{{ pod_cpu }}"
+                  memory: "1G"
+                limits:
+                  cpu: "{{ pod_cpu }}"
+                  memory: "1G"
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: [ALL]
+            nodeSelector:
+              cpumanager: "true"        
+
+    - name: Verfify the new cpu-manager test pod is in pending state
+      shell: oc get pods -n {{ pod_namespace }} --no-headers | grep -v "Pending" | wc -l
+      register: cpum_test_pod
+      until: cpum_test_pod.stdout|int == 1 and cpum_test_pod.stderr == ""
+      retries: 10
+      delay: 30
+
+    - name: Describe pods in "{{ pod_namespace }}" namespace
+      command: oc get pods -n "{{ pod_namespace }}" -o yaml
+      register: cpum_pod_description
+
+    - name: Save the pods description in a file
+      copy:
+        content: "{{ cpum_pod_description.stdout }}"
+        dest: "{{ cpu_manager_directory }}/cpum-pods.yaml"
+
+    - name: Delete cpum pods in "{{ pod_namespace }}" namespace
+      command: oc delete pods --all -n "{{ pod_namespace }}"
+
+    - name: Check if the pods got deleted
+      shell: oc get pods -n "{{ pod_namespace }}" --no-headers | wc -l
+      register: cpum_pods
+      until: cpum_pods.stdout|int == 0
+      retries: 15
+      delay: 30
+
+    - name: Delete the namespace
+      kubernetes.core.k8s:
+        state: absent
+        kind: Namespace
+        name: "{{ pod_namespace }}"
+  
+    - name: Clone openshift-test-private repo
+      git:
+        repo: "https://{{ github_username }}:{{ github_personal_access_token }}@github.com/{{ openshift_tests_private_repository | urlsplit('path') }}"
+        dest: "{{ cpu_manager_directory }}/openshift-tests-private"
+        version: "{{ openshift_tests_private_git_branch }}"
+        force: true
+
+    - name: Run make build command at target
+      shell: make
+      environment: "{{ cpu_manager_env }}"
+      args:
+        chdir: "{{ cpu_manager_directory }}/openshift-tests-private"
+
+    - name: Check if the binary is created
+      shell: ls -hl {{ cpu_manager_directory }}/openshift-tests-private/bin/extended-platform-tests | wc -l
+      args:
+        chdir: "{{ cpu_manager_directory }}/openshift-tests-private"
+      register: bin_output
+      failed_when: bin_output.stdout|int != 1
+
+    - name: Run the e2e test command
+      shell: ./bin/extended-platform-tests run all --dry-run | grep "51417" | 
+        ./bin/extended-platform-tests run -f - -o ../cpum-e2e-private-logs.txt
+      args:
+        chdir: "{{ cpu_manager_directory }}/openshift-tests-private"
+      environment: "{{ cpu_manager_env }}"
+
+  when: validate_cpum
