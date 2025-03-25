@@ -47,6 +47,7 @@ This repository consists of additional ansible playbooks for the following:
 1. Kube burner workload
 1. Validate Scheduler-Plugins
 1. Deploy Ingress Firewall Operator and run e2e.
+1. Validate CPU manager feature and run e2e.
 
 ## Assumptions:
 
