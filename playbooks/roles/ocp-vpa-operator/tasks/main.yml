@@ -151,7 +151,7 @@
   block:
   # Verify the operator installation.
   - name: Verify the operator installation
-    shell: oc get csv -n openshift-vertical-pod-autoscaler --no-headers | awk '{ if (($1 ~ /^verticalpodautoscaler/) && $NF=="Succeeded") print $1 }'| wc -l
+    shell: oc get csv -n openshift-vertical-pod-autoscaler --no-headers | awk '{ if (($1 ~ /^vertical-?pod-?autoscaler/) && $NF=="Succeeded") print $1 }'| wc -l
     register: operators
     until: operators.stdout|int == 1
     retries: 15
@@ -169,7 +169,7 @@
   - name: Verify service count
     shell: oc get service -n openshift-vertical-pod-autoscaler --no-headers | wc -l
     register: vpa_service
-    until: vpa_service.stdout|int == 1
+    until: vpa_service.stdout|int == 2
     retries: 15
     delay: 60
 
