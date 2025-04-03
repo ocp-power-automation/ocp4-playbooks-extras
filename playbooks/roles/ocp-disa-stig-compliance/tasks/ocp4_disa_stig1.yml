@@ -1,0 +1,282 @@
+---
+- name: Create Profile Bundle
+  block:
+  - name: Create Profile Bundle
+    kubernetes.core.k8s:
+      state: present
+      definition:
+        apiVersion: compliance.openshift.io/v1alpha1
+        kind: ProfileBundle
+        metadata:
+          name: ocp4-disa-stig
+          namespace: openshift-compliance
+        spec:
+          contentFile: "{{ ocp4_contentfile }}"
+          contentImage: "{{ content_image }}"
+
+  - name: Check the profile bundle status
+    shell: oc get ProfileBundle ocp4-disa-stig | awk 'NR==2 {print $4}'
+    register: pbstatus
+    until: pbstatus.stdout == "VALID"
+    retries: 10
+    delay: 60
+
+- name: Create SSB
+  block:
+  - name: Create SSB
+    kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: compliance.openshift.io/v1alpha1
+          kind: ScanSettingBinding
+          metadata:
+            name: ocp4-disa-stig-compliance
+            namespace: openshift-compliance
+          profiles:
+          - name: ocp4-disa-stig-stig-node
+            kind: Profile
+            apiGroup: compliance.openshift.io/v1alpha1
+          - name: ocp4-disa-stig-stig
+            kind: Profile
+            apiGroup: compliance.openshift.io/v1alpha1
+          settingsRef:
+            apiGroup: compliance.openshift.io/v1alpha1
+            kind: ScanSetting
+            name: default
+
+  - name: Check the suite result
+    shell: oc get suite ocp4-disa-stig-compliance --no-headers | grep "NON-COMPLIANT" | wc -l
+    register: suite_result
+    until: suite_result.stdout|int == 1
+    retries: 10
+    delay: 60
+
+  - name: Verify compliance scan
+    shell: oc get compliancescan | grep "ocp4-disa-stig-stig" | grep "NON-COMPLIANT" | wc -l
+    register: scan_result
+
+  - name: Ensure scan result is 3
+    debug:
+      msg: "Scan result count is {{ scan_result.stdout }}"
+    when: scan_result.stdout | int == 3
+
+  - name: Remediate rule api-server-encryption-provider-cipher
+    debug:
+      msg: "Remediate rule api-server-encryption-provider-cipher"
+
+  - name: Create patch.yaml
+    copy:
+      dest: /tmp/patch.yaml
+      content: |
+        spec:
+          audit:
+            profile: Default
+          encryption:
+            type: aesgcm
+
+  - name: Patch the apiserver using oc patch
+    shell: oc patch apiserver cluster --type=merge --patch "$(cat /tmp/patch.yaml)"
+
+  - name: Verify resources are successfully encrypted
+    block:
+    - name: Verify OpenShift API server encryption status
+      shell: |
+        oc login -u kubeadmin -p $(cat /root/openstack-upi/auth/kubeadmin-password) || true
+        oc get openshiftapiserver -o=jsonpath='{range .items[0].status.conditions[?(@.type=="Encrypted")]}{.reason}{"\n"}{.message}{"\n"}'
+      register: apiserver_res
+      until: "'EncryptionCompleted' in apiserver_res.stdout"
+      retries: 25
+      delay: 60
+
+    - name: Verify Kubernetes API server encryption status
+      shell: |
+        oc login -u kubeadmin -p $(cat /root/openstack-upi/auth/kubeadmin-password) || true
+        oc get kubeapiserver -o=jsonpath='{range .items[0].status.conditions[?(@.type=="Encrypted")]}{.reason}{"\n"}{.message}{"\n"}'
+      register: kapiserver_res
+      until: "'EncryptionCompleted' in kapiserver_res.stdout"
+      retries: 25
+      delay: 60
+
+    - name: Verify Authentication operator encryption status
+      shell: |
+        oc login -u kubeadmin -p $(cat /root/openstack-upi/auth/kubeadmin-password) || true
+        oc get authentication.operator.openshift.io -o=jsonpath='{range .items[0].status.conditions[?(@.type=="Encrypted")]}{.reason}{"\n"}{.message}{"\n"}'
+      register: auth_res
+      until: "'EncryptionCompleted' in auth_res.stdout"
+      retries: 25
+      delay: 60
+
+  - name: Rerun scans
+    shell: oc -n openshift-compliance annotate compliancescans/ocp4-disa-stig-stig compliance.openshift.io/rescan=
+
+  - name: Wait for 1 minute to relaunch scans
+    pause:
+      minutes: 1
+
+  - name: Check the scan result
+    shell: oc get scan ocp4-disa-stig-stig --no-headers | awk '{print $3}'
+    register: result
+    until: result.stdout == 'NON-COMPLIANT'
+    retries: 10
+    delay: 60 
+
+  - name: Verify rule api-server-encryption-provider-cipher should pass
+    shell: oc get compliancecheckresult -n openshift-compliance | grep api-server-encryption-provider-cipher | awk '{print $2}'
+    register: failed_checks
+    failed_when: failed_checks.stdout != "PASS"
+
+  - name: Remediate rule classification-banner
+    debug:
+      msg: "Remediate rule classification-banner"
+
+  - name: Create a suite
+    kubernetes.core.k8s:
+      state: present
+      definition:
+        apiVersion: compliance.openshift.io/v1alpha1
+        kind: ComplianceSuite
+        metadata:
+          name: ds-debug
+          namespace: openshift-compliance
+        spec:
+          scans:
+          - name: ds-debug-scan
+            scanType: Platform
+            profile: xccdf_org.ssgproject.content_profile_stig
+            content: ssg-ocp4-ds.xml
+            contentImage: ghcr.io/complianceascode/k8scontent:latest
+            debug: true
+            rule: xccdf_org.ssgproject.content_rule_classification_banner 
+
+  - name: Verify suite status
+    shell: oc get suite ds-debug --no-headers | grep "NON-COMPLIANT" | wc -l
+    register: suite_result
+    until: suite_result.stdout|int == 1
+    retries: 10
+    delay: 60
+
+  - name: Create ConsoleNotification
+    kubernetes.core.k8s:
+      state: present
+      definition:
+        apiVersion: console.openshift.io/v1
+        kind: ConsoleNotification
+        metadata:
+          name: classification-banner
+          namespace: openshift-compliance
+        spec:
+          text: Unclassified ##Classification Level
+          location: BannerTopBottom ##Other options are BannerBottom, BannerTopBottom
+          color: '#FFFFFF' ##Hexcode for white text color
+          backgroundColor: '#008000' ##Hexcode for banner background color
+
+  - name: Rerun scans
+    shell: oc -n openshift-compliance annotate compliancescans/ocp4-disa-stig-stig compliance.openshift.io/rescan=
+
+  - name: Wait for 1 minute to relaunch scans
+    pause:
+      minutes: 1
+
+  - name: Check the scan result
+    shell: oc get scan ocp4-disa-stig-stig --no-headers | awk '{print $3}'
+    register: result
+    until: result.stdout == 'NON-COMPLIANT'
+    retries: 10
+    delay: 60
+
+  - name: Verify rule classification-banner should pass
+    shell: oc get compliancecheckresult -n openshift-compliance | grep  stig-classification-banner | awk '{print $2}'
+    register: failed_checks
+    failed_when: failed_checks.stdout != "PASS"
+
+  - name: Remediate rule configure-network-policies-namespaces
+    debug:
+      msg: "Remediate rule configure-network-policies-namespaces"
+
+  - name: Copy shell script to target
+    copy:
+      src: list_namespaces_without_network_policies.sh
+      dest: /tmp/list_namespaces_without_network_policies.sh
+      mode: '0755'
+
+  - name: Execute the shell script
+    shell: sh /tmp/list_namespaces_without_network_policies.sh
+    register: script_output	  
+
+  - name: Show script output
+    debug:
+      var: script_output.stdout_lines
+
+  - name: Create Network policies
+    kubernetes.core.k8s:
+      state: present
+      definition:
+      - apiVersion: v1
+        kind: ResourceQuota
+        metadata:
+          name: storage-consumption
+          namespace: "{{ item }}"
+        spec:
+          hard:
+            bronze.storageclass.storage.k8s.io/persistentvolumeclaims: "0"
+            bronze.storageclass.storage.k8s.io/requests.storage: "0"
+            gold.storageclass.storage.k8s.io/requests.storage: 10Gi
+            persistentvolumeclaims: "10"
+            requests.storage: 50Gi
+            silver.storageclass.storage.k8s.io/persistentvolumeclaims: "5"
+            silver.storageclass.storage.k8s.io/requests.storage: 20Gi
+
+      - apiVersion: networking.k8s.io/v1
+        kind: NetworkPolicy
+        metadata:
+          name: allow-from-openshift-ingress
+          namespace: "{{ item }}"
+        spec:
+          ingress:
+            - from:
+                - namespaceSelector:
+                    matchLabels:
+                      network.openshift.io/policy-group: ingress
+          podSelector: {}
+          policyTypes:
+            - Ingress
+
+      - apiVersion: networking.k8s.io/v1
+        kind: NetworkPolicy
+        metadata:
+          name: allow-from-same-namespace
+          namespace: "{{ item }}"
+        spec:
+          ingress:
+            - from:
+                - podSelector: {}
+          podSelector: {}
+          policyTypes:
+            - Ingress
+    loop:
+      - nfs-provisioner
+      - powervm-rmc
+
+  - name: Pause for 1 minute
+    pause:
+      minutes: 1
+
+  - name: Rerun scans
+    shell: oc -n openshift-compliance annotate compliancescans/ocp4-disa-stig-stig compliance.openshift.io/rescan=
+
+  - name: Wait for 1 minute to relaunch scans
+    pause:
+      minutes: 1
+
+  - name: Check the scan result
+    shell: oc get scan ocp4-disa-stig-stig --no-headers | awk '{print $3}'
+    register: result
+    until: result.stdout == 'NON-COMPLIANT'
+    retries: 10
+    delay: 60
+
+  - name: Verify rule configure-network-policies-namespaces should pass
+    shell: oc get compliancecheckresult -n openshift-compliance | grep  configure-network-policies-namespaces | awk '{print $2}'
+    register: failed_checks
+    failed_when: failed_checks.stdout != "PASS"		 
+
