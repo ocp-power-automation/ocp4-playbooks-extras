@@ -2,13 +2,13 @@
 apiVersion: operators.coreos.com/v1alpha1
 kind: CatalogSource
 metadata:
-  name: elasticsearch
+  name: loki
   namespace: openshift-marketplace
 spec:
   sourceType: grpc
   publisher: redhat
-  displayName: Red Hat Operators for elasticsearch
-  image: "{{ elasticsearch_clf_cs }}"
+  displayName: Red Hat Operators for loki
+  image: "{{ loki_clf_cs }}"
 
 ---
 apiVersion: operators.coreos.com/v1alpha1

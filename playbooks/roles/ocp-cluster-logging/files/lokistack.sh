@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-lokistack_name="${1:-lokistack-sample}"
+lokistack_name="${1:-lokistack-log}"
 lokistack_namespace="${2:-openshift-logging}"
 lokistack_route=$(oc get route ${lokistack_name} -n ${lokistack_namespace} -o json |jq '.spec.host' -r)
 

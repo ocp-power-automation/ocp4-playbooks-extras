@@ -16,7 +16,7 @@
     register: icsp_cnt
 
   - name: Check if the CatalogSource exists
-    shell:  oc get CatalogSource -n openshift-marketplace | grep "cluster-logging\|elasticsearch" |wc -l
+    shell:  oc get CatalogSource -n openshift-marketplace | grep "cluster-logging\|elasticsearch\|loki" | wc -l
     register: catalog_src_cnt
 
   - name: Delete ImageContentSourcePolicy if it exists
@@ -24,19 +24,19 @@
     when: icsp_cnt.stdout|int == 1
 
   - name: Delete CatalogSource if it exists
-    shell: oc delete CatalogSource elasticsearch cluster-logging -n openshift-marketplace
-    when: catalog_src_cnt.stdout|int == 2
+    shell: oc delete CatalogSource {{ catalog_src_cnt.stdout }} -n openshift-marketplace
+    when: catalog_src_cnt.stdout|int > 0
 
   - name: Set disableAllDefaultSources to false
     shell: |
       oc patch operatorhub.config.openshift.io/cluster -p='{"spec":{"disableAllDefaultSources":false}}' --type=merge
 
 # Check ClusterLogForwarder instance and delete if it exist
-- name: Check if the ClutserLogForwarder instance exist
+- name: Check if the ClusterLogForwarder instance exist
   shell: oc get ClusterLogForwarder -n openshift-logging | wc -l
   register: check_clf
 
-- name: Delete ClutserLogForwarder instance if it exists
+- name: Delete ClusterLogForwarder instance if it exists
   shell: oc delete ClusterLogForwarder instance -n openshift-logging
   when: check_clf.stdout|int != 0
 
@@ -55,8 +55,17 @@
   register: check_lokistack
 
 - name: Delete lokistack instance if it exists
-  shell: oc delete lokistack {{ check_lokistack }} -n openshift-logging
-  when: check_lokistack.stdout|int != 0
+  shell: oc delete lokistack {{ check_lokistack.stdout }} -n openshift-logging
+  when: check_lokistack.stdout|length > 0
+
+# Check and delete service account for log collection
+- name: Check the service account exists
+  shell: oc get serviceaccount -n openshift-logging | grep logcollector | awk 'NR==1{print $1}'
+  register: log_sa
+
+- name: Delete the service account
+  shell: oc delete serviceaccount {{ log_sa.stdout }} -n openshift-logging
+  when: log_sa.stdout|length > 0
 
 # Check and delete Elasticsearch subscription if it exists
 - name: Check if the Elasticsearch subscription exists
@@ -111,3 +120,20 @@
 - name: Delete Loki operator if it exists
   shell: oc delete clusterserviceversion {{ loki_csv.stdout }} -n openshift-operators-redhat
   when: loki_csv.stdout|length > 0
+
+# Delete the Operator groups
+- name: Check CLO operator group
+  shell: oc get operatorgroup -n openshift-logging | grep cluster-logging | awk 'NR==1{print $1}'
+  register: clo_og
+
+- name: Delete CLO operator group
+  shell: oc delete operatorgroup {{ clo_og.stdout }} -n openshift-logging
+  when: clo_og.stdout|length > 0
+
+- name: Check Loki operator group
+  shell: oc get operatorgroup -n openshift-operators-redhat | grep openshift-operators-redhat | awk 'NR==1{print $1}'
+  register: loki_og
+
+- name: Delete Loki operator group
+  shell: oc delete operatorgroup {{ loki_og.stdout }} -n openshift-operators-redhat
+  when: loki_og.stdout|length > 0

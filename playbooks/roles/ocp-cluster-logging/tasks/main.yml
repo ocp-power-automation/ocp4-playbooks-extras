@@ -36,7 +36,7 @@
   when: cluster_log_forwarder
 
 # Custom ImageContentSourcePolicy and CatalogSource
-- name: Create ImageContentSourcePolicy and CatalogSource
+- name: Create ImageContentSourcePolicy and CatalogSource for CLO less than or equal to 5.8
   block: 
   - name: Create CatalogSource
     template:
@@ -67,18 +67,18 @@
     - elasticsearch_clf_cs != None and clusterlogging_clf_cs != None
     - clo_version | float <= 5.8
 
-- name: Create ImageContentSourcePolicy and CatalogSource
+- name: Create ImageContentSourcePolicy and CatalogSource for CLO greater than 5.8
   block: 
   - name: Create CatalogSource
     template:
-      src: "{{ role_path }}/templates/CatalogSource.yaml.j2"
-      dest: "{{ role_path }}/files/CatalogSource.yml"
+      src: "{{ role_path }}/templates/NewCatalogSource.yaml.j2"
+      dest: "{{ role_path }}/files/NewCatalogSource.yml"
 
   - name: Run ImageContentSourcePolicy
     shell: oc apply -f "{{ role_path }}/files/ImageContentSourcePolicy.yml"
      
   - name: Run CatalogSource
-    shell: oc apply -f "{{ role_path }}/files/CatalogSource.yml"
+    shell: oc apply -f "{{ role_path }}/files/NewCatalogSource.yml"
  
   - name: Check ImageContentSourcePolicy and CatalogSource added
     shell:  oc get CatalogSource -n openshift-marketplace | grep "cluster-logging\|loki" |wc -l
@@ -96,70 +96,72 @@
   when: 
     - loki_clf_cs != '' and clusterlogging_clf_cs != ''  
     - loki_clf_cs != None and clusterlogging_clf_cs != None
-    - clo_version | float >= 5.9
+    - clo_version | float > 5.8
 
 # Default CatalogSource
-- name: Use default sources
-  block: 
-  - name: Check if the ImageContentSourcePolicy exists
-    shell: oc get ImageContentSourcePolicy | grep brew-registry | wc -l
-    register: icsp
+#- name: Use default sources
+#  block: 
+#  - name: Check if the ImageContentSourcePolicy exists
+#    shell: oc get ImageContentSourcePolicy | grep brew-registry | wc -l
+#    register: icsp
+#
+#  - name: Check if the CatalogSource exists
+#    shell:  oc get CatalogSource -n openshift-marketplace | grep "cluster-logging\|elasticsearch" |wc -l
+#    register: output
+#
+#  - name: Delete ImageContentSourcePolicy if it exists
+#    shell: oc delete ImageContentSourcePolicy brew-registry
+#    when: icsp.stdout|int == 1
+#
+#  - name: Delete CatalogSource if it exists
+#    shell: oc delete CatalogSource elasticsearch cluster-logging -n openshift-marketplace
+#    when: output.stdout|int == 2
+#
+#  - name: Set disableAllDefaultSources to false
+#    shell: |
+#      oc patch operatorhub.config.openshift.io/cluster -p='{"spec":{"disableAllDefaultSources":false}}' --type=merge
+#
+#  - name: Set fact variable for subscription
+#    set_fact:
+#      elasticsearch_op_source: "redhat-operators"
+#      cluster_logging_op_source: "redhat-operators"
+#  when: >
+#        (elasticsearch_clf_cs == "" or clusterlogging_clf_cs == "") or
+#        (clusterlogging_clf_cs == None or elasticsearch_clf_cs == None) and
+#        (clo_version | float <= 5.8)
+#
+#
+#- name: Use default sources
+#  block: 
+#  - name: Check if the ImageContentSourcePolicy exists
+#    shell: oc get ImageContentSourcePolicy | grep brew-registry | wc -l
+#    register: icsp
+#
+#  - name: Check if the CatalogSource exists
+#    shell:  oc get CatalogSource -n openshift-marketplace | grep "cluster-logging\|loki" |wc -l
+#    register: output
+#
+#  - name: Delete ImageContentSourcePolicy if it exists
+#    shell: oc delete ImageContentSourcePolicy brew-registry
+#    when: icsp.stdout|int == 1
+#
+#  - name: Delete CatalogSource if it exists
+#    shell: oc delete CatalogSource loki cluster-logging -n openshift-marketplace
+#    when: output.stdout|int == 2
+#
+#  - name: Set disableAllDefaultSources to false
+#    shell: |
+#      oc patch operatorhub.config.openshift.io/cluster -p='{"spec":{"disableAllDefaultSources":false}}' --type=merge
+#
+#  - name: Set fact variable for subscription
+#    set_fact:
+#      loki_op_source: "redhat-operators"
+#      cluster_logging_op_source: "redhat-operators"
+#  when: >
+#        (loki_clf_cs == "" or clusterlogging_clf_cs == None) or
+#        (clusterlogging_clf_cs == "" or loki_clf_cs == None) and
+#        (clo_version | float > 5.8)
 
-  - name: Check if the CatalogSource exists
-    shell:  oc get CatalogSource -n openshift-marketplace | grep "cluster-logging\|elasticsearch" |wc -l
-    register: output
-
-  - name: Delete ImageContentSourcePolicy if it exists
-    shell: oc delete ImageContentSourcePolicy brew-registry
-    when: icsp.stdout|int == 1
-
-  - name: Delete CatalogSource if it exists
-    shell: oc delete CatalogSource elasticsearch cluster-logging -n openshift-marketplace
-    when: output.stdout|int == 2
-
-  - name: Set disableAllDefaultSources to false
-    shell: |
-      oc patch operatorhub.config.openshift.io/cluster -p='{"spec":{"disableAllDefaultSources":false}}' --type=merge
-
-  - name: Set fact variable for subscription
-    set_fact:
-      elasticsearch_op_source: "redhat-operators"
-      cluster_logging_op_source: "redhat-operators"
-  when: >
-        (elasticsearch_clf_cs == "" or clusterlogging_clf_cs == "") or
-        (clusterlogging_clf_cs == None or elasticsearch_clf_cs == None) or 
-        clo_version | float <= 5.8
-
-- name: Use default sources
-  block: 
-  - name: Check if the ImageContentSourcePolicy exists
-    shell: oc get ImageContentSourcePolicy | grep brew-registry | wc -l
-    register: icsp
-
-  - name: Check if the CatalogSource exists
-    shell:  oc get CatalogSource -n openshift-marketplace | grep "cluster-logging\|loki" |wc -l
-    register: output
-
-  - name: Delete ImageContentSourcePolicy if it exists
-    shell: oc delete ImageContentSourcePolicy brew-registry
-    when: icsp.stdout|int == 1
-
-  - name: Delete CatalogSource if it exists
-    shell: oc delete CatalogSource loki cluster-logging -n openshift-marketplace
-    when: output.stdout|int == 2
-
-  - name: Set disableAllDefaultSources to false
-    shell: |
-      oc patch operatorhub.config.openshift.io/cluster -p='{"spec":{"disableAllDefaultSources":false}}' --type=merge
-
-  - name: Set fact variable for subscription
-    set_fact:
-      loki_op_source: "redhat-operators"
-      cluster_logging_op_source: "redhat-operators"
-  when: >
-        (loki_clf_cs == "" or clusterlogging_clf_cs == None) or
-        (clusterlogging_clf_cs == "" or loki_clf_cs == None) or
-        clo_version | float >= 5.9
      
 # Check if default storage class has exists
 - name: Check if default storage class has exists
@@ -253,7 +255,7 @@
   loop:
   - { name: 'cluster-logging', namespace: 'openshift-logging', channel: "{{cluster_logging_channel}}" , cs_src: "{{cluster_logging_op_source}}" }
   - { name: 'loki-operator', namespace: 'openshift-operators-redhat', channel: "{{loki_channel}}", cs_src: "{{loki_op_source}}" }
-  when: clo_version | float >= 5.9
+  when: clo_version | float > 5.8
 
 # Verify the operator installation.
 - name: Verify the operator installation
@@ -314,20 +316,20 @@
   shell: kubectl wait --all  --namespace=test-logging --for=condition=Ready pods --timeout=180s
 
 # Clone and deploy acmeair-mainservice-java app in acme-air namespace
-- name: Clone acmeair-mainservice-java repo
-  git:
-    repo: https://github.com/ocp-power-demos/acmeair-mainservice-java.git
-    dest: /root/acmeair-mainservice-java/
-
-- name: Deployment of acmeair-mainservice-java pods
-  shell: |
-    oc project default
-    sh /root/acmeair-mainservice-java/scripts/deployToOpenshift.sh
-    kubectl wait --all  --namespace=acme-air --for=condition=Ready pods --timeout=300s
-
-- name: Pause for 1 minutes to get new logs 
-  pause:
-    minutes: 1
+#- name: Clone acmeair-mainservice-java repo
+#  git:
+#    repo: https://github.com/ocp-power-demos/acmeair-mainservice-java.git
+#    dest: /root/acmeair-mainservice-java/
+#
+#- name: Deployment of acmeair-mainservice-java pods
+#  shell: |
+#    oc project default
+#    sh /root/acmeair-mainservice-java/scripts/deployToOpenshift.sh
+#    kubectl wait --all  --namespace=acme-air --for=condition=Ready pods --timeout=300s
+#
+#- name: Pause for 1 minutes to get new logs 
+#  pause:
+#    minutes: 1
 
 # Create CLF instance 
 - name: Create an ClusterLogForwarder instance 

@@ -115,7 +115,7 @@
     #Make lokistack.sh file executable
     - name: Give executable permissions for lokistack.sh file
       file:
-        path: /root/ocp4-playbooks-extras/playbooks/roles/ocp-cluster-logging/files/lokistack.sh
+        path: "{{ role_path }}/files/lokistack.sh"
         mode: '0555'
         state: file
 
@@ -123,7 +123,7 @@
     - name: Save the logs for lokistack instance
       shell: |
         mkdir -p {{ cl_log_dir }}/lokistack
-        /root/ocp4-playbooks-extras/playbooks/roles/ocp-cluster-logging/files/lokistack.sh          
+        {{ role_path }}/files/lokistack.sh          
 
     # Save the logs on external Syslog system and fecth on bastion
     - block:

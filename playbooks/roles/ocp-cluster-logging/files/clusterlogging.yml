@@ -3,6 +3,8 @@
 - set_fact:
     collector_type: "{{ log_collector_type | default('fluentd', true) }}"
     clo_version: "{{ cluster_logging_channel | regex_search('\\d+\\.\\d+') | float }}"
+    log_labels: "{{ log_label | default('test-clf', true) }}"
+
 # Check if the ClusterLogging CR is exists
 - name: Check if the ClusterLogging instance exists
   shell: oc get ClusterLogging -n openshift-logging | wc -l
@@ -78,7 +80,7 @@
         logStore:
           type: "lokistack"
           lokistack:
-            name: lokistack-sample
+            name: lokistack-log
         collection:
           logs: "{{ collector_spec | from_yaml }}"
   vars:
@@ -158,7 +160,7 @@
       apiVersion: loki.grafana.com/v1
       kind: LokiStack
       metadata:
-        name: lokistack-sample
+        name: lokistack-log
         namespace: openshift-logging
       spec:
         size: 1x.small
@@ -188,7 +190,7 @@
       apiVersion: loki.grafana.com/v1
       kind: LokiStack
       metadata:
-        name: lokistack-sample
+        name: lokistack-log
         namespace: openshift-logging
       spec:
         size: 1x.demo
@@ -251,12 +253,12 @@
                 token:
                   from: serviceAccount
               target:
-                name: lokistack-sample
+                name: lokistack-log
                 namespace: openshift-logging
             name: lokistack
             tls:
               ca:
-                configMapName: lokistack-sample-gateway-ca-bundle
+                configMapName: lokistack-log-gateway-ca-bundle
                 key: service-ca.crt
             type: lokiStack
         pipelines:
