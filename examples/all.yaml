@@ -314,6 +314,14 @@ sso_github_username: ""
 sso_github_token: ""
 sso_cleanup: true
 
+# ocp-disa-stig vars
+stig_compliance_enabled: false
+compliance_catalogsource: "redhat-operators"
+compliance_upgrade_channel: "stable"
+rhcos4_contentfile: "ssg-rhcos4-ds.xml"
+ocp4_contentfile: "ssg-ocp4-ds.xml"
+content_image: "ghcr.io/complianceascode/k8scontent:latest"
+
 #ocp-verification-tests vars
 verification_enabled: false
 verification_dir: "/root/verification-tests"

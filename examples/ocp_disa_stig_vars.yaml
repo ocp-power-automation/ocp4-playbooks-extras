@@ -1,0 +1,8 @@
+---
+# ocp-disa-stig vars
+stig_compliance_enabled: false
+compliance_catalogsource: "redhat-operators"
+compliance_upgrade_channel: "stable"
+rhcos4_contentfile: "ssg-rhcos4-ds.xml"
+ocp4_contentfile: "ssg-ocp4-ds.xml"
+content_image: "ghcr.io/complianceascode/k8scontent:latest"
