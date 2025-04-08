@@ -96,7 +96,7 @@
   when: 
     - loki_clf_cs != '' and clusterlogging_clf_cs != ''  
     - loki_clf_cs != None and clusterlogging_clf_cs != None
-    - clo_version | float > 5.8
+    - clo_version | float >= 5.9
 
 # Default CatalogSource
 #- name: Use default sources
@@ -255,7 +255,7 @@
   loop:
   - { name: 'cluster-logging', namespace: 'openshift-logging', channel: "{{cluster_logging_channel}}" , cs_src: "{{cluster_logging_op_source}}" }
   - { name: 'loki-operator', namespace: 'openshift-operators-redhat', channel: "{{loki_channel}}", cs_src: "{{loki_op_source}}" }
-  when: clo_version | float > 5.8
+  when: clo_version | float >= 5.9
 
 # Verify the operator installation.
 - name: Verify the operator installation
@@ -316,20 +316,20 @@
   shell: kubectl wait --all  --namespace=test-logging --for=condition=Ready pods --timeout=180s
 
 # Clone and deploy acmeair-mainservice-java app in acme-air namespace
-#- name: Clone acmeair-mainservice-java repo
-#  git:
-#    repo: https://github.com/ocp-power-demos/acmeair-mainservice-java.git
-#    dest: /root/acmeair-mainservice-java/
-#
-#- name: Deployment of acmeair-mainservice-java pods
-#  shell: |
-#    oc project default
-#    sh /root/acmeair-mainservice-java/scripts/deployToOpenshift.sh
-#    kubectl wait --all  --namespace=acme-air --for=condition=Ready pods --timeout=300s
-#
-#- name: Pause for 1 minutes to get new logs 
-#  pause:
-#    minutes: 1
+- name: Clone acmeair-mainservice-java repo
+  git:
+    repo: https://github.com/ocp-power-demos/acmeair-mainservice-java.git
+    dest: /root/acmeair-mainservice-java/
+
+- name: Deployment of acmeair-mainservice-java pods
+  shell: |
+    oc project default
+    sh /root/acmeair-mainservice-java/scripts/deployToOpenshift.sh
+    kubectl wait --all  --namespace=acme-air --for=condition=Ready pods --timeout=300s
+
+- name: Pause for 1 minutes to get new logs 
+  pause:
+    minutes: 1
 
 # Create CLF instance 
 - name: Create an ClusterLogForwarder instance 
