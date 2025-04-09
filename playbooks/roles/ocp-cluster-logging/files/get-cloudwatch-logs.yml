@@ -22,6 +22,12 @@
         oc get secret "{{ cw_secret }}" -n openshift-logging  -o jsonpath="{.data.aws_secret_access_key}"|base64 --decode
       register: aws_secret_key
       ignore_errors: yes
+
+    # Get log group prefix
+    - name: Get log group prefix
+      shell: oc get Infrastructure/cluster -ojson | jq .status.infrastructureName
+      register: cw_log_gp
+      ignore_errors: yes
       
     # Fetches the logs from AWS CloudWatch and clean up
     - name: Get logs from AWS CloudWatch
@@ -31,4 +37,14 @@
       async: 120
       poll: 10
       ignore_errors: yes
+      when: clo_version | float >= 6.0
+
+    - name: Get logs from AWS CloudWatch
+      command: python3 get-cloudwatch-logs.py {{ aws_access_key.stdout }} {{ aws_secret_key.stdout }} {{ cw_log_gp.stdout }} {{ aws_cw_region }} {{cl_log_dir}}
+      args:
+        chdir: "{{ role_path }}/files"
+      async: 120
+      poll: 10
+      ignore_errors: yes
+      when: clo_version | float <= 5.9
   when: aws_secret.failed == false

@@ -80,7 +80,7 @@
         logStore:
           type: "lokistack"
           lokistack:
-            name: lokistack-log
+            name: lokistack-59414
         collection:
           logs: "{{ collector_spec | from_yaml }}"
   vars:
@@ -160,7 +160,7 @@
       apiVersion: loki.grafana.com/v1
       kind: LokiStack
       metadata:
-        name: lokistack-log
+        name: lokistack-59414
         namespace: openshift-logging
       spec:
         size: 1x.small
@@ -190,7 +190,7 @@
       apiVersion: loki.grafana.com/v1
       kind: LokiStack
       metadata:
-        name: lokistack-log
+        name: lokistack-59414
         namespace: openshift-logging
       spec:
         size: 1x.demo
@@ -253,12 +253,12 @@
                 token:
                   from: serviceAccount
               target:
-                name: lokistack-log
+                name: lokistack-59414
                 namespace: openshift-logging
             name: lokistack
             tls:
               ca:
-                configMapName: lokistack-log-gateway-ca-bundle
+                configMapName: lokistack-59414-gateway-ca-bundle
                 key: service-ca.crt
             type: lokiStack
         pipelines:
