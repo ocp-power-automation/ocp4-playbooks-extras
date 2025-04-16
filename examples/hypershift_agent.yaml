@@ -4,6 +4,7 @@
 hypershift_agent_install: false
 hypershift_agent_destroy: false #Enable only to destroy the hosted cluster
 acm_mce_install: false
+heterogeneous_install: false
 hosted_cluster_name: "hypershift-hosted"
 acm_catalogsource_name: "redhat-operators-acm"
 acm_catalogsource_image: ""
@@ -14,7 +15,9 @@ mce_upgrade_channel: "stable-2.7"
 base_domain: "qe-ppc64le.cis.ibm.net"
 pull_secret_file: "~/.pullSecret"
 ocp_release: ""
-arch: "ppc64le"
+ocp_release_image: ""
+arch_ppc: "ppc64le"
+arch_x86: "x86_64"
 hypershift_dir: "/root/hypershift"
 hypershift_git_repo: "https://github.com/openshift/hypershift"
 hypershift_git_branch: "main"
@@ -22,5 +25,7 @@ cluster_namespace: "clusters"
 ssh_pub_key: ""
 db_volume_size: "10Gi"
 fs_volume_size: "100Gi"
-iso_url: ""
-root_fs_url: ""
+iso_url_ppc: ""
+root_fs_url_ppc: ""
+iso_url_x86: ""
+root_fs_url_x86: ""

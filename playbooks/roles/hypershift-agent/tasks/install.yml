@@ -4,7 +4,7 @@
   block:
     - name: Download baremetalhosts manifest
       get_url:
-        url: https://raw.githubusercontent.com/openshift/assisted-service/master/hack/crds/metal3.io_baremetalhosts.yaml
+        url: https://raw.githubusercontent.com/openshift/assisted-service/refs/heads/master/hack/crds/metal3/metal3.io_baremetalhosts.yaml
         dest: ./metal3.io_baremetalhosts.yaml
         mode: 0664
 
@@ -15,7 +15,7 @@
 
     - name: Download preprovisioningimages manifest
       get_url:
-        url: https://raw.githubusercontent.com/openshift/assisted-service/refs/heads/master/hack/crds/metal3.io_preprovisioningimages.yaml
+        url: https://raw.githubusercontent.com/openshift/assisted-service/refs/heads/master/hack/crds/metal3/metal3.io_preprovisioningimages.yaml
         dest: ./metal3.io_preprovisioningimages.yaml
         mode: 0664
 
@@ -216,9 +216,23 @@
     src: "{{ role_path }}/templates/agent-service-config.yml"
   when: ocp_release_version.stdout != "" and ocp_release_min.stdout != ""
 
+- name: Update AgentServiceConfig for heterogeneous
+  block:
+    - name: Update AgentServiceConfig
+      template:
+        src: "{{ role_path }}/templates/agent-service-config-heterogeneous.yaml.j2"
+        dest: "{{ role_path }}/templates/agent-service-config-heterogeneous.yml"
+
+    - name: Deploy AgentServiceConfig
+      kubernetes.core.k8s:
+        state: present
+        src: "{{ role_path }}/templates/agent-service-config-heterogeneous.yml"
+      when: ocp_release_version.stdout != "" and ocp_release_min.stdout != ""
+  when: heterogeneous_install
+
 - name: Hypershift deployment
   block:
-    - name: Create namespace for hosted control plane namespace
+    - name: Create namespace for hosted control plane
       kubernetes.core.k8s:
         state: present
         definition:
@@ -233,9 +247,14 @@
             finalizers:
             - kubernetes
 
+    - name: Set value for infra_availability_policy
+      set_fact:
+        infra_availability_policy: "{{ 'HighlyAvailable' if heterogeneous_install else 'SingleReplica' }}"
+        cacheable: yes
+
     - name: Create Hypershift Cluster Agent
       shell: |
-        hcp create cluster agent --name={{ hosted_cluster_name }} --pull-secret={{ pull_secret_file }} --infra-availability-policy SingleReplica --control-plane-availability-policy=SingleReplica --agent-namespace={{ hosted_control_plane_namespace }} --ssh-key {{ ssh_pub_key_value.stdout }} --base-domain={{ base_domain }} --api-server-address=api.{{ hosted_cluster_name }}.{{ base_domain }} --release-image=quay.io/openshift-release-dev/ocp-release:{{ ocp_release }}-multi --render-sensitive --render > {{ hypershift_dir }}/render-{{ hosted_cluster_name }}.yaml
+        hcp create cluster agent --name={{ hosted_cluster_name }} --pull-secret={{ pull_secret_file }} --infra-availability-policy {{ infra_availability_policy }} --control-plane-availability-policy=SingleReplica --agent-namespace={{ hosted_control_plane_namespace }} --ssh-key {{ ssh_pub_key }} --base-domain={{ base_domain }} --api-server-address=api.{{ hosted_cluster_name }}.{{ base_domain }} --release-image={{ ocp_release_image }} --render-sensitive --render --node-pool-replicas -1 > {{ hypershift_dir }}/render-{{ hosted_cluster_name }}.yaml
       ignore_errors: true
       environment:
         PATH: "{{ hypershift_dir }}/bin:{{ ansible_env.PATH }}"
@@ -285,20 +304,59 @@
   shell: "cat {{ ssh_pub_key }}"
   register: ssh_pub_key_value
 
-- name: Create InfraEnv
+- name: Create NodePool for ppc64le nodes
+  template:
+    src: "{{ role_path }}/templates/Nodepool-ppc.yaml.j2"
+    dest: "{{ role_path }}/templates/Nodepool-ppc.yml"
+  delegate_to: localhost
+
+- name: Deploy NodePool for ppc64le nodes
+  kubernetes.core.k8s:
+    state: present
+    src: "{{ role_path }}/templates/Nodepool-ppc.yml"
+
+- name: Create InfraEnv for ppc64le
   kubernetes.core.k8s:
     state: present
     definition:
       apiVersion: agent-install.openshift.io/v1beta1
       kind: InfraEnv
       metadata:
-        name: "{{ hosted_cluster_name }}"
+        name: "{{ hosted_cluster_name }}-ppc"
         namespace: "{{ hosted_control_plane_namespace }}"
       spec:
-        cpuArchitecture: ppc64le
+        cpuArchitecture: "{{ arch_ppc }}"
         pullSecretRef:
           name: pull-secret
         sshAuthorizedKey: "{{ ssh_pub_key_value.stdout }}"
+
+- name: Create NodePool and InfraEnv for heterogeneous
+  block:
+    - name: Create NodePool for x86 nodes
+      template:
+        src: "{{ role_path }}/templates/Nodepool-x86.yaml.j2"
+        dest: "{{ role_path }}/templates/Nodepool-x86.yml"
+
+    - name: Deploy NodePool for x86 nodes
+      kubernetes.core.k8s:
+        state: present
+        src: "{{ role_path }}/templates/Nodepool-x86.yml"
+
+    - name: Create InfraEnv for x86
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: agent-install.openshift.io/v1beta1
+          kind: InfraEnv
+          metadata:
+            name: "{{ hosted_cluster_name }}-x86"
+            namespace: "{{ hosted_control_plane_namespace }}"
+          spec:
+            cpuArchitecture: "{{ arch_x86 }}"
+            pullSecretRef:
+              name: pull-secret
+            sshAuthorizedKey: "{{ ssh_pub_key_value.stdout }}"
+  when: heterogeneous_install
 
 - name: Check if the ISO is generated
   shell: "oc get infraenv -n {{ hosted_control_plane_namespace }} --no-headers | awk '{ print $2 }'"
@@ -307,17 +365,39 @@
   retries: 15
   delay: 60
 
-- name: Get the url of the generated ISO
-  shell: "oc get -n {{ hosted_control_plane_namespace }} InfraEnv {{ hosted_cluster_name }} -ojsonpath='{.status.isoDownloadURL}'"
+- name: Get the url of the generated power ISO
+  shell: "oc get -n {{ hosted_control_plane_namespace }} InfraEnv {{ hosted_cluster_name }}-ppc -ojsonpath='{.status.isoDownloadURL}'"
   register: infraenv_iso
 
-- name: Output the ISO URL link for download
+- name: Output the power ISO URL link for download
   debug:
     msg: "{{ infraenv_iso.stdout }}"
 
+- name: Get the x86 ISO details
+  block:
+    - name: Get initrd_url
+      shell: (oc get -n {{ hosted_control_plane_namespace }} InfraEnv {{ hosted_cluster_name }}-x86 -o json | jq -r '."status"."bootArtifacts"."initrd"')
+      register: initrd_url
+
+    - name: Get kernel_url
+      shell: (oc get -n {{ hosted_control_plane_namespace }} InfraEnv {{ hosted_cluster_name }}-x86 -o json | jq -r '."status"."bootArtifacts"."kernel"')
+      register: kernel_url
+
+    - name: Get rootfs_url
+      shell: (oc get -n {{ hosted_control_plane_namespace }} InfraEnv {{ hosted_cluster_name }}-x86 -o json | jq -r '."status"."bootArtifacts"."rootfs"')
+      register: rootfs_url
+
+    - name: Output values of initrd_url, kernel_url and rootfs_url
+      debug:
+        msg:
+          - "initrd_url: {{ initrd_url.stdout }}"
+          - "kernel_url: {{ kernel_url.stdout }}"
+          - "rootfs_url: {{ rootfs_url.stdout }}"
+  when: heterogeneous_install
+
 - name: Output the Kubernetes api service to create DNS entries
   debug:
-   msg: "{{ dns_entry.stdout }}"
+    msg: "{{ dns_entry.stdout }}"
 
 - name: Output the location of Kubeconfig of the hosted cluster
   debug:
