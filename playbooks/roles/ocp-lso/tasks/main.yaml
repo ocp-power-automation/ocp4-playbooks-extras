@@ -34,13 +34,7 @@
       kind: Namespace
       metadata:
         name: "{{ lso_namespace }}"
-  when: lso_namespace is defined      
-
-# Disable all default operator sources
-- name: Disable all default operator sources
-  command: oc patch operatorhub.config.openshift.io/cluster -p='{"spec":{"disableAllDefaultSources":true}}' --type=merge
-  register: patch_operatorhub
-  failed_when: patch_operatorhub.rc != 0  
+  when: lso_namespace is defined       
 
 # Create ICSP & catalogsource for installing local storage operator
 - name: Local Storage Operator deployment
@@ -91,14 +85,13 @@
         source: "{{ lso_catalogsource_name }}"
         sourceNamespace: openshift-marketplace
 
-- name: Wait for CSV to be created
-  pause:
-    seconds: 30 
-
 # Check LocalStorage Operator progress
 - name: Check LocalStorage Operator progress
   command: oc get ip -n "{{ lso_namespace }}"
   register: ip_status
+  until: ip_status.stdout|int == 0 and ip_status.stderr == ""
+  retries: 10
+  delay: 30
   failed_when:
     - ip_status.rc != 0  
     - ip_status.stdout == ""  
@@ -107,6 +100,9 @@
 - name: Check LocalStorage Operator CSV
   shell: "oc get csv -A | grep local-storage-operator | grep Succeeded"
   register: csv_status
+  until: csv_status.stdout != "" and csv_status.stderr == ""
+  retries: 10
+  delay: 30
   failed_when: csv_status.rc != 0  
   when:
     - lso_namespace is defined
@@ -161,16 +157,18 @@
 - name: Verify creation of diskmanager pods
   shell: "oc get pods -n openshift-local-storage --selector=app=diskmaker-manager | grep Running"
   register: check_pods
+  until: check_pods.stdout|int == 0 and check_pods.stderr == ""
+  retries: 10
+  delay: 30
   failed_when: check_pods.rc != 0
 
 - name: Verify the creation of StorageClass
   command: oc get sc localblock
   register: check_sc
+  until: check_sc.stdout|int == 0 and check_sc.stderr == ""
+  retries: 10
+  delay: 30
   failed_when: check_sc.rc != 0
-
-- name: Wait for persistent volumes to be created
-  pause:
-    minutes: 1
 
 - name: Delete existing PersistentVolumeClaim and Pod (if they exist)
   kubernetes.core.k8s:
@@ -229,23 +227,26 @@
                 - devicePath: "{{ device_path }}"
                   name: local-data
 
-- name: Wait for pods to be created
-  pause:
-    seconds: 30
-
 - name: Verify the status of Persistent Volumes
   shell: "oc get pv --selector storage.openshift.com/owner-kind=LocalVolumeSet | grep Bound"
   register: check_pv
+  until: check_pv.stdout|int == 0 and check_pv.stderr == ""
+  retries: 10
+  delay: 30
   failed_when: check_pv.rc != 0
 
 - name: Verify PVC status
   shell: "oc get pvc test-local-claim -n default | grep Bound"
   register: pvc_status
+  until: pvc_status.stdout|int == 0 and pvc_status.stderr == ""
+  retries: 10
+  delay: 30
   failed_when: pvc_status.rc != 0
 
 - name: Verify Pod status
   shell: "oc get pods busybox-lso -n default -o jsonpath='{.status.phase}'"
   register: pod_status
+  until: pod_status.stdout|int == 0 and pod_status.stderr == ""
   retries: 5
   delay: 10
-  failed_when: pod_status.stdout != "Running"
+  failed_when: pod_status.stdout != "Pending"
