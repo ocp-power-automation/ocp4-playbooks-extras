@@ -1,0 +1,63 @@
+# Environment variables check block
+
+- set_fact:
+    github_username: "{{ lookup('ansible.builtin.env','GITHUB_USERNAME') }}"
+    github_personal_access_token: "{{ lookup('ansible.builtin.env','GITHUB_ACCESS_TOKEN') }}"
+
+- fail:
+    msg: "Please set image_registry_e2e_repo variable with the e2e repo URL."
+  when: image_registry_e2e_repo == "" or image_registry_e2e_repo == None
+
+# Cluster health check
+- name: Invoke the role check-cluster-health to check cluster status
+  include_role:
+    name: check-cluster-health
+
+# Image_Registry e2e run block
+- name: Validate Image Registry
+  block:
+    - fail:
+        msg: "Please set the environment variables GITHUB_USERNAME and GITHUB_ACCESS_TOKEN"
+      when: github_username == "" and github_personal_access_token == ""
+
+    - name: Include role for installation of Go lang
+      include_role:
+        name: golang-installation
+      vars:
+        go_tarball: "{{ image_registry_golang_tarball }}"
+        golang_path: "/usr/local"
+
+    - name: Create image_registry working directory
+      file:
+        path: "{{ image_registry_directory }}"
+        state: directory
+        mode: '0755'
+
+    - name: Clone openshift-test-private repo
+      git:
+        repo: "https://{{ github_username }}:{{ github_personal_access_token }}@github.com/{{ image_registry_e2e_repo | urlsplit('path') }}"
+        dest: "{{ image_registry_directory }}/openshift-tests-private"
+        version: "{{ image_registry_e2e_git_branch }}"
+        force: true
+
+    - name: Run make build command at target
+      shell: make
+      environment: "{{ image_registry_env }}"
+      args:
+        chdir: "{{ image_registry_directory }}/openshift-tests-private"
+
+    - name: Check if the binary is created
+      shell: ls -hl {{ image_registry_directory }}/openshift-tests-private/bin/extended-platform-tests | wc -l
+      args:
+        chdir: "{{ image_registry_directory }}/openshift-tests-private"
+      register: bin_output
+      failed_when: bin_output.stdout|int != 1
+
+    - name: Run the e2e test command
+      shell: ./bin/extended-platform-tests run all --dry-run | grep "Image_Registry" | 
+        ./bin/extended-platform-tests run -f - -o ../img_reg-e2e-private-logs.txt
+      args:
+        chdir: "{{ image_registry_directory }}/openshift-tests-private"
+      environment: "{{ image_registry_env }}"
+
+  when: validate_image_registry
