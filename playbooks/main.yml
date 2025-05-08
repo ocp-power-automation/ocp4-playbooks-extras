@@ -149,3 +149,6 @@
 
 - import_playbook: ocp-cpu-manager.yml
   when: validate_cpum is defined and validate_cpum
+
+- import_playbook: ocp-image-registry-e2e.yml
+  when: validate_image_registry is defined and validate_image_registry  
