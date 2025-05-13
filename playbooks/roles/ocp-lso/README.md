@@ -19,7 +19,7 @@ Role Variables
 | lso_channel                    | no       |  `stable`    | Version Of LSO to be installed    |
 | lso_catalogsource_name         | no       |  `my-operator-catalog`    | Catalog source name for LSO    |
 | lso_enabled                    | no       |  `true`    | True for running playbook    |
-| device_path                    | no       |      | set its value by running "ls /dev/disk/by-id/" in your cluster    |
+| device_path                    | yes       |      | set its value by running "ls /dev/disk/by-id/" in your cluster    |
 
 Example Playbook
 ----------------
