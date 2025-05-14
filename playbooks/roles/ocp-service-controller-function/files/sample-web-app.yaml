@@ -1,0 +1,22 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: go-web-app
+  namespace: test-privileged
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      name: go-web-app
+  template:
+    metadata:
+      labels:
+        name: go-web-app
+    spec:
+      containers:
+        - name: application
+          image: karthikkn27/go-web-app-on-scratch
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 7777
+

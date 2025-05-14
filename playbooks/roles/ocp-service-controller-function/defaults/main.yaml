@@ -1,0 +1,4 @@
+---
+file_dest: "/tmp"
+test_namespace: "test-privileged"
+
