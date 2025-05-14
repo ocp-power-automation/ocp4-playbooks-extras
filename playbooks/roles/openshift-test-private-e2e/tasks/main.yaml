@@ -1,0 +1,72 @@
+# Environment variables check block
+
+- set_fact:
+    github_username: "{{ lookup('ansible.builtin.env','GITHUB_USERNAME') }}"
+    github_personal_access_token: "{{ lookup('ansible.builtin.env','GITHUB_ACCESS_TOKEN') }}"
+
+- fail:
+    msg: "Please set openshift_test_private_e2e_repo variable with the e2e repo URL."
+  when: openshift_test_private_e2e_repo == "" or openshift_test_private_e2e_repo == None
+
+# Cluster health check
+- name: Invoke the role check-cluster-health to check cluster status
+  include_role:
+    name: check-cluster-health
+
+# openshift-test-private e2e run block
+- name: Validate openshift-test-private
+  block:
+    - fail:
+        msg: "Please set the environment variables GITHUB_USERNAME and GITHUB_ACCESS_TOKEN"
+      when: github_username == "" and github_personal_access_token == ""
+
+    - name: Include role for installation of Go lang
+      include_role:
+        name: golang-installation
+      vars:
+        go_tarball: "{{ openshift_test_private_golang_tarball }}"
+        golang_path: "/usr/local"
+
+    - name: Create openshift-test-private working directory
+      file:
+        path: "{{ openshift_test_private_directory }}"
+        state: directory
+        mode: '0755'
+
+    - name: Clone openshift-test-private repo
+      git:
+        repo: "https://{{ github_username }}:{{ github_personal_access_token }}@github.com/{{ openshift_test_private_e2e_repo | urlsplit('path') }}"
+        dest: "{{ openshift_test_private_directory }}/openshift-tests-private"
+        version: "{{ openshift_test_private_git_branch }}"
+        force: true
+
+    - name: Run make build command at target
+      shell: make
+      environment: "{{ openshift_test_private_env }}"
+      args:
+        chdir: "{{ openshift_test_private_directory }}/openshift-tests-private"
+
+    - name: Check if the binary is created
+      shell: ls -hl {{ openshift_test_private_directory }}/openshift-tests-private/bin/extended-platform-tests | wc -l
+      args:
+        chdir: "{{ openshift_test_private_directory }}/openshift-tests-private"
+      register: bin_output
+      failed_when: bin_output.stdout|int != 1
+
+    - name: Run the e2e test command for all
+      shell: ./bin/extended-platform-tests run all --dry-run | 
+        ./bin/extended-platform-tests run -f - -o ../all-tests-logs.txt
+      when: not testcase_filters
+      args:
+        chdir: "{{ openshift_test_private_directory }}/openshift-tests-private"
+      environment: "{{ openshift_test_private_env }}"
+
+    - name: Run the e2e test command for multiple filters
+      shell: ./bin/extended-platform-tests run all --dry-run | grep "{{ testcase_filters }}" | 
+        ./bin/extended-platform-tests run -f - -o ../multi-filter-tests-logs.txt
+      when: testcase_filters
+      args:
+        chdir: "{{ openshift_test_private_directory }}/openshift-tests-private"
+      environment: "{{ openshift_test_private_env }}"
+
+  when: openshift_test_private_validation

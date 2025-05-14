@@ -1,0 +1,4 @@
+- name: Validate openshift-test-private and run e2e
+  hosts: bastion
+  roles:
+  - openshift-test-private-e2e
