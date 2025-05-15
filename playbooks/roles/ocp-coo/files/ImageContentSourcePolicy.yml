@@ -1,0 +1,15 @@
+apiVersion: operator.openshift.io/v1alpha1
+kind: ImageContentSourcePolicy
+metadata:
+  name: brew-registry
+spec:
+  repositoryDigestMirrors:
+  - mirrors:
+    - quay.io/redhat-user-workloads/cluster-observabilit-tenant/cluster-observability-operator
+    source: registry.redhat.io/cluster-observability-operator
+  - mirrors:
+    - brew.registry.redhat.io
+    source: registry.redhat.io
+  - mirrors:
+    - brew.registry.redhat.io
+    source: registry-proxy.engineering.redhat.com

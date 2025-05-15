@@ -1,19 +1,5 @@
 - name: Clean up
   block:
-  - name: Delete prometheus-datasource configmap
-    kubernetes.core.k8s:
-      state: absent
-      namespace: openshift-config-managed
-      kind: ConfigMap
-      name: prometheus-datasource-test
-
-  - name: Delete test-db-plugin-admin configmap
-    kubernetes.core.k8s:
-      state: absent
-      namespace: openshift-config-managed
-      kind: ConfigMap
-      name: test-db-plugin-admin
-
   - name: Register all UIPlugins name 
     shell: oc get UIPlugin -o json | jq .items[].metadata.name
     register: uiplugin_names
@@ -41,14 +27,14 @@
   - name: Check if ClusterLogging resource exists
     k8s_info:
       kind: ClusterLogging
-      namespace: "{{ coo_logstack_namespace }}"
+      namespace: openshift-logging
     register: cl_resource
 
   - name: Delete ClusterLogging instance
     kubernetes.core.k8s:
       state: absent
       api_version: "logging.openshift.io/v1"
-      namespace: "{{ coo_logstack_namespace }}"
+      namespace: openshift-logging
       kind: ClusterLogging
       name: instance
     when: cl_resource.resources | length > 0
@@ -57,7 +43,7 @@
     kubernetes.core.k8s:
       state: absent
       api_version: v1
-      namespace: "{{ coo_logstack_namespace }}"
+      namespace: openshift-logging
       kind: ServiceAccount
       name: logcollector
 
@@ -85,14 +71,14 @@
   - name: Check if ClusterLogForwarder resource exists
     k8s_info:
       kind: ClusterLogForwarder
-      namespace: "{{ coo_logstack_namespace }}"
+      namespace: openshift-logging
     register: clf_resource
 
   - name: Delete ClusterLogForwarder instance
     kubernetes.core.k8s:
       state: absent
       api_version: "observability.openshift.io/v1"
-      namespace: "{{ coo_logstack_namespace }}"
+      namespace: openshift-logging
       kind: ClusterLogForwarder
       name: collector
     when: clf_resource.resources | length > 0
@@ -101,9 +87,9 @@
     kubernetes.core.k8s:
       state: absent
       api_version: loki.grafana.com/v1
-      namespace: "{{ coo_logstack_namespace }}"
+      namespace: openshift-logging
       kind: LokiStack
-      name: lokistack-sample
+      name: lokistack-coo
 
   - name: Delete the namespace chainsaw_test_namespace
     kubernetes.core.k8s:
@@ -144,15 +130,15 @@
       state: "absent"
 
   - name: Get the name of cluster service version
-    shell: oc get clusterserviceversion -n "{{ coo_namespace }}" | awk '{ if ($1 ~ /cluster-observability-operator/) print $1 }'
+    shell: oc get clusterserviceversion -n openshift-cluster-observability-operator | awk '{ if ($1 ~ /cluster-observability-operator/) print $1 }'
     register: coo_csv
 
   - name: Get the name of subscription
-    shell: oc get subscription -n "{{ coo_namespace }}" | awk '{ if ($1 ~ /cluster-observability/) print $1 }'
+    shell: oc get subscription -n openshift-cluster-observability-operator | awk '{ if ($1 ~ /cluster-observability/) print $1 }'
     register: coo_subscription
 
   - name: Get the name of operator group
-    shell: oc get operatorgroup -n "{{ coo_namespace }}" | awk '{ if ($1 ~ /og/) print $1 }'
+    shell: oc get operatorgroup -n openshift-cluster-observability-operator | awk '{ if ($1 ~ /og/) print $1 }'
     register: coo_operator_group
 
   - name: Delete the subscription if exists
@@ -161,7 +147,7 @@
       api_version: operators.coreos.com/v1alpha1
       kind: Subscription
       name: "{{ coo_subscription.stdout }}"
-      namespace: "{{ coo_namespace }}"
+      namespace: openshift-cluster-observability-operator
     when: coo_subscription.stdout|length > 0
 
   - name: Delete the operator group if exists
@@ -170,7 +156,7 @@
       api_version: operators.coreos.com/v1
       kind: OperatorGroup
       name: "{{ coo_operator_group.stdout }}"
-      namespace: "{{ coo_namespace }}"
+      namespace: openshift-cluster-observability-operator
     when: coo_operator_group.stdout|length > 0
 
   - name: Delete the cluster service version if exists
@@ -179,11 +165,11 @@
       api_version: operators.coreos.com/v1alpha1
       kind: ClusterServiceVersion
       name: "{{ coo_csv.stdout }}"
-      namespace: "{{ coo_namespace }}"
+      namespace: openshift-cluster-observability-operator
     when: coo_csv.stdout|length > 0
 
   - name: Check if all the pods has been deleted
-    shell: oc get pods -n "{{ coo_namespace }}" --no-headers | wc -l
+    shell: oc get pods -n openshift-cluster-observability-operator --no-headers | wc -l
     register: coo_pods
     until: coo_pods.stdout|int == 0
     retries: 15
@@ -193,13 +179,57 @@
     kubernetes.core.k8s:
       state: absent
       kind: Namespace
-      name: "{{ coo_namespace }}"
+      name: openshift-cluster-observability-operator
 
   - name: Check if the namespace gets deleted
-    shell: oc get namespace --no-headers | grep openshift-observability-operator | wc -l
+    shell: oc get namespace --no-headers | grep openshift-cluster-observability-operator | wc -l
     register: coo_namespace_count
     until: coo_namespace_count.stdout|int == 0
     retries: 15
     delay: 30
+    
+  - name: Delete the catalog source if exists
+    kubernetes.core.k8s:
+      state: absent
+      api_version: operators.coreos.com/v1alpha1
+      kind: CatalogSource
+      name: coo
+      namespace: openshift-marketplace
+
+  - name: Check if the catalog source gets deleted
+    shell: oc get catsrc --no-headers | grep coo | wc -l
+    register: coo_catsrc_count
+    until: coo_catsrc_count.stdout|int == 0
+    retries: 15
+    delay: 30
+
+  - name: Delete ImageDigestMirrorSet if present
+    kubernetes.core.k8s:
+      state: absent
+      kind: ImageDigestMirrorSet
+      api_version: config.openshift.io/v1
+      name: idms-coo
+
+  - name: Check if IDMS gets deleted
+    shell: oc get idms --no-headers | grep coo | wc -l
+    register: coo_idms
+    until: coo_idms.stdout|int == 0
+    retries: 15
+    delay: 30
+
+  - name: Delete ImageContentSourcePolicy if present
+    kubernetes.core.k8s:
+      state: absent
+      kind: ImageContentSourcePolicy
+      api_version: operator.openshift.io/v1alpha1
+      name: brew-registry
+
+  - name: Check if ICSP gets deleted
+    shell: oc get ImageContentSourcePolicy --no-headers | grep brew-registry | wc -l
+    register: coo_icsp
+    until: coo_icsp.stdout|int == 0
+    retries: 15
+    delay: 30
+    
   when: coo_cleanup
   
