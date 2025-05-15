@@ -23,9 +23,21 @@
     src: "{{ role_path }}/templates/clf-instance.yml.j2"
     dest: "{{ role_path }}/files/clf-instance.yml"
   delegate_to: localhost
+  when: clo_version | float < 6.0
+
+- name: Generating ClusterLogForwarder file
+  template:
+    src: "{{ role_path }}/templates/new-clf-instance.yml.j2"
+    dest: "{{ role_path }}/files/new-clf-instance.yml"
+  delegate_to: localhost
+  when: clo_version | float >= 6.0
 
 # Creating ClusterLogForwarder custom resource
 - include_tasks: "{{ role_path }}/files/clf-instance.yml"
+  when: clo_version | float < 6.0
+
+- include_tasks: "{{ role_path }}/files/new-clf-instance.yml"
+  when: clo_version | float >= 6.0
 
 # Check if the pods are in good state
 - name: Check the logging pods are in good state
@@ -65,10 +77,15 @@
     - "loki"
     - "cloudwatch"
     - "kibana-ldap"
+    - "lokistack"
 
 - set_fact: 
     syslog_server_logfile: "/var/log/messages"
     external_server_logs_path: "/root/clf_logs"
+
+- name: Pause for 2 minutes to get new logs
+  pause:
+    minutes: 2
 
 - name: Fetch the logs from external instances 
   block:
@@ -77,11 +94,11 @@
       - name: Save the logs on Kafka server
         shell: |
           mkdir -p {{ external_server_logs_path }}/kafka
-          {{ kafka_path }}/kafka-console-consumer.sh --bootstrap-server {{ kafka_host }}:9092 --topic {{ log_labels }}-audit --max-messages 10 > {{ external_server_logs_path }}/kafka/audit.txt
-          {{ kafka_path }}/kafka-console-consumer.sh --bootstrap-server {{ kafka_host }}:9092 --topic {{ log_labels }}-infrastructure --max-messages 10 > {{ external_server_logs_path }}/kafka/infrastructure.txt
-          {{ kafka_path }}/kafka-console-consumer.sh --bootstrap-server {{ kafka_host }}:9092 --topic {{ log_labels }}-application --max-messages 10 > {{ external_server_logs_path }}/kafka/application.txt
-        async: 30
-        poll: 5
+          {{ kafka_path }}/kafka-console-consumer.sh --bootstrap-server {{ kafka_host }}:9092 --topic {{ app_log_label }} --max-messages 10 > {{ external_server_logs_path }}/kafka/application.txt
+          {{ kafka_path }}/kafka-console-consumer.sh --bootstrap-server {{ kafka_host }}:9092 --topic {{ audit_log_label }} --max-messages 10 > {{ external_server_logs_path }}/kafka/audit.txt
+          {{ kafka_path }}/kafka-console-consumer.sh --bootstrap-server {{ kafka_host }}:9092 --topic {{ infra_log_label }} --max-messages 10 > {{ external_server_logs_path }}/kafka/infrastructure.txt
+        async: 120
+        poll: 10
 
       - name: Copy the logs file from Kafka to bastion
         fetch:
@@ -94,6 +111,26 @@
         - "application"
       delegate_to: kafka
       when: kafka_server_url is defined
+
+    #Make lokistack.sh file executable
+    - name: Give executable permissions for lokistack.sh file
+      file:
+        path: "{{ role_path }}/files/lokistack.sh"
+        mode: '0555'
+        state: file
+
+    # Check if lokistack exists
+    - name: Check the Lokistack
+      shell: oc get lokistack -n openshift-logging | grep lokistack | awk 'NR==1{print $1}'
+      register: lokistack_present
+
+    # Save the logs on external lokistack and fetch on bastion
+    - name: Save the logs for lokistack instance
+      shell: |
+        echo "{{ lokistack_present.stdout }}"
+        mkdir -p {{ cl_log_dir }}/lokistack
+        {{ role_path }}/files/lokistack.sh {{ lokistack_present.stdout }}
+      when: lokistack_present.stdout|length > 0
 
     # Save the logs on external Syslog system and fecth on bastion
     - block:
@@ -123,10 +160,21 @@
     # Fetch logs from Elasticsearch
     - name: Fetch Logs from Elasticsearch
       shell: |
-        curl -XGET "{{ elasticsearch_server_url }}/infra*/_search" -H 'Content-Type: application/json' -d '{ "query": { "bool": { "must": [ { "match":{"openshift.labels.logs":"{{ log_labels }}-infrastructure"} } ] } } }' > {{ cl_log_dir }}/elasticsearch/infrastructure.txt
-        curl -XGET "{{ elasticsearch_server_url }}/audit*/_search" -H 'Content-Type: application/json' -d '{ "query": { "bool": { "must": [ { "match":{"openshift.labels.logs":"{{ log_labels }}-audit"} } ] } } }' > {{ cl_log_dir }}/elasticsearch/audit.txt
-        curl -XGET "{{ elasticsearch_server_url }}/app*/_search" -H 'Content-Type: application/json' -d '{ "query": { "bool": { "must": [ { "match":{"openshift.labels.logs":"{{ log_labels }}-application"} } ] } } }' > {{ cl_log_dir }}/elasticsearch/application.txt
-      when: elasticsearch_server_url is defined
+        curl -XGET "{{ elasticsearch_server_url }}/infra*/_search" -H 'Content-Type: application/json' -d '{ "query": { "bool": { "must": [ { "match":{"openshift.labels.label":"{{ infra_log_label }}"} } ] } } }' > {{ cl_log_dir }}/elasticsearch/infrastructure.txt
+        curl -XGET "{{ elasticsearch_server_url }}/audit*/_search" -H 'Content-Type: application/json' -d '{ "query": { "bool": { "must": [ { "match":{"openshift.labels.label":"{{ audit_log_label }}"} } ] } } }' > {{ cl_log_dir }}/elasticsearch/audit.txt
+        curl -XGET "{{ elasticsearch_server_url }}/app*/_search" -H 'Content-Type: application/json' -d '{ "query": { "bool": { "must": [ { "match":{"openshift.labels.label":"{{ app_log_label }}"} } ] } } }' > {{ cl_log_dir }}/elasticsearch/application.txt
+      when: 
+        - elasticsearch_server_url is defined
+        - clo_version | float >= 6.0
+
+    - name: Fetch Logs from Elasticsearch
+      shell: |
+        curl -XGET "{{ elasticsearch_server_url }}/infra*/_search" -H 'Content-Type: application/json' -d '{ "query": { "bool": { "must": [ { "match":{"openshift.labels.logs":"{{ infra_log_label }}"} } ] } } }' > {{ cl_log_dir }}/elasticsearch/infrastructure.txt
+        curl -XGET "{{ elasticsearch_server_url }}/audit*/_search" -H 'Content-Type: application/json' -d '{ "query": { "bool": { "must": [ { "match":{"openshift.labels.logs":"{{ audit_log_label }}"} } ] } } }' > {{ cl_log_dir }}/elasticsearch/audit.txt
+        curl -XGET "{{ elasticsearch_server_url }}/app*/_search" -H 'Content-Type: application/json' -d '{ "query": { "bool": { "must": [ { "match":{"openshift.labels.logs":"{{ app_log_label }}"} } ] } } }' > {{ cl_log_dir }}/elasticsearch/application.txt
+      when:
+        - elasticsearch_server_url is defined
+        - clo_version | float <= 5.9
 
     # Fetch logs from Loki
     - name: Fetch logs from Loki
@@ -134,11 +182,18 @@
         curl -G -s "{{ loki_server_url }}/api/prom/query" --data-urlencode 'query={log_type="infrastructure"}' > {{ cl_log_dir }}/loki/infrastructure.txt
         curl -G -s "{{ loki_server_url }}/api/prom/query" --data-urlencode 'query={log_type="audit"}' > {{ cl_log_dir }}/loki/audit.txt
         curl -G -s "{{ loki_server_url }}/api/prom/query" --data-urlencode 'query={log_type="application"}' > {{ cl_log_dir }}/loki/application.txt
+      async: 120
+      poll: 10
       when: loki_server_url is defined
 
     # Deleting CLF Custom Resource instance because Fluentd and CloudWatch stores the logs on their system
     - name: Delete ClusterLogForwarder
       shell: oc delete ClusterLogForwarder instance -n openshift-logging
+      when: clo_version | float <= 5.9
+
+    - name: Delete ClusterLogForwarder
+      shell: oc delete obsclf collector -n openshift-logging
+      when: clo_version | float >= 6.0
 
     - name: Check the logging pods are restarting
       shell: oc get pods -n openshift-logging --no-headers | awk '{if ($3 == "Terminating" ) print $1}' | wc -l
@@ -216,8 +271,19 @@
 
     - name: Elasticsearch clean up
       shell: |
-        curl -X POST "{{ elasticsearch_server_url }}/audit*/_delete_by_query?pretty" -H 'Content-Type: application/json' -d '{ "query": { "match": { "openshift.labels.logs":"{{ log_labels }}-audit" } }}'
-        curl -X POST "{{ elasticsearch_server_url }}/app*/_delete_by_query?pretty" -H 'Content-Type: application/json' -d '{ "query": { "match": { "openshift.labels.logs":"{{ log_labels }}-application" } }}'
-        curl -X POST "{{ elasticsearch_server_url }}/infra*/_delete_by_query?pretty" -H 'Content-Type: application/json' -d '{ "query": { "match": { "openshift.labels.logs":"{{ log_labels }}-infrastructure" } }}'
-      when: elasticsearch_server_url is defined
+        curl -X POST "{{ elasticsearch_server_url }}/audit*/_delete_by_query?pretty" -H 'Content-Type: application/json' -d '{ "query": { "match": { "openshift.labels.label":"{{ audit_log_label }}" } }}'
+        curl -X POST "{{ elasticsearch_server_url }}/app*/_delete_by_query?pretty" -H 'Content-Type: application/json' -d '{ "query": { "match": { "openshift.labels.label":"{{ app_log_label }}" } }}'
+        curl -X POST "{{ elasticsearch_server_url }}/infra*/_delete_by_query?pretty" -H 'Content-Type: application/json' -d '{ "query": { "match": { "openshift.labels.label":"{{ infra_log_label }}" } }}'
+      when: 
+        - elasticsearch_server_url is defined
+        - clo_version | float >= 6.0
+
+    - name: Elasticsearch clean up
+      shell: |
+        curl -X POST "{{ elasticsearch_server_url }}/audit*/_delete_by_query?pretty" -H 'Content-Type: application/json' -d '{ "query": { "match": { "openshift.labels.logs":"{{ audit_log_label }}" } }}'
+        curl -X POST "{{ elasticsearch_server_url }}/app*/_delete_by_query?pretty" -H 'Content-Type: application/json' -d '{ "query": { "match": { "openshift.labels.logs":"{{ app_log_label }}" } }}'
+        curl -X POST "{{ elasticsearch_server_url }}/infra*/_delete_by_query?pretty" -H 'Content-Type: application/json' -d '{ "query": { "match": { "openshift.labels.logs":"{{ infra_log_label }}" } }}'
+      when:
+        - elasticsearch_server_url is defined
+        - clo_version | float <= 5.9
   ignore_errors: yes
