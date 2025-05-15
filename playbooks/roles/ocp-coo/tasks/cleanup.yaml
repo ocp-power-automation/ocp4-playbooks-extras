@@ -1,205 +1,301 @@
-- name: Clean up
+---
+- name: Clean up COO resources
   block:
-  - name: Delete prometheus-datasource configmap
-    kubernetes.core.k8s:
-      state: absent
-      namespace: openshift-config-managed
-      kind: ConfigMap
-      name: prometheus-datasource-test
+    # Clean up UI Plugins
+    - name: Get all UIPlugin resources
+      k8s_info:
+        kind: UIPlugin
+        api_version: observability.openshift.io/v1alpha1
+      register: uiplugins_result
 
-  - name: Delete test-db-plugin-admin configmap
-    kubernetes.core.k8s:
-      state: absent
-      namespace: openshift-config-managed
-      kind: ConfigMap
-      name: test-db-plugin-admin
+    - name: Delete all UIPlugins
+      kubernetes.core.k8s:
+        state: absent
+        kind: UIPlugin
+        api_version: observability.openshift.io/v1alpha1
+        name: "{{ item.metadata.name }}"
+      loop: "{{ uiplugins_result.resources | default([]) }}"
+      loop_control:
+        label: "{{ item.metadata.name }}"
 
-  - name: Register all UIPlugins name 
-    shell: oc get UIPlugin -o json | jq .items[].metadata.name
-    register: uiplugin_names
+    # Clean up monitoring stack resources
+    - name: Delete MonitoringStack and ThanosQuerier
+      kubernetes.core.k8s:
+        state: absent
+        kind: "{{ item }}"
+        namespace: "{{ coo_e2e_namespace }}"
+        name: "{{ service_name }}"
+        api_version: monitoring.rhobs/v1alpha1
+      loop:
+        - ThanosQuerier
+        - MonitoringStack
+      vars:
+        service_name: "{{ 'example-thanos' if item == 'ThanosQuerier' else 'multi-ns' }}"
+      ignore_errors: true
 
-  - name: Delete all the UIPlugins
-    shell: oc delete UIPlugin -o name {{ item }}
-    loop: "{{ uiplugin_names.stdout.split() }}"
+    # Clean up logging resources
+    - name: Delete logging stack
+      include_role:
+        name: ocp-cluster-logging
+      vars:
+        clf_clean_up: true
+      ignore_errors: true
+    
+    # Clean up distributed tracing resources
+    - name: Delete TempoStack
+      kubernetes.core.k8s:
+        state: absent
+        api_version: tempo.grafana.com/v1alpha1
+        kind: TempoStack
+        name: simplst
+        namespace: chainsaw-rbac
 
-  - name: Delete Thanoquerier
-    kubernetes.core.k8s:
-      state: absent
-      api_version: monitoring.rhobs/v1alpha1
-      namespace: "{{ coo_e2e_namespace }}"
-      kind: ThanosQuerier
-      name: example-thanos
+    - name: Delete TempoMonolithic
+      kubernetes.core.k8s:
+        state: absent
+        api_version: tempo.grafana.com/v1alpha1
+        kind: TempoMonolithic
+        name: mmo-rbac
+        namespace: chainsaw-mmo-rbac
 
-  - name: Delete MonitoringStack
-    kubernetes.core.k8s:
-      state: absent
-      api_version: monitoring.rhobs/v1alpha1
-      namespace: "{{ coo_e2e_namespace }}"
-      kind: MonitoringStack
-      name: multi-ns
+    - name: Get all namespaces
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Namespace
+      register: ns_list
 
-  - name: Check if ClusterLogging resource exists
-    k8s_info:
-      kind: ClusterLogging
-      namespace: "{{ coo_logstack_namespace }}"
-    register: cl_resource
+    - name: Filter chainsaw namespaces
+      ansible.builtin.set_fact:
+        chainsaw_namespaces: >-
+          {{
+            ns_list.resources
+            | selectattr('metadata.name', 'search', 'chainsaw')
+            | map(attribute='metadata.name')
+            | list
+          }}
 
-  - name: Delete ClusterLogging instance
-    kubernetes.core.k8s:
-      state: absent
-      api_version: "logging.openshift.io/v1"
-      namespace: "{{ coo_logstack_namespace }}"
-      kind: ClusterLogging
-      name: instance
-    when: cl_resource.resources | length > 0
+    - name: Delete chainsaw namespaces
+      kubernetes.core.k8s:
+        state: absent
+        kind: Namespace
+        name: "{{ item }}"
+      loop: "{{ chainsaw_namespaces }}"
+      loop_control:
+        label: "{{ item }}"
+      ignore_errors: true
 
-  - name: Delete ServiceAccount
-    kubernetes.core.k8s:
-      state: absent
-      api_version: v1
-      namespace: "{{ coo_logstack_namespace }}"
-      kind: ServiceAccount
-      name: logcollector
+    - name: Wait for chainsaw namespaces to be deleted
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Namespace
+        name: "{{ item }}"
+      register: chainsaw_ns_status
+      until: chainsaw_ns_status.resources | default([]) | length == 0
+      retries: 20
+      delay: 15
+      loop: "{{ chainsaw_namespaces }}"
+      loop_control:
+        label: "{{ item }}"
+      ignore_errors: true
 
-  - name: Delete collect-application-logs clusterrole
-    kubernetes.core.k8s:
-      state: absent
-      api_version: rbac.authorization.k8s.io/v1
-      name: collect-application-logs
-      kind: ClusterRole
-      
-  - name: Delete collect-infrastructure-logs clusterrole
-    kubernetes.core.k8s:
-      state: absent
-      api_version: rbac.authorization.k8s.io/v1
-      name: collect-infrastructure-logs
-      kind: ClusterRole
+    # Clean up test deployment
+    - name: Delete test data deployment
+      kubernetes.core.k8s:
+        state: absent
+        namespace: default
+        kind: Deployment
+        name: bad-deployment
+      ignore_errors: true
 
-  - name: Delete collect-audit-logs clusterrole
-    kubernetes.core.k8s:
-      state: absent
-      api_version: rbac.authorization.k8s.io/v1
-      name: collect-audit-logs
-      kind: ClusterRole
+    # Clean up working directory
+    - name: Clean up COO working directory
+      file:
+        path: "{{ coo_work_dir }}"
+        state: absent
 
-  - name: Check if ClusterLogForwarder resource exists
-    k8s_info:
-      kind: ClusterLogForwarder
-      namespace: "{{ coo_logstack_namespace }}"
-    register: clf_resource
+    # Clean up operator resources
+    - name: Define operators to cleanup
+      set_fact:
+        operators_to_cleanup:
+          - { name: cluster-observability-operator, namespace: "{{ coo_operator_namespace }}" }
+          - { name: tempo, namespace: "{{ tempo_operator_namespace }}" }
+          - { name: opentelemetry, namespace: "{{ opentelemetry_operator_namespace }}" }
 
-  - name: Delete ClusterLogForwarder instance
-    kubernetes.core.k8s:
-      state: absent
-      api_version: "observability.openshift.io/v1"
-      namespace: "{{ coo_logstack_namespace }}"
-      kind: ClusterLogForwarder
-      name: collector
-    when: clf_resource.resources | length > 0
+    - name: Get ClusterServiceVersions
+      kubernetes.core.k8s_info:
+        api_version: operators.coreos.com/v1alpha1
+        kind: ClusterServiceVersion
+        namespace: "{{ item.namespace }}"
+      register: csv_info
+      loop: "{{ operators_to_cleanup }}"
+      loop_control:
+        label: "{{ item.name }}"
 
-  - name: Delete LokiStack instance
-    kubernetes.core.k8s:
-      state: absent
-      api_version: loki.grafana.com/v1
-      namespace: "{{ coo_logstack_namespace }}"
-      kind: LokiStack
-      name: lokistack-sample
+    - name: Get CSVs to be deleted
+      set_fact:
+        csvs_to_delete: >-
+          {{
+            csv_info.results
+            | map(attribute='resources')
+            | flatten
+            | selectattr(
+                'metadata.name',
+                'search',
+                operators_to_cleanup | map(attribute='name') | join('|')
+              )
+            | list
+          }}
 
-  - name: Delete the namespace chainsaw_test_namespace
-    kubernetes.core.k8s:
-      state: absent
-      kind: Namespace
-      name: "{{ chainsaw_test_namespace }}"
+    - name: Delete ClusterServiceVersions
+      kubernetes.core.k8s:
+        state: absent
+        api_version: operators.coreos.com/v1alpha1
+        kind: ClusterServiceVersion
+        name: "{{ item.metadata.name }}"
+        namespace: "{{ item.metadata.namespace }}"
+      loop: "{{ csvs_to_delete }}"
+      loop_control:
+        label: "{{ item.metadata.name }}"
+      ignore_errors: yes
 
-  - name: Check if the chainsaw_test_namespace gets deleted
-    shell: oc get namespace --no-headers | grep "{{ chainsaw_test_namespace }}" | wc -l
-    register: chainsaw_test_namespace_count
-    until: chainsaw_test_namespace_count.stdout|int == 0
-    retries: 15
-    delay: 30
+    - name: Wait for CSV deletion
+      kubernetes.core.k8s_info:
+        api_version: operators.coreos.com/v1alpha1
+        kind: ClusterServiceVersion
+        name: "{{ item.metadata.name }}"
+        namespace: "{{ item.metadata.namespace }}"
+      register: csv_check
+      until: csv_check.resources | default([]) | length == 0
+      retries: 20
+      delay: 10
+      loop: "{{ csvs_to_delete }}"
+      loop_control:
+        label: "{{ item.metadata.name }}"
 
-  - name: Delete Test data deployment
-    kubernetes.core.k8s:
-      state: absent
-      namespace: default
-      kind: Deployment 
-      name: bad-deployment
+    - name: Define OperatorGroups to delete
+      set_fact:
+        operatorgroups_to_delete:
+          - { name: "{{ tempo_operator_namespace }}", namespace: "{{ tempo_operator_namespace }}" }
+          - { name: "{{ opentelemetry_operator_namespace }}", namespace: "{{ opentelemetry_operator_namespace }}" }
+          - { name: "{{ coo_operator_namespace }}", namespace: "{{ coo_operator_namespace }}" }
 
-  - name: Delete the namespace coo_e2e_namespace
-    kubernetes.core.k8s:
-      state: absent
-      kind: Namespace
-      name: "{{ coo_e2e_namespace }}"
+    - name: Delete OperatorGroups
+      kubernetes.core.k8s:
+        state: absent
+        api_version: operators.coreos.com/v1
+        kind: OperatorGroup
+        name: "{{ item.name }}"
+        namespace: "{{ item.namespace }}"
+      loop: "{{ operatorgroups_to_delete }}"
+      loop_control:
+        label: "{{ item.name }}"
 
-  - name: Check if the coo_e2e_namespace gets deleted
-    shell: oc get namespace --no-headers | grep "{{ coo_e2e_namespace }}" | wc -l
-    register: coo_e2e_namespace_count
-    until: coo_e2e_namespace_count.stdout|int == 0
-    retries: 15
-    delay: 30
+    - name: Wait for OperatorGroup deletion
+      kubernetes.core.k8s_info:
+        api_version: operators.coreos.com/v1
+        kind: OperatorGroup
+        name: "{{ item.name }}"
+        namespace: "{{ item.namespace }}"
+      register: og_check
+      until: og_check.resources | default([]) | length == 0
+      retries: 10
+      delay: 5
+      loop: "{{ operatorgroups_to_delete }}"
+      loop_control:
+        label: "{{ item.name }}"
 
-  - name: Delete the workspace
-    file:
-      path: "{{ coo_work_dir }}"
-      state: "absent"
+    - name: Check if Subscriptions exist
+      kubernetes.core.k8s_info:
+        api_version: operators.coreos.com/v1alpha1
+        kind: Subscription
+        namespace: "{{ item.namespace }}"
+      register: subs_info
+      loop: "{{ operators_to_cleanup }}"
+      loop_control:
+        label: "{{ item.name }}"
 
-  - name: Get the name of cluster service version
-    shell: oc get clusterserviceversion -n "{{ coo_namespace }}" | awk '{ if ($1 ~ /cluster-observability-operator/) print $1 }'
-    register: coo_csv
+    - name: Delete Subscriptions
+      kubernetes.core.k8s:
+        state: absent
+        api_version: operators.coreos.com/v1alpha1
+        kind: Subscription
+        name: "{{ item.metadata.name }}"
+        namespace: "{{ item.metadata.namespace }}"
+      ignore_errors: yes
+      loop: "{{ subs_info.results | map(attribute='resources') | flatten }}"
+      loop_control:
+        label: "{{ item.metadata.name }}"
+      when: item is defined and item.metadata.name is defined
 
-  - name: Get the name of subscription
-    shell: oc get subscription -n "{{ coo_namespace }}" | awk '{ if ($1 ~ /cluster-observability/) print $1 }'
-    register: coo_subscription
+    - name: Define namespaces to delete
+      set_fact:
+        namespaces_to_delete:
+          - "{{ tempo_operator_namespace }}"
+          - "{{ opentelemetry_operator_namespace }}"
+          - "{{ coo_operator_namespace }}"
+          - "{{ coo_e2e_namespace }}"
 
-  - name: Get the name of operator group
-    shell: oc get operatorgroup -n "{{ coo_namespace }}" | awk '{ if ($1 ~ /og/) print $1 }'
-    register: coo_operator_group
+    # Wait for operator pods to terminate
+    - name: Wait for operator namespace to be empty
+      k8s_info:
+        kind: Pod
+        namespace: "{{ item }}"
+      register: operator_pods
+      until: operator_pods.resources | default([]) | length == 0
+      retries: 15
+      delay: 20
+      ignore_errors: true
+      loop: "{{ namespaces_to_delete }}"
+      loop_control:
+        label: "{{ item }}"
 
-  - name: Delete the subscription if exists
-    kubernetes.core.k8s:
-      state: absent
-      api_version: operators.coreos.com/v1alpha1
-      kind: Subscription
-      name: "{{ coo_subscription.stdout }}"
-      namespace: "{{ coo_namespace }}"
-    when: coo_subscription.stdout|length > 0
+    - name: Delete operator namespaces
+      kubernetes.core.k8s:
+        state: absent
+        api_version: v1
+        kind: Namespace
+        name: "{{ item }}"
+      loop: "{{ namespaces_to_delete }}"
+      loop_control:
+        label: "{{ item }}"
 
-  - name: Delete the operator group if exists
-    kubernetes.core.k8s:
-      state: absent
-      api_version: operators.coreos.com/v1
-      kind: OperatorGroup
-      name: "{{ coo_operator_group.stdout }}"
-      namespace: "{{ coo_namespace }}"
-    when: coo_operator_group.stdout|length > 0
+    - name: Wait for namespace deletion
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Namespace
+        name: "{{ item }}"
+      register: ns_status
+      until: ns_status.resources | default([]) | length == 0
+      retries: 30
+      delay: 10
+      loop: "{{ namespaces_to_delete }}"
+      loop_control:
+        label: "{{ item }}"
 
-  - name: Delete the cluster service version if exists
-    kubernetes.core.k8s:
-      state: absent
-      api_version: operators.coreos.com/v1alpha1
-      kind: ClusterServiceVersion
-      name: "{{ coo_csv.stdout }}"
-      namespace: "{{ coo_namespace }}"
-    when: coo_csv.stdout|length > 0
+    # Clean up CatalogSource and mirror resources
+    - name: Delete CatalogSource
+      kubernetes.core.k8s:
+        state: absent
+        kind: CatalogSource
+        namespace: openshift-marketplace
+        name: "{{ coo_catalogsource_name }}"
+        api_version: operators.coreos.com/v1alpha1
+      ignore_errors: true
 
-  - name: Check if all the pods has been deleted
-    shell: oc get pods -n "{{ coo_namespace }}" --no-headers | wc -l
-    register: coo_pods
-    until: coo_pods.stdout|int == 0
-    retries: 15
-    delay: 20
+    - name: Delete ImageContentSourcePolicy instance
+      kubernetes.core.k8s:
+        state: absent
+        api_version: operator.openshift.io/v1alpha1
+        kind: ImageContentSourcePolicy
+        name: brew-registry
+      ignore_errors: true
 
-  - name: Delete the namespace if exists
-    kubernetes.core.k8s:
-      state: absent
-      kind: Namespace
-      name: "{{ coo_namespace }}"
-
-  - name: Check if the namespace gets deleted
-    shell: oc get namespace --no-headers | grep openshift-observability-operator | wc -l
-    register: coo_namespace_count
-    until: coo_namespace_count.stdout|int == 0
-    retries: 15
-    delay: 30
+    - name: Delete COO ImageDigestMirrorSet
+      kubernetes.core.k8s:
+        state: absent
+        kind: ImageDigestMirrorSet
+        name: "idms-coo"
+        api_version: config.openshift.io/v1
+      ignore_errors: true
   when: coo_cleanup
   
