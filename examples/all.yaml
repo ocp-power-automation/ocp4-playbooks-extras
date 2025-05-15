@@ -526,3 +526,11 @@ openshift_tests_private_git_branch: "master"
 cpu_manager_directory: "/tmp/cpu-manager-test-logs"
 cpu_golang_tarball: "https://go.dev/dl/go1.24.1.linux-ppc64le.tar.gz"
 cpum_test_image: "gcr.io/google_containers/pause:3.2"
+
+##openshift-test-private-e2e vars
+openshift_test_private_validation: false
+openshift_test_private_e2e_repo: "https://github.com/openshift/openshift-tests-private.git"
+openshift_test_private_git_branch: "master"
+openshift_test_private_directory: "/tmp/openshift_test_private_e2e"
+openshift_test_private_golang_tarball: "https://go.dev/dl/go1.24.1.linux-ppc64le.tar.gz"
+testcase_filters : 'Image_Registry\\|API_Server'

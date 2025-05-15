@@ -149,3 +149,6 @@
 
 - import_playbook: ocp-cpu-manager.yml
   when: validate_cpum is defined and validate_cpum
+
+- import_playbook: openshift-test-private-e2e.yml
+  when: openshift_test_private_validation is defined and openshift_test_private_validation  
