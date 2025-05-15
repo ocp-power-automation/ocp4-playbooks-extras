@@ -7,14 +7,6 @@
     descheduler_github_access_token: "{{ lookup('ansible.builtin.env', 'GITHUB_ACCESS_TOKEN') }}"
     descheduler_e2e_dir: "{{ [descheduler_workdir, descheduler_e2e_repo.split('/')[-1]] | join('/') }}"
 
-- fail:
-    msg: "Please set descheduler_e2e_repo variable with the e2e repo URL."
-  when: descheduler_e2e_repo == "" or descheduler_e2e_repo == None
-
-- fail:
-    msg: "Please set the environment variables GITHUB_USERNAME and GITHUB_ACCESS_TOKEN on your host."
-  when: descheduler_github_username == "" or descheduler_github_access_token == ""
-
 # Cluster health check
 - name: Invoke the role check-cluster-health to check cluster status
   include_role:
@@ -23,6 +15,13 @@
 # Descheduler operator deployment block
 - name: Descheduler operator deployment
   block:
+    - name: Include operator cleanup task module
+      include_tasks: "{{ role_path }}/tasks/descheduler-operator-cleanup.yaml"
+      vars:
+        operator_namespace: "{{ descheduler_namespace }}"
+        operator_subscription: "openshift-descheduler-subscription"
+        operator_group: "openshift-descheduler-operatorgroup"
+
     - name: Setup a catalogsource for installing descheduler operator
       block:
         - name: Include the global pull-secret update role to extract podman-secret
@@ -36,7 +35,6 @@
             custom_catalogsource_name: "{{ descheduler_catalogsource_name }}"
             custom_catalogsource_display_name: "Descheduler Operator"
             custom_catalogsource_image: "{{ descheduler_catalogsource_image }}"
-      when: descheduler_catalogsource_image != '' or descheduler_catalogsource_image == None
 
     - name: Create a target namespace
       kubernetes.core.k8s:
@@ -78,28 +76,44 @@
             name: cluster-kube-descheduler-operator 
             source: "{{ descheduler_catalogsource_name }}"
             sourceNamespace: openshift-marketplace
+
+    - name: Verify the operator installation
+      block:
+        - name: Check if the cluster service version has status as Succeeded
+          shell: "oc get csv --all-namespaces --no-headers | grep clusterkubedescheduleroperator | awk '{ if (($2 ~ /clusterkubedescheduleroperator/) && $NF  == \"Succeeded\") print $2 }'| wc -l"
+          register: descheduler_operators_csv
+          until: descheduler_operators_csv.stdout|int != 0
+          retries: 15
+          delay: 60
+
+        - name: Check if pods are running
+          shell: "oc get pods --all-namespaces --no-headers | grep descheduler | awk '{ if ($4 == \"Running\") print $2 }' | wc -l"
+          register: descheduler_pods
+          until: descheduler_pods.stdout|int != 0
+          retries: 15
+          delay: 60
+
   when: descheduler_operator_deploy
-
-- name: Verify the operator installation
-  block:
-    - name: Check if the cluster service version has status as Succeeded
-      shell: "oc get csv --all-namespaces --no-headers | grep clusterkubedescheduleroperator | awk '{ if (($2 ~ /clusterkubedescheduleroperator/) && $NF  == \"Succeeded\") print $2 }'| wc -l"
-      register: descheduler_operators_csv
-      until: descheduler_operators_csv.stdout|int != 0
-      retries: 15
-      delay: 60
-
-    - name: Check if pods are running
-      shell: "oc get pods --all-namespaces --no-headers | grep descheduler | awk '{ if ($4 == \"Running\") print $2 }' | wc -l"
-      register: descheduler_pods
-      until: descheduler_pods.stdout|int != 0
-      retries: 15
-      delay: 60
 
 # Descheduler e2e run block
 - name: Running e2e test suite in openshift-tests-private for descheduler
   block:
-    - name: Create a directory for clonning the repo
+    - fail:
+        msg: "Please set descheduler_e2e_repo variable with the e2e repo URL."
+      when: descheduler_e2e_repo == "" or descheduler_e2e_repo == None
+
+    - fail:
+        msg: "Please set the environment variables GITHUB_USERNAME and GITHUB_ACCESS_TOKEN on your host."
+      when: descheduler_github_username == "" or descheduler_github_access_token == ""
+
+    - name: Invoke operator cleanup task
+      include_tasks: "{{ role_path}}/tasks/descheduler-operator-cleanup.yaml"
+      vars:
+        operator_namespace: "{{ descheduler_namespace }}"
+        operator_subscription: "openshift-descheduler-subscription"
+        operator_group: "openshift-descheduler-operatorgroup"
+      
+    - name: Create a directory for cloning the repo
       file:
         state: directory
         path: "{{ descheduler_workdir }}/e2e-test-result/"
@@ -136,7 +150,7 @@
         regexp: 'opsrcName\:\s*\"[a-zA-Z0-9\-]*\"'
         replace: "opsrcName:  \"{{ descheduler_catalogsource_name }}\""
 
-    - name: Replace the descheduler operator image build with the custom one in the kube_descheduler_operator test module
+    - name: Replace the operator image build with the user defined image in the test module
       ansible.builtin.replace:
         path: "{{ descheduler_e2e_dir }}/test/extended/workloads/kube_descheduler_operator.go"
         regexp: 'imageInfo\:\s*\"[a-z0-9\.\/\:\-]*\"'
@@ -147,7 +161,7 @@
         chdir: "{{ descheduler_e2e_dir }}"
         target: build
 
-    - name: Run the kube_descheduler_operator.go module for descheduler e2e tests
+    - name: Run the e2e test module
       shell: "./bin/extended-platform-tests run all --dry-run| 
         grep 'descheduler operator\\|Descheduler-Descheduler\\|Descheduler-Validate'|
         ./bin/extended-platform-tests run --junit-dir=./ -f - -o ../e2e-test-result/descheduler-e2e-test-summary.txt"
