@@ -159,8 +159,10 @@ ocp_cluster_logging: false
 cluster_log_forwarder: false
 cluster_logging_channel: ""
 elastic_search_channel: ""
+loki_channel: ""
 elasticsearch_clf_cs: ""  # brew.registry.redhat.io/rh-osbs/iib:111110
 clusterlogging_clf_cs: "" # brew.registry.redhat.io/rh-osbs/iib:11111
+loki_clf_cs: ""  # brew.registry.redhat.io/rh-osbs/iib:111112
 log_label: ""
 elasticsearch_url: ""
 syslog_url: ""
