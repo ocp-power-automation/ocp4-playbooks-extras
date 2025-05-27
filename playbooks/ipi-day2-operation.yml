@@ -1,0 +1,24 @@
+---
+- name: Run ipi day2 operation
+  hosts: all
+  tasks:
+    - name: Fail incase 'KUBECONFIG' environment variable is an empty string
+      fail:
+        msg: KUBECONFIG environment variable must be a non-empty string
+      when: (lookup('env', 'KUBECONFIG') == "")
+
+    - name: Check golang version
+      shell: go version | awk '{ print substr ($3,3) }'
+      register: golang_version
+
+    - fail:
+        msg: golang is not installed or version < 1.22
+      when: golang_version.rc !=0 or golang_version.stdout < "1.22"
+    - debug:
+        msg: "{{ golang_version }}"
+
+    - include_role:
+        name: ipi-day2-operation
+      vars:
+        KUBECONFIG: "{{ lookup('env', 'KUBECONFIG') }}"
+      
