@@ -1,0 +1,4 @@
+---
+
+ocp_kdump_env:
+  KUBECONFIG: "{{ ansible_env.HOME }}/.kube/config"
