@@ -1,0 +1,139 @@
+---
+# tasks file for playbooks/roles/ocp-kdump
+
+# Check the health of Cluster Operators
+- name: Check if cluster operators and nodes are healthy
+  include_role:
+    name: check-cluster-health
+
+- name: Ensure Butane is installed
+  package:
+    name: butane
+    state: present
+
+- name: Check Butane version
+  command: butane --version
+  register: butane_check
+  failed_when: butane_check.rc != 0
+
+- name: Ensure kexec-tools is installed
+  package:
+    name: kexec-tools
+    state: present
+
+- name: Create Butane config file
+  copy:
+    dest: "/tmp/99-worker-kdump.bu"
+    mode: '0644'
+    content: |
+      variant: openshift
+      version: 4.18.0
+      metadata:
+        name: 99-worker-kdump
+        labels:
+          machineconfiguration.openshift.io/role: worker
+      openshift:
+        kernel_arguments:
+          - crashkernel=2G-4G:384M,4G-16G:512M,16G-64G:1G,64G-128G:2G,128G-:4G
+      storage:
+        files:
+          - path: /etc/kdump.conf
+            mode: 0644
+            overwrite: true
+            contents:
+              inline: |
+                path /var/crash
+                core_collector makedumpfile -l --message-level 7 -d 31
+          - path: /etc/sysconfig/kdump
+            mode: 0644
+            overwrite: true
+            contents:
+              inline: |
+                KDUMP_COMMANDLINE_REMOVE="hugepages hugepagesz slub_debug quiet log_buf_len swiotlb"
+                KDUMP_COMMANDLINE_APPEND="irqpoll maxcpus=1 reset_devices cgroup_disable=memory mce=off numa=off udev.children-max=2 panic=10 rootflags=nofail acpi_no_memhotplug transparent_hugepage=never nokaslr novmcoredd hest_disable"
+                KEXEC_ARGS="-s"
+                KDUMP_IMG="vmlinuz"
+      systemd:
+        units:
+          - name: kdump.service
+            enabled: true
+
+- name: Generate MachineConfig YAML using Butane
+  command: "butane /tmp/99-worker-kdump.bu -o /tmp/99-worker-kdump.yaml"
+  args:
+    creates: "/tmp/99-worker-kdump.yaml"
+
+- name: Apply MachineConfig to the OpenShift cluster
+  command: "oc apply -f /tmp/99-worker-kdump.yaml"
+
+- name: Wait until all worker nodes are in Ready state
+  shell: |
+    oc get nodes --selector='node-role.kubernetes.io/worker' --no-headers | \
+    awk '{print $2}' | grep -v 'Ready' || true
+  register: worker_nodes_ready
+  retries: 10
+  delay: 30
+  until: worker_nodes_ready.stdout == ""
+
+- name: Restart kdump on worker node
+  shell: >
+    oc debug node/{{ worker_node }} -- chroot /host bash -c 'kdumpctl restart'
+  register: kdump_restart_output
+  failed_when: "'error' in kdump_restart_output.stderr.lower()"
+  changed_when: true
+
+- name: Wait for system to settle
+  pause:
+    seconds: 60
+
+# Check kdump status
+- name: Check kdump status on worker node
+  shell: >
+    oc debug node/{{ worker_node }} -- chroot /host bash -c 'kdumpctl status'
+  register: kdump_status_output
+
+- name: Debug kdump status
+  debug:
+    var: kdump_status_output.stdout_lines
+
+- name: Fail if kdump is not operational
+  become: yes
+  fail:
+    msg: "Kdump is NOT operational"
+  when:
+    - "'Kdump is operational' not in kdump_status_output.stdout"
+
+- name: Check if kdump service is active
+  become: yes
+  command: systemctl is-active kdump
+  register: kdump_service_status
+
+- name: Fail if kdump service is not active
+  fail:
+    msg: "kdump service is not active"
+  when: kdump_service_status.stdout != "active"
+
+- name: Validate essential keys exist in /etc/sysconfig/kdump
+  become: true
+  shell: |
+    grep -q '^KDUMP_COMMANDLINE_APPEND=' /etc/sysconfig/kdump && \
+    grep -q '^KDUMP_COMMANDLINE_REMOVE=' /etc/sysconfig/kdump && \
+    grep -q '^KEXEC_ARGS=' /etc/sysconfig/kdump && \
+    grep -q '^KDUMP_IMG=' /etc/sysconfig/kdump
+  register: sysconfig_kdump_check
+  failed_when: sysconfig_kdump_check.rc != 0
+
+- name: Validate /etc/kdump.conf contents
+  become: yes
+  shell: |
+    grep -q '^path /var/crash' /etc/kdump.conf && \
+    grep -q 'core_collector makedumpfile -l --message-level 7 -d 31' /etc/kdump.conf
+  register: kdump_conf_check
+  failed_when: kdump_conf_check.rc != 0
+
+# trigger crash file
+- name: Repeat crash trigger 10 times with pauses
+  include_tasks: crash_trigger.yml
+  loop: "{{ range(1, 11) | list }}"
+  loop_control:
+    label: "Crash iteration {{ item }}"

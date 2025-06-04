@@ -1,0 +1,4 @@
+---
+#ocp-kdump vars
+
+worker_node:  # Enter the worker node , that needs to be crashed
