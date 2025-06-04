@@ -6,20 +6,80 @@
   include_role:
     name: check-cluster-health
 
-# Checking if worker node contains 500 Gb volume attached
+# Extract worker node name dynamically
+- name: Export kubeconfig
+  shell: oc get nodes
+  register: nodes
+  changed_when: false
+
+- name: Show raw output from 'oc get nodes'
+  debug:
+    var: nodes.stdout_lines
+
+- name: Extract only worker node names
+  set_fact:
+    node_names: >-
+      {{ nodes.stdout_lines[1:]
+         | select('search', 'worker')
+         | map('split')
+         | map('first')
+         | list }}
+
+- name: Print extracted worker node names
+  debug:
+    var: node_names
+
+- name: Print each node being added to dynamic 'workers' group
+  debug:
+    msg: "Adding {{ item }} to workers group"
+  loop: "{{ node_names }}"
+  when: node_names is defined and node_names | length > 0
+
+- name: Add worker nodes to dynamic 'workers' group
+  add_host:
+    name: "{{ item }}"
+    groups: workers
+  loop: "{{ node_names }}"
+  when: node_names is defined and node_names | length > 0
+
+
 - name: Check if 500GB volume is attached to all worker nodes
   shell: ssh -o StrictHostKeyChecking=no core@{{ item }} lsblk | grep 500
   register: volume_check
-  loop: "{{ groups['workers'] }}"  
-  when: "'workers' in group_names and ansible_facts.devices is defined and ansible_facts.devices | selectattr('size', 'equalto', 500000000000) | list | length > 0"
+  loop: "{{ groups['workers'] }}"
+  when: upi_cluster
+  ignore_errors: yes
 
 - name: Fail if 500GB volume is not found on any worker node
   fail:
-    msg: "500GB volume is not attached to the worker node {{ item }}. Please add a 500GB attached volume to each worker node and try again."
-  loop: "{{ groups['workers'] }}"  
+    msg: "500GB volume is not attached to the worker node {{ item.item }}. Please add a 500GB attached volume to each worker node and try again."
+  loop: "{{ volume_check.results }}"
   when:
-    - volume_check is not defined
-    - volume_check.rc != 0
+    - upi_cluster
+    - item.rc is defined
+    - item.rc != 0
+
+- name: IPI Cluster (Verify 500gb Volume attached)
+  when: not upi_cluster
+  block:
+    - name: Get cluster nodes
+      set_fact:
+        ipi_node_names: >-
+          {{ nodes.stdout_lines[1:] | map('split') | map('first') | list }}
+
+    - name: Get worker node name
+      set_fact:
+        worker_node: "{{ ipi_node_names | select('search', 'worker') | list | first }}"
+
+    - name: Verify 500GB volume on worker node
+      shell: |
+        oc debug node/{{ worker_node }} -- chroot /host lsblk | grep 500 || (echo "❌ Additional 500GB volume not found on worker node, please attach to all workers" && exit 1)
+      register: lsblk_result
+      changed_when: false
+
+    - name: Show lsblk output from all nodes
+      debug:
+        var: lsblk_result.stdout_lines
 
 - name: Check if lso_namespace is defined, and set default if not
   set_fact:
@@ -34,7 +94,7 @@
       kind: Namespace
       metadata:
         name: "{{ lso_namespace }}"
-  when: lso_namespace is defined       
+  when: lso_namespace is defined
 
 # Create ICSP & catalogsource for installing local storage operator
 - name: Local Storage Operator deployment
@@ -93,8 +153,8 @@
   retries: 10
   delay: 30
   failed_when:
-    - ip_status.rc != 0  
-    - ip_status.stdout == ""  
+    - ip_status.rc != 0
+    - ip_status.stdout == ""
 
 # Check the ClusterServiceVersion (CSV) for the LocalStorage Operator
 - name: Check LocalStorage Operator CSV
@@ -103,7 +163,7 @@
   until: csv_status.stdout != "" and csv_status.stderr == ""
   retries: 10
   delay: 30
-  failed_when: csv_status.rc != 0  
+  failed_when: csv_status.rc != 0
   when:
     - lso_namespace is defined
 
@@ -111,6 +171,11 @@
   debug:
     msg: "The LocalStorage Operator CSV is available."
   when: "'local-storage-operator' in csv_status.stdout"
+
+- name: Set unified node_names for IPI
+  when: not upi_cluster
+  set_fact:
+    node_names: "{{ ipi_node_names }}"
 
 # Create LocalVolumeSet YAML content for local block volumes
 - name: Create LocalVolumeSet YAML for local block volumes
@@ -138,10 +203,7 @@
             - matchExpressions:
                 - key: kubernetes.io/hostname
                   operator: In
-                  values:
-                    - worker-0
-                    - worker-1
-                    - worker-2
+                  values: "{{ node_names | list }}"
         storageClassName: localblock
         volumeMode: Block
 
@@ -152,15 +214,17 @@
   retries: 5
   delay: 10
   until: lvs_status.rc == 0
-  failed_when: lvs_status.rc != 0  
+  failed_when: lvs_status.rc != 0
 
 - name: Verify creation of diskmanager pods
-  shell: "oc get pods -n openshift-local-storage --selector=app=diskmaker-manager | grep Running"
+  shell: |
+    oc get pods -n openshift-local-storage --selector=app=diskmaker-manager \
+    --no-headers | awk '{print $3}' | grep -v Running | wc -l
   register: check_pods
-  until: check_pods.stdout|int == 0 and check_pods.stderr == ""
+  until: check_pods.stdout | int == 0
   retries: 10
   delay: 30
-  failed_when: check_pods.rc != 0
+  failed_when: check_pods.rc != 0 and check_pods.stdout | int != 0
 
 - name: Verify the creation of StorageClass
   command: oc get sc localblock
@@ -170,83 +234,84 @@
   delay: 30
   failed_when: check_sc.rc != 0
 
-- name: Delete existing PersistentVolumeClaim and Pod (if they exist)
-  kubernetes.core.k8s:
-    state: absent
-    definition:
-      - kind: PersistentVolumeClaim
-        apiVersion: v1
-        metadata:
-          name: test-local-claim
-      - apiVersion: v1
-        kind: Pod
-        metadata:
-          name: busybox-lso
-          namespace: default
-  register: delete_pvc
-  changed_when: delete_pvc is changed  
+- name: Manage PVC and Pod for UPI cluster
+  when: upi_cluster
+  block:
 
-# Testing localblock storage class
-# Creating PVC
-- name: Create PersistentVolumeClaim YAML
-  kubernetes.core.k8s:
-    definition:
-      - kind: PersistentVolumeClaim
-        apiVersion: v1
-        metadata:
-          name: test-local-claim
-          namespace: default
-        spec:
-          accessModes:
-          - ReadWriteOnce
-          volumeMode: Block
-          resources:
-            requests:
-              storage: 100Gi
-          storageClassName: localblock
+    - name: Delete existing PersistentVolumeClaim and Pod (if they exist)
+      kubernetes.core.k8s:
+        state: absent
+        definition:
+          - kind: PersistentVolumeClaim
+            apiVersion: v1
+            metadata:
+              name: test-local-claim
+          - apiVersion: v1
+            kind: Pod
+            metadata:
+              name: busybox-lso
+              namespace: default
+      register: delete_pvc
+      changed_when: delete_pvc is changed
 
-# Creating POD for PersistentVolumeClaim
-- name: Create POD for PersistentVolumeClaim
-  kubernetes.core.k8s:
-    definition:
-      - apiVersion: v1
-        kind: Pod
-        metadata:
-          name: busybox-lso
-          namespace: default
-        spec:
-          volumes:
-            - name: local-data
-              persistentVolumeClaim:
-                claimName: test-local-claim
-          containers:
-            - name: busybox
-              image: quay.io/powercloud/busybox:ubi
-              command: ['sh', '-c', 'echo "Hello, Kubernetes!" && sleep 600']
-              volumeDevices:
-                - devicePath: "{{ device_path }}"
-                  name: local-data
+    - name: Create PersistentVolumeClaim YAML
+      kubernetes.core.k8s:
+        definition:
+          - kind: PersistentVolumeClaim
+            apiVersion: v1
+            metadata:
+              name: test-local-claim
+              namespace: default
+            spec:
+              accessModes:
+              - ReadWriteOnce
+              volumeMode: Block
+              resources:
+                requests:
+                  storage: 100Gi
+              storageClassName: localblock
 
-- name: Verify the status of Persistent Volumes
-  shell: "oc get pv --selector storage.openshift.com/owner-kind=LocalVolumeSet | grep Bound"
-  register: check_pv
-  until: check_pv.stdout|int == 0 and check_pv.stderr == ""
-  retries: 10
-  delay: 30
-  failed_when: check_pv.rc != 0
+    - name: Create POD for PersistentVolumeClaim
+      kubernetes.core.k8s:
+        definition:
+          - apiVersion: v1
+            kind: Pod
+            metadata:
+              name: busybox-lso
+              namespace: default
+            spec:
+              volumes:
+                - name: local-data
+                  persistentVolumeClaim:
+                    claimName: test-local-claim
+              containers:
+                - name: busybox
+                  image: "{{ busybox_image }}"
+                  command: ['sh', '-c', 'echo "Hello, Kubernetes!" && sleep 600']
+                  volumeDevices:
+                    - devicePath: "{{ device_path }}"
+                      name: local-data
 
-- name: Verify PVC status
-  shell: "oc get pvc test-local-claim -n default | grep Bound"
-  register: pvc_status
-  until: pvc_status.stdout|int == 0 and pvc_status.stderr == ""
-  retries: 10
-  delay: 30
-  failed_when: pvc_status.rc != 0
+    - name: Verify the status of Persistent Volumes
+      shell: "oc get pv --selector storage.openshift.com/owner-kind=LocalVolumeSet | grep Bound"
+      register: check_pv
+      until: check_pv.stdout|int == 0 and check_pv.stderr == ""
+      retries: 10
+      delay: 30
+      failed_when: check_pv.rc != 0
 
-- name: Verify Pod status
-  shell: "oc get pods busybox-lso -n default -o jsonpath='{.status.phase}'"
-  register: pod_status
-  until: pod_status.stdout|int == 0 and pod_status.stderr == ""
-  retries: 5
-  delay: 10
-  failed_when: pod_status.stdout != "Pending"
+    - name: Verify PVC status
+      shell: "oc get pvc test-local-claim -n default | grep Bound"
+      register: pvc_status
+      until: pvc_status.stdout|int == 0 and pvc_status.stderr == ""
+      retries: 10
+      delay: 30
+      failed_when: pvc_status.rc != 0
+
+    - name: Verify Pod status
+      shell: "oc get pods busybox-lso -n default -o jsonpath='{.status.phase}'"
+      register: pod_status
+      until: pod_status.stdout|int == 0 and pod_status.stderr == ""
+      retries: 5
+      delay: 10
+      failed_when: pod_status.stdout != "Pending"
