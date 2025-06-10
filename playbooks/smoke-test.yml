@@ -1,0 +1,5 @@
+---
+- name: Deploy and verify arch-specific pods
+  hosts: bastion
+  roles:
+    - smoke-test

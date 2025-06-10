@@ -1,0 +1,86 @@
+---
+- name: Create PPC pod with affinity
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Pod
+      metadata:
+        name: ppc-pod
+        namespace: default
+      spec:
+        affinity:
+          nodeAffinity:
+            preferredDuringSchedulingIgnoredDuringExecution:
+              - weight: 70
+                preference:
+                  matchExpressions:
+                  - key: kubernetes.io/arch
+                    operator: In
+                    values:
+                      - ppc64le
+              - weight: 30
+                preference:
+                  matchExpressions:
+                  - key: kubernetes.io/arch
+                    operator: NotIn
+                    values:
+                      - ppc64le
+        containers:
+          - name: web
+            image: registry.redhat.io/ubi8/pause
+
+- name: Create x86 pod with anti-affinity
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Pod
+      metadata:
+        name: x86-pod
+        namespace: default
+      spec:
+        affinity:
+          nodeAffinity:
+            preferredDuringSchedulingIgnoredDuringExecution:
+              - weight: 30
+                preference:
+                  matchExpressions:
+                  - key: kubernetes.io/arch
+                    operator: In
+                    values:
+                      - ppc64le
+              - weight: 70
+                preference:
+                  matchExpressions:
+                  - key: kubernetes.io/arch
+                    operator: NotIn
+                    values:
+                      - ppc64le
+        containers:
+          - name: web
+            image: registry.redhat.io/ubi8/pause
+
+- name: Wait until pods are running
+  command: oc get pods -n default --no-headers
+  register: pod_status
+  until: "'Running' in pod_status.stdout"
+  retries: 10
+  delay: 10
+
+- name: Launch multiple pause pods
+  shell: |
+    for n in $(seq 1 60); do
+      oc run pause-pod-$n --image=ubi8/pause:8.8-9 -n default
+    done
+
+- name: Verify all pods running
+  command: oc get pods -n default -o wide
+  register: pause_pod_status
+  changed_when: false
+
+- debug:
+    msg: "{{ pause_pod_status.stdout_lines }}"
+
+- name: Cleanup - delete all pods
+  command: oc delete pods --all -n default
