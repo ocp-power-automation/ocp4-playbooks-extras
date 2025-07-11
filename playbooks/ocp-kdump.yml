@@ -1,0 +1,5 @@
+---
+- name: Automate Enabling Kdump 
+  hosts: bastion 
+  roles:
+  - ocp-kdump
