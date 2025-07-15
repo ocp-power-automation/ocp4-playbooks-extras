@@ -1,0 +1,128 @@
+---
+# tasks file for playbooks/roles/ipi-day2-operation
+
+- name: Check if cluster operators and nodes are healthy
+  include_role:
+    name: check-cluster-health
+
+- name: Check if secret podman-secret exist
+  shell: oc get secret podman-secret | wc -l
+  register: login_secret
+
+- name: Fail if podman-secret does not exist in current namespace
+  fail:
+    msg: "Secret podman-secret does not exist in current namespace"
+  when: login_secret.stdout|int!=2
+
+# Deploy RSCT operator
+- name: Ensure 'rsct' directory exists
+  ansible.builtin.file:
+    path: "{{ rsct_dir }}"
+    state: directory
+    mode: '0755'
+
+- name: Clone the RSCT repository from GitHub
+  ansible.builtin.git:
+    repo: "{{ rsct_git_repo }}"
+    dest: "{{ rsct_dir }}"
+    force: yes
+
+# install controller-gen
+- name: Install controller-gen
+  ansible.builtin.shell: |
+    go install sigs.k8s.io/controller-tools/cmd/controller-gen@v0.15.0
+
+- name: Install kustomize
+  ansible.builtin.shell: |
+    go install sigs.k8s.io/kustomize/kustomize/v4@latest
+
+#Set version for RSCT
+- name: Echo version
+  ansible.builtin.shell: echo "VERSION is $VERSION"
+  environment:
+    VERSION: "0.0.1-alpha1"
+
+# Run make command for RSCT
+- name: Deploy RSCT operator
+  command: make deploy
+  args:
+    chdir: "{{ lookup('env', 'PWD') }}/rsct"
+
+# Check RSCT pods
+- name: Check created pods
+  shell: oc get pods -n "{{ rsct_namespace }}"
+  register: rsct_pods
+
+- debug:
+    msg: "{{ rsct_pods.stdout_lines }}"
+
+# Add test user as rsct-test
+- name: Add the test user as rsct-test
+  shell: "oc adm policy add-scc-to-user -z rsct-test privileged -n {{ rsct_namespace }}"
+
+# Create cluster role binding
+- name: Create cluster binding role
+  shell: oc apply -f rsct_v1alpha1_rsct.yaml
+  args:
+    chdir: "{{ lookup('env', 'PWD') }}/rsct/config/samples/"
+
+# Check pods after cluster role binding
+- name: Check created pods
+  ansible.builtin.shell: |
+    oc get pods -n "{{ rsct_namespace }}" --no-headers | grep -v "Running\|Completed" | wc -l
+  register: rsct_pods1
+  until: (rsct_pods1.stdout | int) == 0 and rsct_pods1.stderr == ""
+  retries: 5
+  delay: 30
+  changed_when: false
+
+# Check all resources from rsct-operator-system namespace
+- name: Check all the created resources
+  shell: oc get all -n "{{ rsct_namespace }}"
+  register: all_resources
+
+- debug:
+    msg: "{{ all_resources.stdout_lines }}"
+
+# Install dependencies
+- name: Install pip
+  become: true
+  package:
+    name: python3-pip
+    state: present
+
+- name: Install kubernetes Python module
+  pip:
+    name: kubernetes
+    executable: pip3
+
+# Install LSO
+- name: Install LSO - Local Storage operator
+  include_role:
+    name: ocp-lso
+  vars:
+    lso_catalogsource_image: "{{ lso_index }}"
+    upi_cluster: "{{ cluster_upi }}"
+
+# Get worker nodes to check processor/CPU
+- name: Get worker node names
+  shell: oc get nodes -o custom-columns=NAME:.metadata.name --no-headers | grep worker
+  register: worker_nodes
+
+# Check available CPU's on worker nodes
+- name: Get CPU count for each worker node
+  shell: >
+    oc get node {{ item }} -o jsonpath='{.status.capacity.cpu}'
+  loop: "{{ worker_nodes.stdout_lines }}"
+  register: worker_cores
+
+- name: Fail if any worker node has less than 16 CPUs
+  fail:
+    msg: "Node {{ item.item }} has only {{ item.stdout }} CPUs, which is less than minimum requirement for ODF."
+  when: item.stdout | int < 16
+  loop: "{{ worker_cores.results }}"
+
+# ODF installation
+- name: Install ODF - Openshift Data Foundation
+  include_role:
+    name: ocp-odf-operator

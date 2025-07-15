@@ -536,3 +536,11 @@ openshift_test_private_git_branch: "master"
 openshift_test_private_directory: "/tmp/openshift_test_private_e2e"
 openshift_test_private_golang_tarball: "https://go.dev/dl/go1.24.1.linux-ppc64le.tar.gz"
 testcase_filters : 'Image_Registry\\|API_Server'
+
+#ipi-day2-operation vars
+enable_ipi_day2_operation: false
+rsct_operator_repo: "https://github.com/ocp-power-automation/rsct-operator.git"
+rsct_dir: "{{ lookup('env', 'PWD') }}/rsct"
+rsct_namespace: rsct-operator-system
+lso_index: "" # provide LSO index image
+cluster_upi: false  #set to true if using UPI cluster

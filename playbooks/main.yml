@@ -152,3 +152,6 @@
 
 - import_playbook: openshift-test-private-e2e.yml
   when: openshift_test_private_validation is defined and openshift_test_private_validation  
+
+- import_playbook: ipi-day2-operation.yml
+  when: enable_ipi_day2_operation is defined and enable_ipi_day2_operation
