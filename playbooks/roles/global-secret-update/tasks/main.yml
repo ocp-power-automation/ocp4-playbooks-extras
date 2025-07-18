@@ -16,7 +16,7 @@
 # Get pull seret and store it in root location
 - name: Getting pull Secret
   shell: |
-    oc get secret/pull-secret -n openshift-config -o json | jq -r '.data.".dockerconfigjson"' | base64 -d > /root/authfile
+    oc get secret/pull-secret -n openshift-config -o json | jq -r '.data.".dockerconfigjson"' | base64 -d > $HOME/authfile
   register: output
   ignore_errors: yes
 
@@ -62,7 +62,7 @@
 # Podman login
 - name: Podman Login
   shell: |
-    podman login --authfile /root/authfile --username {{ podman_username.stdout | quote }}  --password {{ podman_password.stdout | quote}} {{ podman_registry.stdout }}
+    podman login --authfile $HOME/authfile --username {{ podman_username.stdout | quote }}  --password {{ podman_password.stdout | quote}} {{ podman_registry.stdout }}
   register: output
   ignore_errors: yes
 
@@ -74,7 +74,7 @@
 # Setting pullsecret
 - name: Set data/pullsecret
   shell: |
-    oc set data secret/pull-secret -n openshift-config --from-file=.dockerconfigjson=/root/authfile
+    oc set data secret/pull-secret -n openshift-config --from-file=.dockerconfigjson=$HOME/authfile
   register: output
   ignore_errors: yes
 

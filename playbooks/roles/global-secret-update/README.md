@@ -5,7 +5,7 @@ This is a role which is created for global secret update. This can be used in di
 
 ### It performs following operations:  
 - Set `disableAllDefaultSources` to true
-- Get pull secret and store it in root location as /root/authfile
+- Get pull secret and store it in root location as $HOME/authfile
 - Get `username` , `password` and `registry` from ocp secret named as `podman-secret`
 - Podman login and then set pull secret
 
