@@ -155,3 +155,7 @@
 
 - import_playbook: ipi-day2-operation.yml
   when: enable_ipi_day2_operation is defined and enable_ipi_day2_operation
+
+- import_playbook: ocp-odf-operator.yml
+  when: odf_enabled is defined and odf_enabled
+

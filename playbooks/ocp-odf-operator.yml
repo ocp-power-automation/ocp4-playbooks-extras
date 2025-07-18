@@ -1,0 +1,5 @@
+---
+- name: Installation of the Openshift Data Foundation Operator
+  hosts: bastion
+  roles:
+  - ocp-odf-operator
