@@ -544,3 +544,10 @@ rsct_dir: "{{ lookup('env', 'PWD') }}/rsct"
 rsct_namespace: rsct-operator-system
 lso_index: "" # provide LSO index image
 cluster_upi: false  #set to true if using UPI cluster
+
+# ocp-odf-operator required vars
+odf_enabled: false
+update_channel: ""
+odf_catalogsource_image: "" #Example - quay.io/rhceph-dev/ocs-registry:4.16.3
+test_pod_image: "quay.io/powercloud/nginx-unprivileged:latest"
+

@@ -51,6 +51,7 @@ This repository consists of additional ansible playbooks for the following:
 1. Enable DISA-STIG profiles for CO on P and remediate various rules.
 1. Run Openshift-tests-private testcases.
 1. Verify IPI day2 operations
+1. Deploy Openshift Data Foundation operator
 
 ## Assumptions:
 

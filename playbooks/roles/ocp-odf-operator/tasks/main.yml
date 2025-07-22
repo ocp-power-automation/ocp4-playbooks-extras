@@ -1,0 +1,299 @@
+---
+
+ # check if Cluster Health is good
+- name: Check if cluster operators and nodes are healthy
+  include_role:
+    name: check-cluster-health
+
+# Ensure that LSO is installed and PVs are created
+- name: Check Local Storage Operator is installed
+  shell: oc get csv -n openshift-local-storage | grep 'local-storage.*Succeeded' | wc -l
+  register: lso_csv
+
+- name: Fail if Local Storage Operator not installed
+  fail:
+    msg: "Local Storage Operator is not installed!"
+  when: lso_csv.stdout|int < 1
+
+- name: Check PVs are created by LocalVolumeSet
+  shell: oc get pv --selector storage.openshift.com/owner-kind=LocalVolumeSet | wc -l
+  register: pv_list
+
+- name: Fail if PVs are not created by LocalVolumeSet
+  fail:
+    msg: "No Local PVs created by LocalVolumeSet"
+  when: pv_list.stdout|int < 1
+
+- name: Get worker names
+  command: oc get nodes -l node-role.kubernetes.io/worker --no-headers -o custom-columns=NAME:.metadata.name
+  register: worker_list
+
+- name: Save to worker list
+  set_fact:
+    worker: "{{ worker_list.stdout_lines }}"
+
+# Custom ImageContentSourcePolicy and CatalogSource
+- name: Create ImageContentSourcePolicy and CatalogSource
+  block:
+  - name: Include the global-secret-update role
+    include_role:
+      name: global-secret-update
+
+  - name: Set fact variable for CatalogSource name
+    set_fact:
+      odf_op_source: "odf-catalogsource"
+
+  - name: Include role to create ImageContentSourcePolicy and CatalogSource
+    include_role:
+      name: set-custom-catalogsource
+    vars:
+      custom_catalogsource_name: "{{ odf_op_source }}"
+      custom_catalogsource_display_name: "Custom ODF CatalogSource"
+      custom_catalogsource_image: "{{ odf_catalogsource_image }}"
+  when: odf_catalogsource_image != '' and odf_catalogsource_image != None
+
+- name: Use default CatalogSource if no custom image is provided
+  set_fact:
+    odf_op_source: "redhat-operators"
+  when: odf_catalogsource_image == '' or odf_catalogsource_image == None
+
+# Creating a namespace for ODF Operator Installation
+- name: Create a namespace for the ODF Operator
+  k8s:
+     state: present
+     definition:
+       apiVersion: v1
+       kind: Namespace
+       metadata:
+         name: openshift-storage
+
+
+# Installing ODF Operator
+- name: Create operatorgroup
+  k8s:
+     state: present
+     definition:
+       apiVersion: operators.coreos.com/v1
+       kind: OperatorGroup
+       metadata:
+         generateName: openshift-storage-
+         name: openshift-storage
+         namespace: openshift-storage
+       spec:
+         targetNamespaces:
+         - openshift-storage
+
+- name: Wait till odf packagemanifest is ready
+  shell: oc get packagemanifest odf-operator -n openshift-marketplace| wc -l
+  register: odf_pkgmanifest
+  until: odf_pkgmanifest.stdout|int >= 1
+  retries: 10
+  delay: 120
+
+# Fetching the default update channel value which will be used for Subscription
+- name: Get the channel value
+  shell: oc get packagemanifest odf-operator -n openshift-marketplace -o jsonpath='{.status.defaultChannel}'
+  register: output
+  when: not update_channel | default('')
+
+- set_fact:
+    channel: "{{ output.stdout }}"
+  when: not update_channel | default('')
+
+- set_fact:
+    channel: "{{ update_channel|string }}"
+  when: update_channel != None and update_channel != ""
+
+# Creating subscription for ODF Operator
+- name: Create the Subscription CR
+  k8s:
+     state: present
+     definition:
+       apiVersion: operators.coreos.com/v1alpha1
+       kind: Subscription
+       metadata:
+         name: odf-operator
+         namespace: openshift-storage
+       spec:
+         channel: "{{ channel }}"
+         installPlanApproval: Automatic
+         name: odf-operator
+         source: "{{ odf_op_source }}"
+         sourceNamespace: openshift-marketplace
+
+
+# Verification of ClusterServiceVersion Installation
+- name: Verify ClusterServiceVersion
+  shell: oc get csv -n openshift-storage | grep 'odf-operator.*Succeeded' | wc -l
+  register: csv
+  until: csv.stdout|int == 1
+  retries: 10
+  delay: 120
+
+# To verify that the Operator deployment is successful
+- name: Verify that the Operator deployment is successful
+  shell: oc get pods -n openshift-storage --no-headers | grep -v "Running" | wc -l
+  register: pod
+  until: pod.stdout|int == 0
+  retries: 10
+  delay: 120
+
+# Label the nodes
+- name: Label the nodes
+  shell: oc label nodes {{ worker[0] }} {{ worker[1] }} {{ worker[2] }} cluster.ocs.openshift.io/openshift-storage=''
+
+# Check if LocalVolumeDiscovery already exists
+- name: Check if LocalVolumeDiscovery exists
+  shell: oc get localvolumediscovery -n openshift-local-storage --no-headers  | wc -l
+  register: lvdisc_count
+
+# Create the LocalVolumeDiscovery CR
+- name: Create the LocalVolumeDiscovery Custom Resource
+  k8s:
+    state: present
+    definition:
+      apiVersion: local.storage.openshift.io/v1alpha1
+      kind: LocalVolumeDiscovery
+      metadata:
+        name: auto-discover-devices
+        namespace: openshift-local-storage
+      spec:
+        nodeSelector:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values:
+              - "{{ worker[0] }}"
+              - "{{ worker[1] }}"
+              - "{{ worker[2] }}"
+  when: lvdisc_count.stdout|int < 1
+
+- name : Verify LocalVolumeDiscovery instance is created
+  shell:  oc get LocalVolumeDiscovery -n openshift-local-storage | wc -l
+  register: lvd_cr
+  until: lvd_cr.stdout|int == 2
+  retries: 10
+  delay: 120
+
+- name: Verify LVD pods are created
+  shell: oc get pod -n openshift-local-storage --no-headers --selector app=diskmaker-discovery | wc -l
+  register: pods_count
+  until: pods_count.stdout|int == 3
+  retries: 10
+  delay: 60
+
+
+# Create the StorageCluster CR
+- name: Create the StorageCluster Custom Resource
+  k8s:
+    state: present
+    definition:
+      apiVersion: local.storage.openshift.io/v1alpha1
+      apiVersion: ocs.openshift.io/v1
+      kind: StorageCluster
+      metadata:
+        annotations:
+          cluster.ocs.openshift.io/local-devices: 'true'
+        name: ocs-storagecluster
+        namespace: openshift-storage
+      spec:
+        flexibleScaling: true
+        manageNodes: false
+        monDataDirHostPath: /var/lib/rook
+        storageDeviceSets:
+        - count: 3
+          dataPVCTemplate:
+            spec:
+              accessModes:
+              - ReadWriteOnce
+              resources:
+                requests:
+                  storage: 100Gi
+              storageClassName: localblock
+              volumeMode: Block
+          name: ocs-deviceset-localblock
+          placement: {}
+          portable: false
+          replica: 1
+          resources: {}
+
+# To verify that the Operator deployment is successful
+- name: Verify the StorageCluster instance is in Ready state
+  shell: oc get storagecluster ocs-storagecluster -n openshift-storage -ojsonpath={.status.phase}
+  register: sc_status
+  until: sc_status.stdout|string == "Ready"
+  retries: 10
+  delay: 180
+
+- name: Verify the CephCluster health is OK
+  shell: oc get cephcluster ocs-storagecluster-cephcluster -n openshift-storage -ojsonpath={.status.phase}
+  register: cc_status
+  until: cc_status.stdout|string == "Ready"
+  retries: 10
+  delay: 180
+
+- name: Verify the Storage Classes are created
+  shell: oc get sc  --output custom-columns="PROVISIONER:provisioner" | grep openshift-storage | wc -l
+  register: sc_count
+  until: sc_count.stdout|int == 4
+  retries: 10
+  delay: 120
+
+# Validate ODF deployment
+- name: Validate File storage
+  block:
+  - name: Create POD with PVC using ocs-storagecluster-cephfs storageclass
+    kubernetes.core.k8s:
+      state: present
+      template: "{{ role_path }}/templates/file_storage.yaml.j2"
+
+  - name: Check that file storage test pod is running
+    shell:  oc get pod -n default | grep cephfs-demo-pod.*Running.* | wc -l
+    register: pod_output
+    until: pod_output.stdout|int == 1
+    retries: 5
+    delay: 30
+
+  - name: Check that PVC is created
+    shell:  oc get pvc -n default | grep cephfs-pvc | wc -l
+    register: pvc_output
+
+  - name: Fail if PVC is not created
+    fail:
+      msg: "CephFS PVC is not created!"
+    when: pvc_output.stdout|int != 1
+
+  - name: Delete File Storage test Pod and PVC
+    kubernetes.core.k8s:
+      state: absent
+      template: "{{ role_path }}/templates/file_storage.yaml.j2"
+
+
+- name: Validate Block storage
+  block:
+  - name: Create POD with PVC using ocs-storagecluster-ceph-rbd storageclass
+    kubernetes.core.k8s:
+      state: present
+      template: "{{ role_path }}/templates/block_storage.yaml.j2"
+
+  - name: Check that block storage test pod is running
+    shell:  oc get pod -n default | grep cephrbd-demo-pod.*Running.* | wc -l
+    register: pod_output
+    until: pod_output.stdout|int == 1
+    retries: 5
+    delay: 30
+
+  - name: Check that PVC is created
+    shell:  oc get pvc -n default | grep cephrbd-pvc | wc -l
+    register: pvc_output
+
+  - name: Fail if PVC is not created
+    fail:
+      msg: "CephRBD PVC is not created!"
+    when: pvc_output.stdout|int != 1
+
+  - name: Delete Block Storage test Pod and PVC
+    kubernetes.core.k8s:
+      state: absent
+      template: "{{ role_path }}/templates/block_storage.yaml.j2"
