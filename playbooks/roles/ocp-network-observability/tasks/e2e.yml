@@ -65,6 +65,6 @@
 
 - name: Run Network Observability backend e2e tests
   shell: |
-    ./bin/extended-platform-tests run all --dry-run | grep 'netobserv' | ./bin/extended-platform-tests run --timeout 120m -f - -o ../noo-e2e-tests-result-{{ '%Y%m%d' | strftime(ansible_date_time.epoch) }}.txt
+    ./bin/extended-platform-tests run all --dry-run | grep 'Network_Observability' | ./bin/extended-platform-tests run --timeout 240m -f - -o ../noo-e2e-tests-result-{{ '%Y%m%d' | strftime(ansible_date_time.epoch) }}.txt
   args:
     chdir: "{{ noo_directory }}/openshift-tests-private"
