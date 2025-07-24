@@ -1,0 +1,22 @@
+apiVersion: hypershift.openshift.io/v1beta1
+kind: NodePool
+metadata:
+  name: {{ hosted_cluster_name }}-ppc
+  namespace: {{ cluster_namespace }}
+spec:
+  arch: {{ arch_ppc }}
+  clusterName: {{ hosted_cluster_name }}
+  management:
+    autoRepair: false
+    upgradeType: InPlace
+  nodeDrainTimeout: 0s
+  nodeVolumeDetachTimeout: 0s
+  platform:
+    agent:
+      agentLabelSelector:
+        matchLabels:
+          inventory.agent-install.openshift.io/cpu-architecture: {{ arch_ppc }}
+    type: Agent
+  release:
+    image: {{ ocp_release_image }}
+  replicas: 0

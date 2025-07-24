@@ -15,6 +15,7 @@ Common variables used for both hypershift deployment and destroy operations:
 | hypershift_agent_install  | no | false | Enable it to install the hosted cluster |
 | hypershift_agent_destroy  | no | false | Enable it to destroy the hosted cluster |
 | acm_mce_install | no | false | Enable it to install ACM and MCE operator |
+| heterogeneous_install | no | false | Enable it to install heterogeneous deployment |
 | hosted_cluster_name | no | hypershift-hosted | Name of the hypershift cluster |
 | acm_catalogsource_name | no | redhat-operators-acm | Name of the ACM CatalogSource |
 | acm_catalogsource_image | yes | | Custom catalog source index image for ACM Operator (Ex: brew.registry.redhat.io/rh-osbs/iib:860542 )|
@@ -25,7 +26,9 @@ Common variables used for both hypershift deployment and destroy operations:
 | base_domain | no | qe-ppc64le.cis.ibm.net | The base domain of the cluster |
 | pull_secret_file | no | ~/.pullSecret | Pull secret file |
 | ocp_release | yes | | ocp release version of the cluster to deploy |
-| arch | no | ppc64le | cluster architecture |
+| ocp_release_image | yes | | release image used to deploy cluster |
+| arch_ppc | no | ppc64le | power cluster architecture |
+| arch_x86 | no | x86_64 | x86 cluster architecture |
 | hypershift_dir | no | /root/hypershift | folder that will contain kubeconfig, etc |
 | hypershift_git_repo | no | https://github.com/openshift/hypershift | git repository to install hypershift |
 | hypershift_git_branch | no | main | Hypershift git repository branch |
@@ -33,8 +36,10 @@ Common variables used for both hypershift deployment and destroy operations:
 | ssh_pub_key | no | ~/.ssh/id_rsa.pub | |
 | db_volume_size | no | 10Gi | Database Volume Size |
 | fs_volume_size | no | 100Gi | FileSystem Volume Size |
-| iso_url | yes | | ISO url |
-| root_fs_url | yes | | Root fs url |
+| iso_url_ppc | yes | | ppc64le ISO url |
+| root_fs_url_ppc | yes | | ppc64le root fs url |
+| iso_url_x86 | yes | | x86 ISO url |
+| root_fs_url_x86 | yes | | x86 root fs url |
 
 Dependencies
 ------------

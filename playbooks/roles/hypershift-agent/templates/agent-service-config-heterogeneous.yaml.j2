@@ -20,6 +20,11 @@ spec:
   osImages:
     - openshiftVersion: "{{ ocp_release_min.stdout }}"
       version: "{{ ocp_release_version.stdout }}"
+      url: "{{ iso_url_x86 }}"
+      rootFSUrl: "{{ root_fs_url_x86 }}"
+      cpuArchitecture: "{{ arch_x86 }}"
+    - openshiftVersion: "{{ ocp_release_min.stdout }}"
+      version: "{{ ocp_release_version.stdout }}"
       url: "{{ iso_url_ppc }}"
       rootFSUrl: "{{ root_fs_url_ppc }}"
       cpuArchitecture: "{{ arch_ppc }}"
