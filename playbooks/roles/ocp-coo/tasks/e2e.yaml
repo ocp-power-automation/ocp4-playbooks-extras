@@ -193,7 +193,7 @@
           apiVersion: loki.grafana.com/v1
           kind: LokiStack
           metadata:
-            name: lokistack-sample
+            name: lokistack-coo
             namespace: "{{ coo_logstack_namespace }}"
           spec:
             managementState: Managed
@@ -231,7 +231,7 @@
             logStore:
               type: "lokistack"
               lokistack:
-                name: lokistack-sample
+                name: lokistack-coo
             collection:
               type: "vector"
               visualization:
@@ -321,12 +321,12 @@
                       token:
                         from: serviceAccount
                     target:
-                      name: lokistack-sample
+                      name: lokistack-coo
                       namespace: "{{ coo_logstack_namespace }}"
                   name: lokistack
                   tls:
                     ca:
-                      configMapName: lokistack-sample-gateway-ca-bundle
+                      configMapName: lokistack-coo-gateway-ca-bundle
                       key: service-ca.crt
                   type: lokiStack
               pipelines:
@@ -358,9 +358,9 @@
             name: logging
           spec:
             logging:
-              logsLimit: 20
+              logsLimit: 6
               lokiStack:
-                name: lokistack-sample
+                name: lokistack-coo
               timeout: 6m
             type: Logging
 
@@ -387,6 +387,13 @@
         kind: ClusterServiceVersion
         namespace: openshift-tempo-operator
       register: tempo_csv
+    
+    - name: Get OpenTelemetry Operator csv
+      k8s_info:
+        api_version: operators.coreos.com/v1alpha1
+        kind: ClusterServiceVersion
+        namespace: openshift-opentelemetry-operator
+      register: opentelemetry_csv 
 
     - name: Check if Tempo Operator CSV exists
       set_fact:
@@ -396,6 +403,15 @@
       fail:
         msg: "Install Tempo Operator"
       when: not tempo_installed
+
+    - name: Check if OpenTelemetry Operator CSV exists
+      set_fact:
+        opentelemetry_installed: "{{ opentelemetry_csv.resources | selectattr('metadata.name', 'search', 'tempo') | list | length>0 }}"
+
+    - name: Fail if OpenTelemetry Operator is not installed 
+      fail:
+        msg: "Install OpenTelemetry Operator"
+      when: not opentelemetry_installed
 
     - name: Create the Tracing UIPlugin CR.
       kubernetes.core.k8s:

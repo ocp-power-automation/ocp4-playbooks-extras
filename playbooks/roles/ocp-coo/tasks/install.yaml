@@ -4,6 +4,10 @@
   include_role:
     name: check-cluster-health
 
+- name: Check cluster version
+  shell: oc version -o json | jq -r '.openshiftVersion' | sed -E 's/^([0-9]+\.[0-9]+)\..*/\1/'
+  register: ocp_version
+
 - name: Cluster Observability Operator deployment
   block:
     - name: Setup a catalogsource for installing cluster observability operator
@@ -28,6 +32,22 @@
                 - mirrors:
                   - brew.registry.redhat.io
                   source: registry-proxy.engineering.redhat.com
+          when: ocp_version.stdout | float == 4.12
+
+        - name: Create ImageDigestMirrorSet
+          k8s:
+            state: present
+            definition:
+              apiVersion: config.openshift.io/v1
+              kind: ImageDigestMirrorSet
+              metadata:
+                name: idms-coo
+              spec:
+                imageDigestMirrors:
+                - mirrors:
+                  - quay.io/redhat-user-workloads/cluster-observabilit-tenant/cluster-observability-operator
+                  source: registry.redhat.io/cluster-observability-operator
+          when: ocp_version.stdout | float >= 4.13
 
         # Create custom CatalogSource
         - name: Create a custom CatalogSource
