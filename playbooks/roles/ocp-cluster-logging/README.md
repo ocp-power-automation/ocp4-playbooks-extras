@@ -75,8 +75,10 @@ Role Variables
 | cluster_log_forwarder | no | false  | Flag to be set to true to forward logs to external third-party systems and to default internal Elasticsearch log store. Logs at external system will be cleaned up automatically.  |
 | elastic_search_channel | yes | ""  | It is used to set subscription channel for ElasticSearch |
 | cluster_logging_channel | yes | ""  | It is used to set subscription channel for Cluster Logging |
+| loki_channel | yes | "" | It is used to set subscription channel for Loki |
 | elasticsearch_clf_cs | no | redhat-operators  | It is used to set Index-Image of Elasticsearch in the CatalogSource |
 | clusterlogging_clf_cs | no | redhat-operators  | It is used to set Index-Image of Cluster Logging in the CatalogSource |
+| loki_clf_cs | no | redhat-operators | It is used to set Index-Image of Loki operator in the CatalogSource |
 | log_label | no| test-clf  | It is used to identify logs |
 | elasticsearch_url | no |  ""  | It is used to set URL of external ElasticSearch instance. It uses insecure connection(HTTP). |
 | syslog_url | no | "" | It is used to set URL of external Syslog instance. It uses secure connection (TLS). |
@@ -88,9 +90,10 @@ Role Variables
 | log_dir_path | no | */root/clf_logs*  | Path on bastion node to save the fetched logs from external system.|
 | kibana_ldap_validation | no | false  | Set it to true for validating Kibana as LDAP user |
 | log_collector_type | no | `fluentd` | Log collector type. It can be `fluentd` or `vector` |
-| clf_clean_up | no | false  | It is used only for cleaning up Cluster Logging Operators, insatnces, Catalogsource, etc. from bastion. Playbook will skip remaining all other tasks.|
+| clf_clean_up | no | false  | It is used only for cleaning up Cluster Logging Operators, instances, Catalogsource, etc. from bastion. Playbook will skip remaining all other tasks.|
 
 #### Note: 
+- The Elasticsearch is used as a default log store for Logging versions below 5.9. For logging versions greater than or equal to 5.9, Lokistack is used as a default log store.
 - To send logs to particular external systems set only URL/secret varibables for that external system.
 - For the internal Elasticsearch and external loki logs will not be deleted.
 - ClusterLogForwarder instance always forwards logs to the default internal ElasticSearch.
@@ -112,14 +115,17 @@ syslog_url:  tls://rsyslogserver.east.example.com:514
     # To set Index images set variables as:  
     elasticsearch_clf_cs: brew.registry.redhat.io/rh-osbs/iib:11111
     clusterlogging_clf_cs: brew.registry.redhat.io/rh-osbs/iib:11111
+    loki_clf_cs: brew.registry.redhat.io/rh-osbs/iib:11111
 
     # To use default Openshift CatalogSource:   
     elasticsearch_clf_cs: ""
     clusterlogging_clf_cs: ""
+    loki_clf_cs: ""
     
     # To set channels for Elasticsearch and Cluster Logging
-    elastic_search_channel: "5.0"
-    cluster_logging_channel: "5.0"
+    elastic_search_channel: "stable-5.9"
+    cluster_logging_channel: "stable-5.9"
+    loki_channel: "stable-5.9"
 
     # To set URL of external Kafka instance
     kafka_url: tcp://{ip}:{port}
