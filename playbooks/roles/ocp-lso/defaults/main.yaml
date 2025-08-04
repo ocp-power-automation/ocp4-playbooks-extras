@@ -4,3 +4,5 @@ lso_catalogsource_image: "registry.redhat.io/redhat/redhat-operator-index:v4.18-
 lso_namespace: "openshift-local-storage"
 lso_channel: "stable"
 lso_catalogsource_name: "my-operator-catalog"
+busybox_image: "quay.io/powercloud/busybox:ubi"
+upi_cluster: false
