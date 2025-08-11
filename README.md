@@ -52,6 +52,7 @@ This repository consists of additional ansible playbooks for the following:
 1. Run Openshift-tests-private testcases.
 1. Verify IPI day2 operations
 1. Deploy Openshift Data Foundation operator
+1. Enabling Kdump
 
 ## Assumptions:
 
