@@ -93,7 +93,7 @@
             type: Dashboards
 
     - name: Verify Dashboards plugin
-      shell: oc -n "{{ coo_namespace }}" get pod | grep observability-ui-dashboards | grep "Running" | wc -l
+      shell: oc -n openshift-cluster-observability-operator get pod | grep observability-ui-dashboards | grep "Running" | wc -l
       register: dashboard_pods
       until: dashboard_pods.stdout|int == 1 and dashboard_pods.stderr == ""
       retries: 10
@@ -137,7 +137,7 @@
 - name: Deploy logging UIPlugin
   block:
     - name: Check if loki secret is present
-      shell: oc get secrets -n "{{ coo_logstack_namespace }}" | awk '{ if ($1 ~ /lokicred-secret/) print $1 }' | wc -l
+      shell: oc get secrets -n openshift-logging | awk '{ if ($1 ~ /lokicred-secret/) print $1 }' | wc -l
       register: secret_count
       failed_when: secret_count.stdout|int == 0
 
@@ -147,7 +147,7 @@
       when: secret_count.stdout|int == 0
 
     - name: Get list of csv present in openshift-logging namespace
-      shell: oc get csv -n "{{ coo_logstack_namespace }}" -o jsonpath='{.items[*].metadata.name}'
+      shell: oc get csv -n openshift-logging -o jsonpath='{.items[*].metadata.name}'
       register: csv_list
 
     - name: Check if Loki Operator CSV exists
@@ -178,7 +178,7 @@
       k8s_info:
         api_version: operators.coreos.com/v1alpha1
         kind: ClusterServiceVersion
-        namespace: "{{ coo_logstack_namespace }}"
+        namespace: openshift-logging
         name: "{{ clo_csv_name }}"
       register: clo_csv
 
@@ -194,7 +194,7 @@
           kind: LokiStack
           metadata:
             name: lokistack-coo
-            namespace: "{{ coo_logstack_namespace }}"
+            namespace: openshift-logging
           spec:
             managementState: Managed
             size: 1x.small
@@ -225,7 +225,7 @@
             annotations:
               logging.openshift.io/preview-korrel8r-console: enabled 
             name: "instance"
-            namespace: "{{ coo_logstack_namespace }}"
+            namespace: openshift-logging
           spec:
             managementState: "Managed"
             logStore:
@@ -251,7 +251,7 @@
             kind: ServiceAccount
             metadata:
               name: logcollector
-              namespace: "{{ coo_logstack_namespace }}"
+              namespace: openshift-logging
 
       - name: Create clusterrolebinding collect-application-logs
         kubernetes.core.k8s:
@@ -268,7 +268,7 @@
             subjects:
               - kind: ServiceAccount
                 name: logcollector
-                namespace: "{{ coo_logstack_namespace }}"
+                namespace: openshift-logging
 
       - name: Create clusterrolebinding collect-infrastructure-logs
         kubernetes.core.k8s:
@@ -285,7 +285,7 @@
             subjects:
               - kind: ServiceAccount
                 name: logcollector
-                namespace: "{{ coo_logstack_namespace }}"
+                namespace: openshift-logging
 
       - name: Create clusterrolebinding collect-audit-logs
         kubernetes.core.k8s:
@@ -302,7 +302,7 @@
             subjects:
               - kind: ServiceAccount
                 name: logcollector
-                namespace: "{{ coo_logstack_namespace }}"
+                namespace: openshift-logging
 
       - name: Create ClusterLogForwarder instance
         kubernetes.core.k8s:
@@ -312,7 +312,7 @@
             kind: ClusterLogForwarder
             metadata:
               name: collector
-              namespace: "{{ coo_logstack_namespace }}"
+              namespace: openshift-logging
             spec:
               managementState: Managed
               outputs:
@@ -322,7 +322,7 @@
                         from: serviceAccount
                     target:
                       name: lokistack-coo
-                      namespace: "{{ coo_logstack_namespace }}"
+                      namespace: openshift-logging
                   name: lokistack
                   tls:
                     ca:
@@ -342,11 +342,12 @@
       when: clo_version|float >= 6.0
 
     - name: Verify Logging stack
-      shell: oc get pods -n "{{ coo_logstack_namespace }}" --no-headers | grep logging-view | grep "Running" | wc -l
+      shell: oc get pods -n openshift-logging --no-headers | grep logging-view | grep "Running" | wc -l
       register: coo_pods
       until: coo_pods.stdout|int == 1 and coo_pods.stderr == ""
       retries: 10
       delay: 30
+      when: clo_version|float < 6.0
 
     - name: Enable UIPlugin
       kubernetes.core.k8s:
@@ -365,18 +366,11 @@
             type: Logging
 
     - name: Verify logging UIPlugin
-      shell: oc get pods -n "{{ coo_namespace }}" --no-headers | grep logging | grep -v "Running\|Completed" | wc -l
+      shell: oc get pods -n openshift-cluster-observability-operator --no-headers | grep logging | grep "Running\|Completed" | wc -l
       register: logging_pods
-      until: logging_pods.stdout|int == 0 and logging_pods.stderr == ""
+      until: logging_pods.stdout|int == 1 and logging_pods.stderr == ""
       retries: 10
       delay: 30
-
-    - name: Verify there are no logging-view-plugin pods under "{{ coo_namespace }}"
-      shell: oc get pods -n "{{ coo_namespace }}" --no-headers | grep logging-view-plugin | wc -l
-      register: logging_view_pods
-      until: logging_view_pods.stdout|int == 0
-      retries: 10
-      delay: 10
   when: enable_logging_uiplugin
 
 - name: Deploy Distributed Tracing Console UI plugin
@@ -421,12 +415,12 @@
           kind: UIPlugin
           metadata:
             name: distributed-tracing
-            namespace: "{{ coo_namespace }}"
+            namespace: openshift-cluster-observability-operator
           spec:
             type: DistributedTracing
 
     - name: Verify Tracing UI plugin
-      shell: oc get pods -n {{ coo_namespace }} --no-headers | grep distributed-tracing- | grep "Running" | wc -l
+      shell: oc get pods -n openshift-cluster-observability-operator --no-headers | grep distributed-tracing- | grep "Running" | wc -l
       register: tracing_pods
       until: tracing_pods.stdout|int == 1 and tracing_pods.stderr == ""
       retries: 10
@@ -458,6 +452,38 @@
 
 - name: Deploy troubleshootingpanel-plugin  
   block:
+    - name: Get Tempo Operator csv 
+      k8s_info:
+        api_version: operators.coreos.com/v1alpha1
+        kind: ClusterServiceVersion
+        namespace: openshift-tempo-operator
+      register: tempo_csv
+    
+    - name: Get OpenTelemetry Operator csv
+      k8s_info:
+        api_version: operators.coreos.com/v1alpha1
+        kind: ClusterServiceVersion
+        namespace: openshift-opentelemetry-operator
+      register: opentelemetry_csv 
+
+    - name: Check if Tempo Operator CSV exists
+      set_fact:
+        tempo_installed: "{{ tempo_csv.resources | selectattr('metadata.name', 'search', 'tempo') | list | length>0 }}"
+
+    - name: Fail if Tempo Operator is not installed 
+      fail:
+        msg: "Install Tempo Operator"
+      when: not tempo_installed
+
+    - name: Check if OpenTelemetry Operator CSV exists
+      set_fact:
+        opentelemetry_installed: "{{ opentelemetry_csv.resources | selectattr('metadata.name', 'search', 'tempo') | list | length>0 }}"
+
+    - name: Fail if OpenTelemetry Operator is not installed 
+      fail:
+        msg: "Install OpenTelemetry Operator"
+      when: not opentelemetry_installed
+      
     - name: Create a Deployment to create Test Data
       kubernetes.core.k8s:
         state: present
@@ -494,14 +520,14 @@
             type: TroubleshootingPanel
  
     - name: Verify Korrel8r pod is in Running state
-      shell: oc get pods -n {{ coo_namespace }} --no-headers | grep korrel8r | grep "Running" | wc -l
+      shell: oc get pods -n openshift-cluster-observability-operator --no-headers | grep korrel8r | grep "Running" | wc -l
       register: korrel8r_pod
       until: korrel8r_pod.stdout|int == 1 and korrel8r_pod_pod.stderr == ""
       retries: 10
       delay: 30
 
     - name: Verify troubleshooting-panel pod is in Running state
-      shell: oc get pods -n {{ coo_namespace }} --no-headers | grep troubleshooting-panel | grep "Running" | wc -l
+      shell: oc get pods -n openshift-cluster-observability-operator --no-headers | grep troubleshooting-panel | grep "Running" | wc -l
       register: troubleshooting_pod
       until: troubleshooting_pod.stdout|int == 1 and troubleshooting_pod.stderr == ""
       retries: 10
