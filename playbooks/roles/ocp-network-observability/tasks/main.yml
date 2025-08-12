@@ -16,7 +16,7 @@
   block:
   - name: Clone the Network Observability QE CI repository
     git:
-      repo: "https://github.com/openshift-qe/ocp-qe-perfscale-ci.git"
+      repo: "https://github.com/openshift-eng/ocp-qe-perfscale-ci.git"
       dest: "{{ noo_directory }}/ocp-qe-perfscale-ci"
       version: "netobserv-perf-tests"
       force: true
@@ -31,6 +31,7 @@
     shell: git apply --ignore-whitespace --reject "{{ noo_directory }}/patch-files/ocp-qe-perfscale-ci-changes.patch"
     args:
       chdir: "{{ noo_directory }}/ocp-qe-perfscale-ci"
+    when: noo_deploy
 
 - name: Deploying custom resources for Network Observability Operator
   block:

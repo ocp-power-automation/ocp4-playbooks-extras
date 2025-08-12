@@ -1,119 +1,87 @@
-diff --git a/frontend/fixtures/netobserv/loki.yaml b/frontend/fixtures/netobserv/loki.yaml
-index 8c60327ee..e6a787354 100644
---- a/frontend/fixtures/netobserv/loki.yaml
-+++ b/frontend/fixtures/netobserv/loki.yaml
-@@ -16,7 +16,7 @@ kind: ConfigMap
- metadata:
-   name: loki-config
- data:
--  local-config.yaml: |
-+  loki-config.yaml: |
-     auth_enabled: false
-     server:
-       http_listen_port: 3100
-@@ -135,7 +135,7 @@ spec:
-         capabilities:
-           drop: ["ALL"]
-           privileged: false
--      image: grafana/loki:2.9.0
-+      image: quay.io/powercloud/loki:1.0
-       volumeMounts:
-         - mountPath: "/loki-store"
-           name: loki-store
-diff --git a/frontend/fixtures/netobserv/test-server-client.yaml b/frontend/fixtures/netobserv/test-server-client.yaml
-index 75c7425aa..da7b82e31 100644
---- a/frontend/fixtures/netobserv/test-server-client.yaml
-+++ b/frontend/fixtures/netobserv/test-server-client.yaml
-@@ -35,7 +35,7 @@ spec:
-           capabilities:
-             drop: ["ALL"]
-             privileged: false
--        image: quay.io/rhn_support_memodi/nginx
-+        image: quay.io/openshifttest/nginx-alpine:latest
-         imagePullPolicy: IfNotPresent
-         ports:
-         - containerPort: 8080
-diff --git a/test/extended/netobserv/loki_storage.go b/test/extended/netobserv/loki_storage.go
-index 02dbb92b2..056b3e70b 100644
 --- a/test/extended/netobserv/loki_storage.go
 +++ b/test/extended/netobserv/loki_storage.go
-@@ -37,20 +37,21 @@ type S3Credential struct {
+@@ -52,15 +52,17 @@ type resource struct {
  }
-
- func getAWSCredentialFromCluster(oc *exutil.CLI) S3Credential {
--       region, err := exutil.GetAWSClusterRegion(oc)
--       o.Expect(err).NotTo(o.HaveOccurred())
-+       //region, err := exutil.GetAWSClusterRegion(oc)
-+       //o.Expect(err).NotTo(o.HaveOccurred())
-
-        // default to region us-east-2
--       if region == "" {
--               region = "us-east-2"
--       }
-+       //if region == "" {
-+       //      region = "us-east-2"
-+       //}
-
-+        region := "us-east-1"
-        dirname := "/tmp/" + oc.Namespace() + "-creds"
-        defer os.RemoveAll(dirname)
--       err = os.MkdirAll(dirname, 0777)
-+       err := os.MkdirAll(dirname, 0777)
-        o.Expect(err).NotTo(o.HaveOccurred())
-
--       _, err = oc.AsAdmin().WithoutNamespace().Run("extract").Args("secret/aws-creds", "-n", "kube-system", "--confirm", "--to="+dirname).Output()
-+       _, err = oc.AsAdmin().WithoutNamespace().Run("extract").Args("secret/aws-creds", "-n", "default", "--confirm", "--to="+dirname).Output()
-        o.Expect(err).NotTo(o.HaveOccurred())
-
-        accessKeyID, err := os.ReadFile(dirname + "/aws_access_key_id")
-@@ -537,7 +538,7 @@ func getStorageType(oc *exutil.CLI) string {
-                        if checkMinIO(oc, minioNS) {
-                                return "minio"
-                        }
--                       return ""
-+                       return "s3"
-                }
-        }
+ 
+ func getAWSCredentialFromCluster(oc *exutil.CLI) s3Credential {
+-	region, err := exutil.GetAWSClusterRegion(oc)
+-	o.Expect(err).NotTo(o.HaveOccurred())
++	//region, err := exutil.GetAWSClusterRegion(oc)
++	//o.Expect(err).NotTo(o.HaveOccurred())
++
++	region := "us-east-1"
+ 
+ 	dirname := "/tmp/" + oc.Namespace() + "-creds"
+ 	defer os.RemoveAll(dirname)
+-	err = os.MkdirAll(dirname, 0777)
++	err := os.MkdirAll(dirname, 0777)
+ 	o.Expect(err).NotTo(o.HaveOccurred())
+ 
+-	_, err = oc.AsAdmin().WithoutNamespace().Run("extract").Args("secret/aws-creds", "-n", "kube-system", "--confirm", "--to="+dirname).Output()
++	_, err = oc.AsAdmin().WithoutNamespace().Run("extract").Args("secret/aws-creds", "-n", "default", "--confirm", "--to="+dirname).Output()
+ 	o.Expect(err).NotTo(o.HaveOccurred())
+ 
+ 	accessKeyID, err := os.ReadFile(dirname + "/aws_access_key_id")
+@@ -637,7 +639,7 @@ func useExtraObjectStorage(oc *exutil.CLI) string {
+ 		deployMinIO(oc)
+ 		return "minio"
+ 	}
+-	return ""
++	return "s3"
+ }
+ 
+ // return the storage type per different platform
+@@ -662,7 +664,9 @@ func getStorageType(oc *exutil.CLI) string {
+ 		}
+ 	default:
+ 		{
+-			return useExtraObjectStorage(oc)
++			//return useExtraObjectStorage(oc)
++			return "s3"
++
+ 		}
+ 	}
  }
 diff --git a/test/extended/netobserv/test_flowcollector.go b/test/extended/netobserv/test_flowcollector.go
-index a247d2710..bcec63608 100644
+index e4e26e05f..2e858a1b6 100644
 --- a/test/extended/netobserv/test_flowcollector.go
 +++ b/test/extended/netobserv/test_flowcollector.go
-@@ -130,10 +130,12 @@ var _ = g.Describe("[sig-netobserv] Network_Observability", func() {
-
-                g.By("Deploy lokiStack")
-                // get storageClass Name
--               sc, err := getStorageClassName(oc)
--               if err != nil || len(sc) == 0 {
--                       g.Skip("StorageClass not found in cluster, skip this case")
--               }
-+               //sc, err := getStorageClassName(oc)
-+               sc := "nfs-storage-provisioner"
-+
-+               //if err != nil || len(sc) == 0 {
-+               //      g.Skip("StorageClass not found in cluster, skip this case")
-+               //}
-
-                lokiTenant := "openshift-network"
-
-@@ -145,7 +147,7 @@ var _ = g.Describe("[sig-netobserv] Network_Observability", func() {
-                ls = &lokiStack{
-                        Name:          "lokistack",
-                        Namespace:     namespace,
--                       TSize:         "1x.demo",
-+                       TSize:         "1x.extra-small",
-                        StorageType:   objectStorageType,
-                        StorageSecret: "objectstore-secret",
-                        StorageClass:  sc,
-@@ -160,7 +162,7 @@ var _ = g.Describe("[sig-netobserv] Network_Observability", func() {
-                        ls.StorageType = "s3"
-                }
-
--               err = ls.prepareResourcesForLokiStack(oc)
-+               err := ls.prepareResourcesForLokiStack(oc)
-                o.Expect(err).NotTo(o.HaveOccurred())
-                err = ls.deployLokiStack(oc)
-                o.Expect(err).NotTo(o.HaveOccurred())
+@@ -140,10 +140,11 @@ var _ = g.Describe("[sig-netobserv] Network_Observability", func() {
+ 
+ 		g.By("Deploy lokiStack")
+ 		// get storageClass Name
+-		sc, err := getStorageClassName(oc)
+-		if err != nil || len(sc) == 0 {
+-			g.Skip("StorageClass not found in cluster, skip this case")
+-		}
++		//sc, err := getStorageClassName(oc)
++		sc := "nfs-storage-provisioner"
++		//if err != nil || len(sc) == 0 {
++		//	g.Skip("StorageClass not found in cluster, skip this case")
++		//}
+ 
+ 		lokiTenant := "openshift-network"
+ 
+@@ -155,7 +156,7 @@ var _ = g.Describe("[sig-netobserv] Network_Observability", func() {
+ 		ls = &lokiStack{
+ 			Name:          "lokistack",
+ 			Namespace:     namespace,
+-			TSize:         "1x.demo",
++			TSize:         "1x.extra-small",
+ 			StorageType:   objectStorageType,
+ 			StorageSecret: "objectstore-secret",
+ 			StorageClass:  sc,
+@@ -816,8 +817,8 @@ var _ = g.Describe("[sig-netobserv] Network_Observability", func() {
+ 		o.Expect(err).NotTo(o.HaveOccurred())
+ 		bearerToken := getSAToken(oc, "netobserv-plugin", namespace)
+ 
+-		g.By("Wait for a min before logs gets collected and written to loki")
+-		time.Sleep(60 * time.Second)
++		g.By("Wait for 2 mins before logs gets collected and written to loki")
++		time.Sleep(120 * time.Second)
+ 
+ 		// Scenario1: Verify SCTP traffic
+ 		lokilabels := Lokilabels{
 diff --git a/test/extended/testdata/netobserv/kafka/kafka-default.yaml b/test/extended/testdata/netobserv/kafka/kafka-default.yaml
 index 04b6bddcc..2e9f4d82e 100644
 --- a/test/extended/testdata/netobserv/kafka/kafka-default.yaml
@@ -124,28 +92,28 @@ index 04b6bddcc..2e9f4d82e 100644
  - name: STORAGE_CLASS
 -  value: "gp2"
 +  value: "nfs-storage-provisioner"
-diff --git a/test/extended/testdata/netobserv/kafka/topic-consumer.yaml b/test/extended/testdata/netobserv/kafka/topic-consumer.yaml
-index 0345ca29d..d6a1c0b60 100644
---- a/test/extended/testdata/netobserv/kafka/topic-consumer.yaml
-+++ b/test/extended/testdata/netobserv/kafka/topic-consumer.yaml
-@@ -19,7 +19,7 @@ objects:
+diff --git a/test/extended/testdata/netobserv/kafka/topic-consumer-tls.yaml b/test/extended/testdata/netobserv/kafka/topic-consumer-tls.yaml
+index b7114d752..7c6f5fb50 100644
+--- a/test/extended/testdata/netobserv/kafka/topic-consumer-tls.yaml
++++ b/test/extended/testdata/netobserv/kafka/topic-consumer-tls.yaml
+@@ -48,7 +48,7 @@ objects:
            restartPolicy: Never
  parameters:
  - name: KAFKA_IMAGE
--  value: "registry.redhat.io/amq7/amq-streams-kafka-25-rhel7@sha256:e719f662bd4d6b8c54b1ee2e47c51f8d75a27a238a51d9ee38007187b3a627a4"
+-  value: "registry.redhat.io/amq-streams/kafka-34-rhel8:2.5.2"
 +  value: "quay.io/openshifttest/kafka@sha256:2411662d89dd5700e1fe49aa8be1219843948da90cfe51a1c7a49bcef9d22dab"
  - name: KAFKA_TOPIC
    value: "network-flows-export"
- - name: NAMESPACE
+ - name: KAFKA_USER
 diff --git a/test/extended/testdata/netobserv/loki/lokistack-simple.yaml b/test/extended/testdata/netobserv/loki/lokistack-simple.yaml
-index b0ea094fa..1178df1a5 100644
+index 21a6c1cd1..27d346651 100644
 --- a/test/extended/testdata/netobserv/loki/lokistack-simple.yaml
 +++ b/test/extended/testdata/netobserv/loki/lokistack-simple.yaml
-@@ -33,7 +33,7 @@ parameters:
+@@ -36,7 +36,7 @@ parameters:
  - name: StorageType
    value: "s3"
  - name: StorageClass
--  value: "gp2"
+-  value: "gp3-csi"
 +  value: "nfs-storage-provisioner"
  - name: Tenant
    value: openshift-network
