@@ -1,4 +1,7 @@
 ---
+- import_playbook: ocp-node-autoscaling.yml
+  when: ocp-node-autoscaling is defined and ocp-node-autoscaling
+
 - import_playbook: ocp-scale.yml
   when: scale_test_enabled
 
