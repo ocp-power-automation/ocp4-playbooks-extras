@@ -4,9 +4,12 @@
   include_role:
     name: check-cluster-health
 
-- name: Check cluster version
-  shell: oc version -o json | jq -r '.openshiftVersion' | sed -E 's/^([0-9]+\.[0-9]+)\..*/\1/'
+- name: Get the ocp server version
+  shell: oc version | grep  "Server Version" | awk '{print $3}' | cut -d . -f 1,2
   register: ocp_version
+
+- set_fact:
+    ocp_version: "{{ ocp_version.stdout }}"
 
 - name: Cluster Observability Operator deployment
   block:
@@ -47,6 +50,12 @@
                 - mirrors:
                   - quay.io/redhat-user-workloads/cluster-observabilit-tenant/cluster-observability-operator
                   source: registry.redhat.io/cluster-observability-operator
+                - mirrors:
+                  - brew.registry.redhat.io
+                  source: registry.redhat.io
+                - mirrors:
+                  - brew.registry.redhat.io
+                  source: registry-proxy.engineering.redhat.com
           when: ocp_version.stdout | float >= 4.13
 
         # Create custom CatalogSource
@@ -61,17 +70,9 @@
                 namespace: openshift-marketplace
               spec:
                 displayName: coo-catalog
-                icon:
-                  base64data: ""
-                  mediatype: ""
                 image: "{{ coo_catalogsource_image }}"
                 sourceType: grpc
-                grpcPodConfig:
-                  securityContextConfig: restricted
-                updateStrategy:
-                  registryPoll:
-                    interval: 1m0s
-      when: coo_catalogsource_image != '' or coo_catalogsource_image == None
+      when: coo_catalogsource_image != '' or coo_catalogsource_image != None
 
     - name: Create a target namespace
       kubernetes.core.k8s:
@@ -80,7 +81,7 @@
           apiVersion: v1
           kind: Namespace
           metadata:
-            name: "{{ coo_namespace }}"
+            name: openshift-cluster-observability-operator
     
     - name: Create a OperatorGroup into target namespace
       kubernetes.core.k8s:
@@ -90,7 +91,7 @@
           kind: OperatorGroup
           metadata:
             name: coo-og
-            namespace: "{{ coo_namespace }}"
+            namespace:  openshift-cluster-observability-operator
             labels:
               og_label: openshift-observability-operator
     
@@ -102,7 +103,7 @@
           kind: Subscription
           metadata:
             name: cluster-observability-subscription
-            namespace: "{{ coo_namespace }}"
+            namespace: openshift-cluster-observability-operator
             labels:
               operators.coreos.com/observability-operator.openshift-operators: ""
           spec:
@@ -113,7 +114,7 @@
             sourceNamespace: openshift-marketplace
 
     - name: Verfiy cluster observability operator installation
-      shell: oc get pods -n "{{ coo_namespace }}" --no-headers | grep -v "Running\|Completed" | wc -l
+      shell: oc get pods -n openshift-cluster-observability-operator --no-headers | grep -v "Running\|Completed" | wc -l
       register: coo_pods
       until: coo_pods.stdout|int == 0 and coo_pods.stderr == ""
       retries: 10
