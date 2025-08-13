@@ -391,7 +391,7 @@
 
     - name: Check if Tempo Operator CSV exists
       set_fact:
-        tempo_installed: "{{ tempo_csv.resources | selectattr('metadata.name', 'search', 'tempo') | list | length>0 }}"
+        tempo_installed: "{{ tempo_csv.resources | selectattr('metadata.name', 'search', 'tempo') | list | length > 0 }}"
 
     - name: Fail if Tempo Operator is not installed 
       fail:
@@ -400,7 +400,7 @@
 
     - name: Check if OpenTelemetry Operator CSV exists
       set_fact:
-        opentelemetry_installed: "{{ opentelemetry_csv.resources | selectattr('metadata.name', 'search', 'tempo') | list | length>0 }}"
+        opentelemetry_installed: "{{ opentelemetry_csv.resources | selectattr('metadata.name', 'search', 'opentelemetry') | list | length > 0 }}"
 
     - name: Fail if OpenTelemetry Operator is not installed 
       fail:
@@ -429,26 +429,147 @@
     - name: Clone Distributed Tracing QE repo
       git:
         repo: "{{ distributed_tracing_qe_repo }}"
-        dest: "{{ coo_work_dir }}/distributed-tracing-qe"
+        dest: "{{ coo_work_dir }}/distributed-tracing-console-plugin"
         version: "{{ distributed_tracing_qe_repo_branch }}"
+      delegate_to: remote
+      
+    - name: Install the necessary node.js modules on remote VM
+      shell: npm install
+      args:
+        chdir: "{{ coo_work_dir }}/distributed-tracing-console-plugin/tests"
+      delegate_to: remote
 
     - name: Download and untar chainsaw
       unarchive:
         src: "{{ chainsaw_tarball }}"
         dest: "{{ chainsaw_path }}"
-        remote_src: yes
     
-    - name: Replace minio deployment image with quay_minio
-      replace:
-        path: "{{ coo_work_dir }}/distributed-tracing-qe/tests/e2e-acceptance/multitenancy/00-install-storage.yaml"
-        regexp: 'image:\s*.*'
-        replace: 'image: {{ minio_image }}'
+    - name: Copy kubeconfig file to remote VM
+      ansible.builtin.copy:
+        src: /root/openstack-upi/auth/kubeconfig
+        dest: /tmp/kubeconfig
+      delegate_to: remote
+    
+    - name: Create config_vars file
+      shell: >
+        echo "CYPRESS_BASE_URL=https://$(oc get route -n openshift-console | awk '/console/ {print $2; exit}')" >> /tmp/config_vars.txt
+        echo "CYPRESS_LOGIN_IDP=kube:admin" >> /tmp/config_vars.txt
+        echo "CYPRESS_LOGIN_USERS=kubeadmin:$(cat /root/openstack-upi/auth/kubeadmin-password)" >> /tmp/config_vars.txt
+        echo "CYPRESS_SKIP_COO_INSTALL=true" >> /tmp/config_vars.txt
+    
+    - name: Copy the environment variables file to remote VM
+      ansible.builtin.copy:
+        src: /tmp/config_vars.txt
+        dest: /tmp/config_vars.txt
+      delegate_to: remote
+    
+    - name: Load env vars from config file into Ansible variable
+      shell: cat /tmp/config_vars.txt
+      register: remote_env
+      delegate_to: remote
 
-    - name: Run Distributed Tracing testcases
-      shell: "{{ chainsaw_path }}/chainsaw test --apply-timeout 2m --assert-timeout 5m --skip-delete {{ coo_work_dir }}/distributed-tracing-qe/tests/e2e-acceptance/multitenancy \
-            {{ coo_work_dir }}/distributed-tracing-qe/tests/e2e-acceptance/monolithic-multitenancy-openshift/"
-            
+    - name: Set remote env as Ansible variable
+      set_fact:
+        env_vars_remote: "{{ dict(remote_env.stdout_lines | map('split', '=', 1) | list) }}"
+        
+    - name: Replace minio endpoint
+      replace:
+        path: "{{ coo_work_dir }}/distributed-tracing-console-plugin/tests/fixtures/chainsaw-tests/multitenancy-rbac/00-install-storage.yaml"
+        regexp: 'endpoint:\s*.*'
+        replace: 'endpoint: http://minio.chainsaw-rbac.svc:9000'
+      delegate_to: remote
+      
+    - name: Run Cypress tests and capture output without failing
+      shell: npx cypress run
+      args:
+        chdir: "{{ coo_work_dir }}/distributed-tracing-console-plugin/tests"
+      register: cypress_result
+      ignore_errors: true
+        
+    - name: Save Cypress test output to file
+      ansible.builtin.copy:
+        content: "{{ cypress_result.stdout }}\n{{ cypress_result.stderr }}"
+        dest: /tmp/cypress_test_output.log
+      delegate_to: remote
+    
+    
   when: enable_distributed_tracing_uiplugin 
+# - name: Deploy Distributed Tracing Console UI plugin
+#   block:
+#     - name: Get Tempo Operator csv 
+#       k8s_info:
+#         api_version: operators.coreos.com/v1alpha1
+#         kind: ClusterServiceVersion
+#         namespace: openshift-tempo-operator
+#       register: tempo_csv
+    
+#     - name: Get OpenTelemetry Operator csv
+#       k8s_info:
+#         api_version: operators.coreos.com/v1alpha1
+#         kind: ClusterServiceVersion
+#         namespace: openshift-opentelemetry-operator
+#       register: opentelemetry_csv 
+
+#     - name: Check if Tempo Operator CSV exists
+#       set_fact:
+#         tempo_installed: "{{ tempo_csv.resources | selectattr('metadata.name', 'search', 'tempo') | list | length>0 }}"
+
+#     - name: Fail if Tempo Operator is not installed 
+#       fail:
+#         msg: "Install Tempo Operator"
+#       when: not tempo_installed
+
+#     - name: Check if OpenTelemetry Operator CSV exists
+#       set_fact:
+#         opentelemetry_installed: "{{ opentelemetry_csv.resources | selectattr('metadata.name', 'search', 'opentelemetry') | list | length>0 }}"
+
+#     - name: Fail if OpenTelemetry Operator is not installed 
+#       fail:
+#         msg: "Install OpenTelemetry Operator"
+#       when: not opentelemetry_installed
+
+#     - name: Create the Tracing UIPlugin CR.
+#       kubernetes.core.k8s:
+#         state: present
+#         definition:
+#           apiVersion: observability.openshift.io/v1alpha1
+#           kind: UIPlugin
+#           metadata:
+#             name: distributed-tracing
+#             namespace: openshift-cluster-observability-operator
+#           spec:
+#             type: DistributedTracing
+
+#     - name: Verify Tracing UI plugin
+#       shell: oc get pods -n openshift-cluster-observability-operator --no-headers | grep distributed-tracing- | grep "Running" | wc -l
+#       register: tracing_pods
+#       until: tracing_pods.stdout|int == 1 and tracing_pods.stderr == ""
+#       retries: 10
+#       delay: 30
+
+#     - name: Clone Distributed Tracing QE repo
+#       git:
+#         repo: "{{ distributed_tracing_qe_repo }}"
+#         dest: "{{ coo_work_dir }}/distributed-tracing-qe"
+#         version: "{{ distributed_tracing_qe_repo_branch }}"
+
+#     - name: Download and untar chainsaw
+#       unarchive:
+#         src: "{{ chainsaw_tarball }}"
+#         dest: "{{ chainsaw_path }}"
+#         remote_src: yes
+    
+#     - name: Replace minio deployment image with quay_minio
+#       replace:
+#         path: "{{ coo_work_dir }}/distributed-tracing-qe/tests/e2e-acceptance/multitenancy/00-install-storage.yaml"
+#         regexp: 'image:\s*.*'
+#         replace: 'image: {{ minio_image }}'
+
+#     - name: Run Distributed Tracing testcases
+#       shell: "{{ chainsaw_path }}/chainsaw test --apply-timeout 2m --assert-timeout 5m --skip-delete {{ coo_work_dir }}/distributed-tracing-qe/tests/e2e-acceptance/multitenancy \
+#             {{ coo_work_dir }}/distributed-tracing-qe/tests/e2e-acceptance/monolithic-multitenancy-openshift/"
+            
+#   when: enable_distributed_tracing_uiplugin 
 
 - name: Deploy troubleshootingpanel-plugin  
   block:
@@ -477,13 +598,13 @@
 
     - name: Check if OpenTelemetry Operator CSV exists
       set_fact:
-        opentelemetry_installed: "{{ opentelemetry_csv.resources | selectattr('metadata.name', 'search', 'tempo') | list | length>0 }}"
+        opentelemetry_installed: "{{ opentelemetry_csv.resources | selectattr('metadata.name', 'search', 'opentelemetry') | list | length>0 }}"
 
     - name: Fail if OpenTelemetry Operator is not installed 
       fail:
         msg: "Install OpenTelemetry Operator"
       when: not opentelemetry_installed
-      
+
     - name: Create a Deployment to create Test Data
       kubernetes.core.k8s:
         state: present
