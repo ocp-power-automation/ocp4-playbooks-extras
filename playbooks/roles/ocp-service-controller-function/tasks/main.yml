@@ -1,0 +1,167 @@
+---
+
+- name: Check if cluster operators and nodes are healthy
+  include_role:
+    name: check-cluster-health
+
+- name: Delete the service if already exist
+  kubernetes.core.k8s:
+    state: absent
+    api_version: v1
+    kind: Service
+    namespace: test-privileged
+    name: test-svc
+  ignore_errors: true
+
+- name: Delete the sample-app if already exist
+  kubernetes.core.k8s:
+    state: absent
+    api_version: apps/v1
+    kind: Deployment
+    namespace: test-privileged
+    name: go-web-app
+  ignore_errors: true
+
+- name: Create namespace and labels to deploy sample-web-app
+  kubernetes.core.k8s:
+    name: "{{ test_namespace }}"
+    api_version: v1
+    kind: Namespace
+    state: present
+
+- name: Add label to the "{{ test_namespace }}" namespace
+  kubernetes.core.k8s:
+    state: patched
+    kind: Namespace
+    name: "{{ test_namespace }}"
+    definition:
+      metadata:
+        labels:
+          security.openshift.io/scc.podSecurityLabelSync: "false"
+          pod-security.kubernetes.io/enforce: privileged
+          pod-security.kubernetes.io/audit: privileged
+          pod-security.kubernetes.io/warn: privileged
+
+- name: Run sample-web-app file
+  kubernetes.core.k8s:
+    state: present
+    src: "{{ role_path }}/files/sample-web-app.yaml"
+
+- name: Wait for sample-app to come up
+  wait_for:
+    timeout: 120
+    delay: 2
+
+- name: Check for the pods
+  shell: oc get pods -n "{{ test_namespace }}"
+  register: check_pod
+
+- name: Check if the pods are in Running state
+  shell: oc get pods -n "{{ test_namespace }}" -o jsonpath='{.items[0].status.phase}'
+  register: pods_status
+  until: pods_status.stdout == "Running"
+  retries: 15
+  delay: 60
+
+- debug:
+    msg: "{{ check_pod.stdout_lines }}"
+
+- name: Run the service file
+  kubernetes.core.k8s:
+    state: present
+    src: "{{ role_path }}/files/test-svc.yaml"
+  register: create_service
+  when: pods_status.stdout == "Running"
+
+- name: Wait for service to come up
+  wait_for:
+    timeout: 120
+    delay: 2
+
+- name: Check the service
+  shell: oc get service -A | grep test-svc
+  register: check_service
+
+- debug:
+    msg: "{{ check_service.stdout_lines }}"
+
+- name: Get the pod
+  shell: oc get pods -n "{{ test_namespace }}" -o=jsonpath='{.items[0].metadata.name}'
+  register: first_pod
+
+- name: Check the logs of the service
+  shell: oc logs "{{ first_pod.stdout }}" -n "{{ test_namespace }}"
+  register: service_logs
+
+- debug:
+    msg: "{{ service_logs.stdout_lines }}"
+
+- name: Get the externalIP of the service
+  shell: oc get service -n "{{ test_namespace }}" -o=jsonpath='{.items[0].status.loadBalancer.ingress[0].hostname}'
+  register: lb_externalip
+
+- name: Wait for loadbalancer to comes up
+  wait_for:
+    delay: 5
+
+- name: Check the application is accessible through an external IP
+  shell: curl http://{{ lb_externalip.stdout }}
+  register: curl_ip
+  when: lb_externalip.stdout != ''
+
+- debug:
+    msg: "{{ curl_ip.stdout_lines }}"
+
+- name: Verify the logs from the external ip
+  shell: echo "Successfully validate the service controller function"
+  when: curl_ip.stdout == "My Go App"
+  register: success_msg
+
+- debug:
+    msg: "{{ success_msg.stdout_lines }}"
+
+- name: Clean up the service
+  kubernetes.core.k8s:
+    state: absent
+    api_version: v1
+    kind: Service
+    namespace: "{{ test_namespace }}"
+    name: test-svc
+  ignore_errors: true
+
+- name: Check if  the service has been deleted
+  shell: oc get service -A --no-headers | grep test-svc | wc -l
+  register: func_srv
+  until: func_srv.stdout|int == 0
+  retries: 15
+  delay: 60
+
+- name: Clean up the sample-app resources
+  kubernetes.core.k8s:
+    api_version: apps/v1
+    namespace: "{{ test_namespace }}"
+    kind: Deployment
+    state: absent
+    name: go-web-app
+  ignore_errors: true
+
+- name: Check if all the pods has been deleted
+  shell: oc get pods -n "{{ test_namespace }}" --no-headers | wc -l
+  register: del_pod
+  until: del_pod.stdout|int == 0
+  retries: 15
+  delay: 60
+
+- name: Delete namespace created for sample-web-app
+  kubernetes.core.k8s:
+    name: "{{ test_namespace }}"
+    api_version: v1
+    kind: Namespace
+    state: absent
+
+- name: Check if the namespace gets deleted
+  shell: oc get namespace --no-headers | grep "{{ test_namespace }}" | wc -l
+  register: srv_namespace
+  until: srv_namespace.stdout|int == 0
+  retries: 15
+  delay: 30

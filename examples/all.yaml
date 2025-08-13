@@ -556,3 +556,6 @@ update_channel: ""
 odf_catalogsource_image: "" #Example - quay.io/rhceph-dev/ocs-registry:4.16.3
 test_pod_image: "quay.io/powercloud/nginx-unprivileged:latest"
 
+## ocp-service-controller-function vars
+ocp-service: false
+

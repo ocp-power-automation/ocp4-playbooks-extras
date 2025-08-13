@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: test-svc
+  namespace: test-privileged
+spec:
+  type: LoadBalancer
+  ports:
+    - name: http
+      port: 80
+      targetPort: 7777
+  selector:
+    name: go-web-app
+  externalTrafficPolicy: Cluster
+
