@@ -577,3 +577,90 @@
       retries: 10
       delay: 30
   when: enable_troubleshootingpanel_uiplugin
+
+- name: Deploy Incidents plugin
+  block:
+    - name: Enable Monitoring plugin
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: observability.openshift.io/v1alpha1
+          kind: UIPlugin
+          metadata:
+            name: monitoring
+          spec:
+            type: Monitoring
+            monitoring:
+              incidents:
+                enabled: true
+
+    - name: Verify Monitoring UIPlugin
+      shell: oc get pods -n openshift-cluster-observability-operator --no-headers | grep health-analyzer | grep "Running\|Completed" | wc -l
+      register: monitoring_pods
+      until: monitoring_pods.stdout|int == 1 and monitoring_pods.stderr == ""
+      retries: 10
+      delay: 30
+
+    - name: Check metrics are exposed
+      shell: oc exec -n openshift-monitoring -it prometheus-k8s-0 -- curl -s "http://localhost:9090/api/v1/query?query=cluster:health:components" | less
+      register: prometheus_metrics
+
+    - name: Display prometheus metrics
+      debug:
+        msg: "{{ prometheus_metrics.stdout_lines }}"
+  when: enable_monitoring_uiplugin
+
+- name: Deploy Perses Dashboard
+  block:
+    - name: Clone Perses Dashboard
+      get_url:
+        url: "https://raw.githubusercontent.com/perses/perses-operator/main/config/samples/openshift/openshift-cluster-sample-dashboard.yaml"
+        dest: "{{ coo_work_dir }}/perses_dashboard.yaml"  
+
+    - name: Change the namespace of Perses dashboard
+      shell: >
+        sed '0,/^namespace: perses-dev$/s//namespace: openshift-cluster-observability-operator/' {{ coo_work_dir }}/perses_dashboard.yaml > {{ coo_work_dir }}/perses_dashboard.yaml.tmp
+        && mv {{ coo_work_dir }}/perses_dashboard.yaml.tmp {{ coo_work_dir }}/perses_dashboard.yaml
+    
+    - name: Create Perses Dashboard
+      shell: oc apply -f {{ coo_work_dir }}/perses_dashboard.yaml
+    
+    - name: Clone Perses datasource
+      get_url:
+        url: https://raw.githubusercontent.com/perses/perses-operator/main/config/samples/openshift/thanos-querier-datasource.yaml
+        dest: "{{ coo_work_dir }}/perses_datasource.yaml"
+    
+    - name: Change the namespace of Perses Datasource
+      shell: >
+        sed '0,/^namespace: perses-dev$/s//namespace: openshift-cluster-observability-operator/' {{ coo_work_dir }}/perses_datasource.yaml > {{ coo_work_dir }}/perses_datasource.yaml.tmp
+        && mv {{ coo_work_dir }}/perses_datasource.yaml.tmp {{ coo_work_dir }}/perses_datasource.yaml
+
+    - name: Create Perses Datasource
+      shell: oc apply -f {{ coo_work_dir }}/perses_datasource.yaml
+
+    - name: Check Monitoring UIPlugin
+      shell: oc get uiplugin monitoring | wc -l
+      register: plugin_exits
+
+    - name: Enable Perses
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: observability.openshift.io/v1alpha1
+          kind: UIPlugin
+          metadata:
+            name: monitoring
+          spec:
+            type: Monitoring
+            monitoring:
+              incidents:
+                enabled: true
+              perses:
+                enabled: true
+      when: plugin_exits.stdout | int == 0
+
+    - name: Enable Perses
+      shell: >
+        oc patch uiplugin monitoring --type=merge -p '{"spec":{"monitoring":{"perses":{"enabled":true}}}}'
+      when: plugin_exits.stdout | int == 1
+  when: enable_perses_dashboard
