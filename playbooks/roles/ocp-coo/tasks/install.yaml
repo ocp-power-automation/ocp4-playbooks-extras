@@ -9,7 +9,7 @@
   register: ocp_version
 
 - set_fact:
-    ocp_version: "{{ ocp_version.stdout }}"
+    ocp_version: "{{ ocp_version }}"
 
 - name: Cluster Observability Operator deployment
   block:
@@ -35,7 +35,7 @@
                 - mirrors:
                   - brew.registry.redhat.io
                   source: registry-proxy.engineering.redhat.com
-          when: ocp_version.stdout | float == 4.12
+          when: ocp_version | float == 4.12
 
         - name: Create ImageDigestMirrorSet
           k8s:
@@ -56,7 +56,10 @@
                 - mirrors:
                   - brew.registry.redhat.io
                   source: registry-proxy.engineering.redhat.com
-          when: ocp_version.stdout | float >= 4.13
+                - mirrors:
+                  - brew.registry.redhat.io
+                  source: registry.stage.redhat.io
+          when: ocp_version | float >= 4.13
 
         # Create custom CatalogSource
         - name: Create a custom CatalogSource
