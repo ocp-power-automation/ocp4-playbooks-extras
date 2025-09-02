@@ -1,0 +1,28 @@
+---
+# tasks file for playbooks/roles/topology-manager
+
+- name: Check if cluster operators and nodes are healthy
+  include_role:
+    name: check-cluster-health
+
+- name: Setting up CPU manager
+  block:
+  - name: Label node worker-1
+    shell: oc label node worker-1 cpumanager=true
+
+  - name: Enable CPU manager for all workers
+    shell: oc patch mcp worker --type=merge -p '{"metadata":{"labels":{"custom-kubelet":"cpumanager-enabled"}}}'
+    register: patch_result
+    changed_when: "'configured' in patch_result.stdout"
+
+- name: Validate Pod Alignment with CPU requests and Topology Manager policy set to Single Numa Node
+  include_tasks: single_numa_node_policy.yml
+
+- name: Validate Pod Alignment with CPU requests and Topology Manager policy set to Best Effort
+  include_tasks: besteffort_policy.yml
+
+- name: Validate Pod Alignment with CPU requests and Topology Manager policy set to Restricted
+  include_tasks: restricted_policy.yml
+
+- name: Validate Pod Alignment with CPU requests and Topology Manager policy set to None
+  include_tasks: none_policy.yml

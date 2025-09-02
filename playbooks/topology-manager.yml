@@ -1,0 +1,6 @@
+# topology-manager
+---
+- name: Validate topology manager on Power
+  hosts: bastion
+  roles:
+  - topology-manager

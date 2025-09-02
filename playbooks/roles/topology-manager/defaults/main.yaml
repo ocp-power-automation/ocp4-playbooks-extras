@@ -1,0 +1,4 @@
+---
+# defaults file 
+
+pause_image: "registry.access.redhat.com/ubi8/pause"
