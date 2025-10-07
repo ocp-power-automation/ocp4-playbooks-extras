@@ -5,3 +5,4 @@ enable_user_defined_project_monitoring: false  # Set true to enable role executi
 user_defined_app_name: "prometheus-example-app"  # User defined app name
 user_defined_namespace: "test-namespace"  # User defined namespace
 service_monitor_name: "prometheus-example-app-monitor"  # User defined name for ServiceMonitor object name
+user_defined_app_image: "quay.io/powercloud/nginx-unprivileged:latest" # Any image for deploying the user-defined app
