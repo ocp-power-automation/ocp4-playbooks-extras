@@ -1,0 +1,214 @@
+ # check if Cluster Health is good
+- name: Check if cluster operators and nodes are healthy
+  include_role:
+    name: check-cluster-health
+
+- name: Get worker names
+  command: oc get nodes -l node-role.kubernetes.io/worker --no-headers -o custom-columns=NAME:.metadata.name
+  register: worker_list
+
+- name: Save to worker list
+  set_fact:
+    worker: "{{ worker_list.stdout_lines }}"
+
+- name: Check if LSO (Local Storage Operator) is already installed
+  shell: |
+    oc get csv -n openshift-local-storage -o json | jq -r '.items[] | select(.metadata.name | test("local-storage-operator")) | .status.phase'
+  register: lso_csv_status
+  changed_when: false
+  failed_when: false
+
+- name: Set flag if LSO is installed
+  set_fact:
+    lso_install_req: "{{ lso_csv_status.stdout != 'Succeeded' }}"
+
+# Install LSO
+- name: Install LSO - Local Storage operator
+  include_role:
+    name: ocp-lso
+  when: lso_install_req
+  vars:
+    lso_catalogsource_image: "{{ lso_index }}"
+    upi_cluster: "{{ cluster_upi }}"
+    device_path: "{{ volume_path }}" 
+    lso_namespace: "openshift-local-storage"
+    lso_channel: "stable"
+    lso_catalogsource_name: "redhat-operators"
+    busybox_image: "quay.io/powercloud/busybox:ubi"
+
+- name: Check if ODF (OpenShift Data Foundation) is already installed
+  shell: |
+    oc get csv -n openshift-storage -o json | jq -r '.items[] | select(.metadata.name | test("odf-operator")) | .status.phase'
+  register: odf_csv_status
+  changed_when: false
+  failed_when: false
+
+- name: Set flag if ODF is installed
+  set_fact:
+    odf_install_req: "{{ odf_csv_status.stdout != 'Succeeded' }}"
+
+# ODF installation
+- name: Install ODF - Openshift Data Foundation
+  include_role:
+    name: ocp-odf-operator
+  when: odf_install_req
+  vars:
+    odf_catalogsource_image: "{{ odf_index }}"
+    update_channel: "{{ odf_channel }}"
+    test_pod_image: "quay.io/powercloud/nginx-unprivileged:latest"
+
+# Creating Project for Quay
+- name: Create quay-registry project
+  k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: "{{ quay_registry_namespace }}"
+        annotations:
+          openshift.io/node-selector: 'node-role.kubernetes.io/infra='
+          openshift.io/description: "Red Hat Quay Enterprise Container Image Repository"
+          openshift.io/display-name: "Quay"
+          scheduler.alpha.kubernetes.io/defaultTolerations: >-
+            [{"operator": "Exists", "effect": "NoSchedule", "key": "node-role.kubernetes.io/infra"}]
+
+- name: Switch to quay-registry project
+  command: oc project {{ quay_registry_namespace }}
+
+# Custom ImageContentSourcePolicy and CatalogSource
+- name: Create ImageContentSourcePolicy and CatalogSource
+  block:
+  - name: Include the global-secret-update role
+    include_role:
+      name: global-secret-update
+
+  - name: Include role to create ImageContentSourcePolicy and CatalogSource
+    include_role:
+      name: set-custom-catalogsource
+    vars:
+      custom_catalogsource_name: "{{ quay_catalogsource_name }}"
+      custom_catalogsource_display_name: "Custom Quay CatalogSource"
+      custom_catalogsource_image: "{{ quay_catalogsource_image }}"
+  when: quay_catalogsource_image is defined or quay_catalogsource_image != '' and quay_catalogsource_image != None
+
+- name: Use default CatalogSource if no custom image is provided
+  set_fact:
+    quay_catalogsource_name: "redhat-operators"
+  when: quay_catalogsource_image is undefined or quay_catalogsource_image == '' or quay_catalogsource_image == None
+
+- name: Check if Quay CatalogSource exists and is READY
+  shell: >
+    oc get catalogsource {{ quay_catalogsource_name }} -n openshift-marketplace -o jsonpath='{.status.connectionState.lastObservedState}'
+  register: quay_catsrc_check
+  retries: 10
+  delay: 15
+  until: quay_catsrc_check.rc == 0
+  changed_when: false
+  failed_when: quay_catsrc_check.rc != 0
+
+- name: Debug output for Quay CatalogSource check
+  debug:
+    msg: "Quay CatalogSource '{{ quay_catalogsource_name }}' is present and in Ready state."
+
+# Label and taint infra nodes
+- name: Label and taint infra nodes
+  shell: |
+    oc label node {{ worker[0] }} node-role.kubernetes.io/infra=
+    oc adm taint nodes {{ worker[0] }} node-role.kubernetes.io/infra:NoSchedule --overwrite
+    oc label node {{ worker[1] }} node-role.kubernetes.io/infra=
+    oc adm taint nodes {{ worker[1] }} node-role.kubernetes.io/infra:NoSchedule --overwrite
+  args:
+    executable: /bin/bash
+
+- name: Create OperatorGroup for Quay
+  k8s:
+    state: present
+    definition:
+      apiVersion: operators.coreos.com/v1
+      kind: OperatorGroup
+      metadata:
+        name: quay-operator-group
+        namespace: "{{ quay_registry_namespace }}"
+      spec: {}
+
+- name: Create Quay Operator Subscription
+  k8s:
+    state: present
+    definition:
+      apiVersion: operators.coreos.com/v1alpha1
+      kind: Subscription
+      metadata:
+        name: quay-operator
+        namespace: "{{ quay_registry_namespace }}"
+      spec:
+        channel: "{{ quay_operator_channel }}"
+        name: quay-operator
+        source: "{{ quay_catalogsource_name }}"
+        sourceNamespace: openshift-marketplace
+        installPlanApproval: Automatic
+
+- name: Check if Quay Operator CSV is in 'Succeeded' phase
+  shell: |
+    oc get csv -n {{ quay_registry_namespace }} --no-headers | grep quay-operator | grep Succeeded
+  register: csv_status
+  retries: 10
+  delay: 30
+  until: csv_status.stdout != "" and csv_status.stderr == ""
+  failed_when: csv_status.rc != 0
+
+- name: Debug Quay operator CSV status
+  debug:
+    msg: "Quay operator CSV has successfully reached 'Succeeded' state."
+
+- name: Generate config.yaml from template
+  template:
+    src: config.yaml.j2
+    dest: /tmp/config.yaml
+
+# Create config-bundle-secret from existing config.yaml file
+- name: Create config-bundle-secret from rendered config.yaml
+  shell: |
+    oc create secret generic config-bundle-secret \
+      --from-file=config.yaml=/tmp/config.yaml \
+      -n {{ quay_registry_namespace }} \
+      --dry-run=client -o yaml | oc apply -f -
+  args:
+    executable: /bin/bash
+
+# Apply QuayRegistry CR from quay-registry.yaml
+- name: Apply QuayRegistry CR from quay-registry.yaml
+  shell: oc apply -f quay-registry.yaml -n {{ quay_registry_namespace }}
+  args:
+    chdir: "{{ role_path }}/files"
+  register: create_quayregistry
+
+- name: Debug QuayRegistry creation output
+  debug:
+    var: create_quayregistry.stdout
+
+- name: Wait a bit for pods to be created
+  pause:
+    seconds: 30
+
+- name: Wait until all pods are Running or Completed in {{ quay_registry_namespace }}
+  shell: |
+    set -eo pipefail
+    oc get pods -n {{ quay_registry_namespace }} -o json | \
+      jq -r '.items[] | [.metadata.name, .status.phase, (.status.containerStatuses[0].ready // false)] | @tsv' | \
+      awk '
+        {
+          if ($2 != "Running" && $2 != "Succeeded") {
+            print "WAITING: Pod", $1, "is in phase", $2;
+            exit 1;
+          }
+          if ($2 == "Running" && $3 != "true") {
+            print "WAITING: Pod", $1, "is Running but not Ready";
+            exit 1;
+          }
+        }
+      '
+  register: quay_pods_check
+  retries: 40         # 10 minutes max wait
+  delay: 15
+  until: quay_pods_check.rc == 0
