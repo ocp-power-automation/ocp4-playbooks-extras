@@ -41,6 +41,9 @@ global_secret_update: false
 ## ocp-etcd-encryption-decryption vars
 ocp_etcd: false
 
+## ocp-service-controller-function required vars
+ocp_service: false
+
 ## ocp-cluster-log-forwarding required vars
 ocp_cluster_logging: false
 cluster_log_forwarder: false
@@ -154,6 +157,7 @@ iSCSI_pod_name: iscsipd
 initiator_name: # eg. iqn.2021-04.com.redhat:initiator2
 iqn: # eg. iqn.2021-04.redhat.com:iscsitarget2
 target_IP: ""
+
 
 # hypershift required vars for installation/destroy
 mgmt_cluster_kubeconfig: "{{ ansible_env.HOME }}/.kube/config"

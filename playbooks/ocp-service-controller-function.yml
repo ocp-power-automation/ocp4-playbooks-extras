@@ -1,0 +1,6 @@
+- name: Run the Service Controller function
+  hosts: localhost
+  roles:
+  - ocp-service-controller-function
+
+

@@ -1,4 +1,8 @@
 ---
+
+- import_playbook: ocp-service-controller-function.yml
+  when: ocp-service is defined and ocp-service
+
 - import_playbook: ocp-scale.yml
   when: scale_test_enabled
 
