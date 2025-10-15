@@ -3,6 +3,12 @@
 - set_fact:
       log_labels: "{{ log_label | default('test-clf', true) }}"
       clo_version: "{{ cluster_logging_channel | regex_search('\\d+\\.\\d+') | float }}"
+      logging_version: "{{ cluster_logging_channel.split('-')[1].replace('.', '-') }}"
+     
+
+- name: Get the ocp server version
+  shell:  oc version | grep  "Server Version" | awk '{print $3}' | cut -d . -f 1,2
+  register: ocp_version
 
 - name: Check channel variables
   fail:
@@ -14,6 +20,7 @@
 # Set log directory
 - set_fact:
       cl_log_dir: "{{ log_dir_path | default('/root/clf_logs', true) }}"
+      ocp_version: "{{ ocp_version.stdout }}"
 
 # Validate external URLs and install python on external VMs
 - block:
@@ -36,7 +43,7 @@
   when: cluster_log_forwarder
 
 # Custom ImageContentSourcePolicy and CatalogSource
-- name: Create ImageContentSourcePolicy and CatalogSource for CLO less than or equal to 5.8
+- name: Create ImageContentSourcePolicy and CatalogSource for CLO less than 5.9
   block: 
   - name: Create CatalogSource
     template:
@@ -45,6 +52,16 @@
 
   - name: Run ImageContentSourcePolicy
     shell: oc apply -f "{{ role_path }}/files/ImageContentSourcePolicy.yml"
+    when: ocp_version | float < 4.13
+  
+  - name: Create ImageDigestMirrorSet
+    template:
+      src: "{{ role_path }}/templates/idms.yaml.j2"
+      dest: "{{ role_path }}/files/ImageDigestMirrorSet.yaml"
+
+  - name: Run ImageDigestMirrorSet
+    include_tasks: "{{ role_path }}/files/ImageDigestMirrorSet.yaml"
+    when: ocp_version | float >= 4.13
      
   - name: Run CatalogSource
     shell: oc apply -f "{{ role_path }}/files/CatalogSource.yml"
@@ -65,9 +82,9 @@
   when: 
     - elasticsearch_clf_cs != '' and clusterlogging_clf_cs != ''  
     - elasticsearch_clf_cs != None and clusterlogging_clf_cs != None
-    - clo_version | float <= 5.8
+    - clo_version | float < 5.9
 
-- name: Create ImageContentSourcePolicy and CatalogSource for CLO greater than 5.8
+- name: Create ImageContentSourcePolicy and CatalogSource for CLO greater than or equal to 5.9
   block: 
   - name: Create CatalogSource
     template:
@@ -76,6 +93,16 @@
 
   - name: Run ImageContentSourcePolicy
     shell: oc apply -f "{{ role_path }}/files/ImageContentSourcePolicy.yml"
+    when: ocp_version | float < 4.13
+
+  - name: Create ImageDigestMirrorSet
+    template:
+      src: "{{ role_path }}/templates/idms.yaml.j2"
+      dest: "{{ role_path }}/files/ImageDigestMirrorSet.yaml"
+
+  - name: Run ImageDigestMirrorSet
+    include_tasks: "{{ role_path }}/files/ImageDigestMirrorSet.yaml"
+    when: ocp_version | float >= 4.13
      
   - name: Run CatalogSource
     shell: oc apply -f "{{ role_path }}/files/NewCatalogSource.yml"
@@ -105,6 +132,10 @@
     shell: oc get ImageContentSourcePolicy | grep brew-registry | wc -l
     register: icsp
 
+  - name: Check if the ImageDigestMirrorSet exists
+    shell: oc get ImageDigestMirrorSet | grep fbc-clo-testing-idms | wc -l
+    register: idms
+
   - name: Check if the CatalogSource exists
     shell:  oc get CatalogSource -n openshift-marketplace | grep "cluster-logging\|elasticsearch" |wc -l
     register: output
@@ -118,6 +149,10 @@
   - name: Delete ImageContentSourcePolicy if it exists
     shell: oc delete ImageContentSourcePolicy brew-registry
     when: icsp.stdout|int == 1
+
+  - name: Delete ImageDigestMirrorSet if it exists
+    shell: oc delete ImageDigestMirrorSet fbc-clo-testing-idms
+    when: idms.stdout|int == 1
 
   - name: Delete CatalogSource if it exists
     shell: oc delete CatalogSource elasticsearch cluster-logging -n openshift-marketplace

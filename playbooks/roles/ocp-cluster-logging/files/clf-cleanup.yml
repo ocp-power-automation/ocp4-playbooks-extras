@@ -15,6 +15,10 @@
     shell: oc get ImageContentSourcePolicy | grep brew-registry | wc -l
     register: icsp_cnt
 
+  - name: Check if the ImageDigestMirrorSet exists
+    shell: oc get ImageDigestMirrorSet | grep fbc-clo-testing-idms | wc -l
+    register: idms
+
   - name: Check if the CatalogSource exists
     shell: oc get CatalogSource -n openshift-marketplace | grep "cluster-logging\|elasticsearch\|loki" | awk 'NR==1{print $1}''NR==2{print $1}''NR==3{print $1}' | xargs
     register: catalog_src
@@ -22,6 +26,10 @@
   - name: Delete ImageContentSourcePolicy if it exists
     shell: oc delete ImageContentSourcePolicy brew-registry
     when: icsp_cnt.stdout|int == 1
+
+  - name: Delete ImageDigestMirrorSet if it exists
+    shell: oc delete ImageDigestMirrorSet fbc-clo-testing-idms
+    when: idms.stdout|int == 1
 
   - name: Delete CatalogSource if it exists
     shell: oc delete CatalogSource -n openshift-marketplace  {{ catalog_src.stdout }}

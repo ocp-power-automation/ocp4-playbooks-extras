@@ -1,0 +1,43 @@
+- name: Create ImageDigestMirrorSet
+  k8s:
+    state: present
+    definition:
+      apiVersion: config.openshift.io/v1
+      kind: ImageDigestMirrorSet
+      metadata:
+        name: fbc-clo-testing-idms
+      spec:
+        imageDigestMirrors:
+        - mirrors:
+          - brew.registry.redhat.io
+          source: registry-proxy.engineering.redhat.com
+        - mirrors:
+          - quay.io/redhat-user-workloads/obs-logging-tenant/loki-operator-bundle-v{{ logging_version }}
+          source: registry.redhat.io/openshift-logging/loki-operator-bundle
+        - mirrors:
+          - quay.io/redhat-user-workloads/obs-logging-tenant/cluster-logging-operator-bundle-v{{ logging_version }}
+          source: registry.redhat.io/openshift-logging/cluster-logging-operator-bundle
+        - mirrors:
+          - quay.io/redhat-user-workloads/obs-logging-tenant/cluster-logging-operator-v{{ logging_version }}
+          source: registry.redhat.io/openshift-logging/cluster-logging-rhel9-operator
+        - mirrors:
+          - quay.io/redhat-user-workloads/obs-logging-tenant/logging-vector-v{{ logging_version }}
+          source: registry.redhat.io/openshift-logging/vector-rhel9
+        - mirrors:
+          - quay.io/redhat-user-workloads/obs-logging-tenant/log-file-metric-exporter-v{{ logging_version }}
+          source: registry.redhat.io/openshift-logging/log-file-metric-exporter-rhel9
+        - mirrors:
+          - quay.io/redhat-user-workloads/obs-logging-tenant/logging-eventrouter-v{{ logging_version }}
+          source: registry.redhat.io/openshift-logging/eventrouter-rhel9
+        - mirrors:
+          - quay.io/redhat-user-workloads/obs-logging-tenant/loki-operator-v{{ logging_version }}
+          source: registry.redhat.io/openshift-logging/loki-rhel9-operator
+        - mirrors:
+          - quay.io/redhat-user-workloads/obs-logging-tenant/logging-loki-v{{ logging_version }}
+          source: registry.redhat.io/openshift-logging/logging-loki-rhel9
+        - mirrors:
+          - quay.io/redhat-user-workloads/obs-logging-tenant/lokistack-gateway-v{{ logging_version }}
+          source: registry.redhat.io/openshift-logging/lokistack-gateway-rhel9
+        - mirrors:
+          - quay.io/redhat-user-workloads/obs-logging-tenant/opa-openshift-v{{ logging_version }}
+          source: registry.redhat.io/openshift-logging/opa-openshift-rhel9
