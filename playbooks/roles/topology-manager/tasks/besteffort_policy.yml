@@ -1,0 +1,118 @@
+---
+- name: Create kubelet-config with topologyManagerPolicy 'best-effort'
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: machineconfiguration.openshift.io/v1
+      kind: KubeletConfig
+      metadata:
+        name: cpumanager-enabled
+      spec:
+        machineConfigPoolSelector:
+          matchLabels:
+            custom-kubelet: cpumanager-enabled
+        kubeletConfig:
+          cpuManagerPolicy: static
+          cpuManagerReconcilePeriod: 5s
+          topologyManagerPolicy: best-effort
+
+- name: Wait for 2 minutes before checking MCP status
+  pause:
+    minutes: 2
+
+- name: Check mcp status
+  shell: oc get mcp worker | awk 'NR==2 {print $3}'
+  register: mcpstatus
+  until: mcpstatus.stdout == 'True'
+  retries: 20
+  delay: 60
+
+- name: Check the worker node for the updated kubelet.conf
+  shell: oc debug node/worker-1 -q -- chroot /host cat /etc/kubernetes/kubelet.conf | grep -E 'reservedSystemCPUs|cpuManager|topologyManager'
+  register: pa_result
+    
+- name: Verify the updated config
+  debug:
+    var: pa_result.stdout_lines
+
+- name: Create pod with {{ besteffort_cpuv1 }} cpu request
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Pod
+      metadata:
+        name: "podcpu{{ besteffort_cpuv1 }}"
+        namespace: default
+      spec:
+        nodeSelector:
+          cpumanager: "true"
+        containers:
+        - name: appcntr1
+          image: "{{ pause_image }}"
+          imagePullPolicy: IfNotPresent
+          command: [ "/bin/bash", "-c", "--" ]
+          args: [ "while true; do sleep 300000; done;" ]
+          resources:
+            requests:
+              cpu: "{{ besteffort_cpuv1 }}"
+              memory: 100Mi
+            limits:
+              cpu: "{{ besteffort_cpuv1 }}"
+              memory: 100Mi
+
+- name: Verify the pod gets scheduled
+  shell: oc get pod podcpu{{ besteffort_cpuv1 }} | awk 'NR==2 {print $3}' 
+  register: result
+  until: result.stdout == "Running"
+  retries: 5
+  delay: 10
+
+- name: Create pod with {{ besteffort_cpuv2 }} cpu request
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Pod
+      metadata:
+        name: "podcpu{{ besteffort_cpuv2 }}"
+        namespace: default
+      spec:
+        nodeSelector:
+          cpumanager: "true"
+        containers:
+        - name: appcntr1
+          image: "{{ pause_image }}"
+          imagePullPolicy: IfNotPresent
+          command: [ "/bin/bash", "-c", "--" ]
+          args: [ "while true; do sleep 300000; done;" ]
+          resources:
+            requests:
+              cpu: "{{ besteffort_cpuv2 }}"
+              memory: 310Mi
+            limits:
+              cpu: "{{ besteffort_cpuv2 }}"
+              memory: 310Mi
+
+- name: Verify the pod gets scheduled
+  shell: oc get pod podcpu{{ besteffort_cpuv2 }} | awk 'NR==2 {print $3}' 
+  register: result
+  until: result.stdout == "Running"
+  retries: 5
+  delay: 10
+
+- name: Print a simple message
+  debug:
+    msg: "Best-effort policy validated successfully"
+
+- name: Cleanup
+  block:
+  - name: Delete the pods created
+    shell: oc delete pods --all
+  
+  - name: Verify pods deletion
+    shell: oc get pods | wc -l 
+    register: pods_count
+    until: pods_count.stdout | int == 0
+    retries: 10
+    delay: 10

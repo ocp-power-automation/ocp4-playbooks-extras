@@ -559,3 +559,14 @@ test_pod_image: "quay.io/powercloud/nginx-unprivileged:latest"
 ## ocp-service-controller-function vars
 ocp-service: false
 
+# topology vars
+topology_enabled: false
+single_node_cpuv1: ""
+single_node_cpuv2: ""
+besteffort_cpuv1: ""
+besteffort_cpuv2: ""
+restricted_cpuv1: ""
+restricted_cpuv2: ""
+none_cpuv1: ""
+none_cpuv2: ""
+

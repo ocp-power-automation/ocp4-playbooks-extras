@@ -75,6 +75,9 @@
 - import_playbook: ocp-disa-stig-compliance.yml
   when: stig_compliance_enabled is defined and stig_compliance_enabled
 
+- import_playbook: topology-manager.yml
+  when: topology_enabled is defined and topology_enabled
+
 - import_playbook: hypershift.yml
   when: >
         (hypershift_install is defined and hypershift_install) or 

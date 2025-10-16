@@ -1,0 +1,13 @@
+---
+# topology vars
+# Set the values below in accordance to the number of NUMA nodes and their partition in worker-1
+
+topology_enabled: false
+single_node_cpuv1: ""
+single_node_cpuv2: ""
+besteffort_cpuv1: ""
+besteffort_cpuv2: ""
+restricted_cpuv1: ""
+restricted_cpuv2: ""
+none_cpuv1: ""
+none_cpuv2: ""
