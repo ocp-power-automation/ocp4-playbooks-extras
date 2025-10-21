@@ -1,4 +1,26 @@
 ---
+- name: Create Profile Bundle
+  block:
+  - name: Create Profile Bundle
+    kubernetes.core.k8s:
+      state: present
+      definition:
+        apiVersion: compliance.openshift.io/v1alpha1
+        kind: ProfileBundle
+        metadata:
+          name: rhcos4-disa-stig
+          namespace: openshift-compliance
+        spec:
+          contentFile: "{{ rhcos4_contentfile }}"
+          contentImage: "{{ content_image }}"
+
+  - name: Check the profile bundle status
+    shell: oc get ProfileBundle rhcos4-disa-stig | awk 'NR==2 {print $4}'
+    register: pbstatus
+    until: pbstatus.stdout == "VALID"
+    retries: 10
+    delay: 60
+
 - name: Create Compliance suite
   block:
   - name: Create suite
@@ -24,28 +46,6 @@
     shell: oc get suite rhcos4-stig-compliancesuite --no-headers | grep "NON-COMPLIANT" | wc -l
     register: suite_result
     until: suite_result.stdout|int == 1
-    retries: 10
-    delay: 60
-
-- name: Create Profile Bundle
-  block:
-  - name: Create Profile Bundle
-    kubernetes.core.k8s:
-      state: present
-      definition:
-        apiVersion: compliance.openshift.io/v1alpha1
-        kind: ProfileBundle
-        metadata:
-          name: rhcos4-disa-stig
-          namespace: openshift-compliance
-        spec:
-          contentFile: "{{ rhcos4_contentfile }}"
-          contentImage: "{{ content_image }}"
-
-  - name: Check the profile bundle status
-    shell: oc get ProfileBundle rhcos4-disa-stig | awk 'NR==2 {print $4}'
-    register: pbstatus
-    until: pbstatus.stdout == "VALID"
     retries: 10
     delay: 60
 
