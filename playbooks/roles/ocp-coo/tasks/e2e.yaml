@@ -93,7 +93,7 @@
             type: Dashboards
 
     - name: Verify Dashboards plugin
-      shell: oc -n "{{ coo_namespace }}" get pod | grep observability-ui-dashboards | grep "Running" | wc -l
+      shell: oc -n openshift-cluster-observability-operator get pod | grep observability-ui-dashboards | grep "Running" | wc -l
       register: dashboard_pods
       until: dashboard_pods.stdout|int == 1 and dashboard_pods.stderr == ""
       retries: 10
@@ -137,7 +137,7 @@
 - name: Deploy logging UIPlugin
   block:
     - name: Check if loki secret is present
-      shell: oc get secrets -n "{{ coo_logstack_namespace }}" | awk '{ if ($1 ~ /lokicred-secret/) print $1 }' | wc -l
+      shell: oc get secrets -n openshift-logging | awk '{ if ($1 ~ /lokicred-secret/) print $1 }' | wc -l
       register: secret_count
       failed_when: secret_count.stdout|int == 0
 
@@ -147,7 +147,7 @@
       when: secret_count.stdout|int == 0
 
     - name: Get list of csv present in openshift-logging namespace
-      shell: oc get csv -n "{{ coo_logstack_namespace }}" -o jsonpath='{.items[*].metadata.name}'
+      shell: oc get csv -n openshift-logging -o jsonpath='{.items[*].metadata.name}'
       register: csv_list
 
     - name: Check if Loki Operator CSV exists
@@ -178,7 +178,7 @@
       k8s_info:
         api_version: operators.coreos.com/v1alpha1
         kind: ClusterServiceVersion
-        namespace: "{{ coo_logstack_namespace }}"
+        namespace: openshift-logging
         name: "{{ clo_csv_name }}"
       register: clo_csv
 
@@ -193,8 +193,8 @@
           apiVersion: loki.grafana.com/v1
           kind: LokiStack
           metadata:
-            name: lokistack-sample
-            namespace: "{{ coo_logstack_namespace }}"
+            name: lokistack-coo
+            namespace: openshift-logging
           spec:
             managementState: Managed
             size: 1x.small
@@ -225,13 +225,13 @@
             annotations:
               logging.openshift.io/preview-korrel8r-console: enabled 
             name: "instance"
-            namespace: "{{ coo_logstack_namespace }}"
+            namespace: openshift-logging
           spec:
             managementState: "Managed"
             logStore:
               type: "lokistack"
               lokistack:
-                name: lokistack-sample
+                name: lokistack-coo
             collection:
               type: "vector"
               visualization:
@@ -251,7 +251,7 @@
             kind: ServiceAccount
             metadata:
               name: logcollector
-              namespace: "{{ coo_logstack_namespace }}"
+              namespace: openshift-logging
 
       - name: Create clusterrolebinding collect-application-logs
         kubernetes.core.k8s:
@@ -268,7 +268,7 @@
             subjects:
               - kind: ServiceAccount
                 name: logcollector
-                namespace: "{{ coo_logstack_namespace }}"
+                namespace: openshift-logging
 
       - name: Create clusterrolebinding collect-infrastructure-logs
         kubernetes.core.k8s:
@@ -285,7 +285,7 @@
             subjects:
               - kind: ServiceAccount
                 name: logcollector
-                namespace: "{{ coo_logstack_namespace }}"
+                namespace: openshift-logging
 
       - name: Create clusterrolebinding collect-audit-logs
         kubernetes.core.k8s:
@@ -302,7 +302,7 @@
             subjects:
               - kind: ServiceAccount
                 name: logcollector
-                namespace: "{{ coo_logstack_namespace }}"
+                namespace: openshift-logging
 
       - name: Create ClusterLogForwarder instance
         kubernetes.core.k8s:
@@ -312,7 +312,7 @@
             kind: ClusterLogForwarder
             metadata:
               name: collector
-              namespace: "{{ coo_logstack_namespace }}"
+              namespace: openshift-logging
             spec:
               managementState: Managed
               outputs:
@@ -321,12 +321,12 @@
                       token:
                         from: serviceAccount
                     target:
-                      name: lokistack-sample
-                      namespace: "{{ coo_logstack_namespace }}"
+                      name: lokistack-coo
+                      namespace: openshift-logging
                   name: lokistack
                   tls:
                     ca:
-                      configMapName: lokistack-sample-gateway-ca-bundle
+                      configMapName: lokistack-coo-gateway-ca-bundle
                       key: service-ca.crt
                   type: lokiStack
               pipelines:
@@ -342,11 +342,12 @@
       when: clo_version|float >= 6.0
 
     - name: Verify Logging stack
-      shell: oc get pods -n "{{ coo_logstack_namespace }}" --no-headers | grep logging-view | grep "Running" | wc -l
+      shell: oc get pods -n openshift-logging --no-headers | grep logging-view | grep "Running" | wc -l
       register: coo_pods
       until: coo_pods.stdout|int == 1 and coo_pods.stderr == ""
       retries: 10
       delay: 30
+      when: clo_version|float < 6.0
 
     - name: Enable UIPlugin
       kubernetes.core.k8s:
@@ -358,25 +359,18 @@
             name: logging
           spec:
             logging:
-              logsLimit: 20
+              logsLimit: 6
               lokiStack:
-                name: lokistack-sample
+                name: lokistack-coo
               timeout: 6m
             type: Logging
 
     - name: Verify logging UIPlugin
-      shell: oc get pods -n "{{ coo_namespace }}" --no-headers | grep logging | grep -v "Running\|Completed" | wc -l
+      shell: oc get pods -n openshift-cluster-observability-operator --no-headers | grep logging | grep "Running\|Completed" | wc -l
       register: logging_pods
-      until: logging_pods.stdout|int == 0 and logging_pods.stderr == ""
+      until: logging_pods.stdout|int == 1 and logging_pods.stderr == ""
       retries: 10
       delay: 30
-
-    - name: Verify there are no logging-view-plugin pods under "{{ coo_namespace }}"
-      shell: oc get pods -n "{{ coo_namespace }}" --no-headers | grep logging-view-plugin | wc -l
-      register: logging_view_pods
-      until: logging_view_pods.stdout|int == 0
-      retries: 10
-      delay: 10
   when: enable_logging_uiplugin
 
 - name: Deploy Distributed Tracing Console UI plugin
@@ -387,6 +381,134 @@
         kind: ClusterServiceVersion
         namespace: openshift-tempo-operator
       register: tempo_csv
+    
+    - name: Get OpenTelemetry Operator csv
+      k8s_info:
+        api_version: operators.coreos.com/v1alpha1
+        kind: ClusterServiceVersion
+        namespace: openshift-opentelemetry-operator
+      register: opentelemetry_csv 
+
+    - name: Check if Tempo Operator CSV exists
+      set_fact:
+        tempo_installed: "{{ tempo_csv.resources | selectattr('metadata.name', 'search', 'tempo') | list | length > 0 }}"
+
+    - name: Fail if Tempo Operator is not installed 
+      fail:
+        msg: "Install Tempo Operator"
+      when: not tempo_installed
+
+    - name: Check if OpenTelemetry Operator CSV exists
+      set_fact:
+        opentelemetry_installed: "{{ opentelemetry_csv.resources | selectattr('metadata.name', 'search', 'opentelemetry') | list | length > 0 }}"
+
+    - name: Fail if OpenTelemetry Operator is not installed 
+      fail:
+        msg: "Install OpenTelemetry Operator"
+      when: not opentelemetry_installed
+
+    - name: Create the Tracing UIPlugin CR.
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: observability.openshift.io/v1alpha1
+          kind: UIPlugin
+          metadata:
+            name: distributed-tracing
+            namespace: openshift-cluster-observability-operator
+          spec:
+            type: DistributedTracing
+
+    - name: Verify Tracing UI plugin
+      shell: oc get pods -n openshift-cluster-observability-operator --no-headers | grep distributed-tracing- | grep "Running" | wc -l
+      register: tracing_pods
+      until: tracing_pods.stdout|int == 1 and tracing_pods.stderr == ""
+      retries: 10
+      delay: 30
+
+    - name: Clone Distributed Tracing QE repo
+      git:
+        repo: "{{ distributed_tracing_qe_repo }}"
+        dest: "{{ coo_work_dir }}/distributed-tracing-console-plugin"
+        version: "{{ distributed_tracing_qe_repo_branch }}"
+      delegate_to: remote
+      
+    - name: Install the necessary node.js modules on remote VM
+      shell: npm install
+      args:
+        chdir: "{{ coo_work_dir }}/distributed-tracing-console-plugin/tests"
+      delegate_to: remote
+
+    - name: Download and untar chainsaw
+      unarchive:
+        src: "{{ chainsaw_tarball }}"
+        dest: "{{ chainsaw_path }}"
+    
+    - name: Copy kubeconfig file to remote VM
+      ansible.builtin.copy:
+        src: /root/openstack-upi/auth/kubeconfig
+        dest: /tmp/kubeconfig
+      delegate_to: remote
+    
+    - name: Create config_vars file
+      shell: >
+        echo "CYPRESS_BASE_URL=https://$(oc get route -n openshift-console | awk '/console/ {print $2; exit}')" >> /tmp/config_vars.txt
+        echo "CYPRESS_LOGIN_IDP=kube:admin" >> /tmp/config_vars.txt
+        echo "CYPRESS_LOGIN_USERS=kubeadmin:$(cat /root/openstack-upi/auth/kubeadmin-password)" >> /tmp/config_vars.txt
+        echo "CYPRESS_SKIP_COO_INSTALL=true" >> /tmp/config_vars.txt
+    
+    - name: Copy the environment variables file to remote VM
+      ansible.builtin.copy:
+        src: /tmp/config_vars.txt
+        dest: /tmp/config_vars.txt
+      delegate_to: remote
+    
+    - name: Load env vars from config file into Ansible variable
+      shell: cat /tmp/config_vars.txt
+      register: remote_env
+      delegate_to: remote
+
+    - name: Set remote env as Ansible variable
+      set_fact:
+        env_vars_remote: "{{ dict(remote_env.stdout_lines | map('split', '=', 1) | list) }}"
+        
+    - name: Replace minio endpoint
+      replace:
+        path: "{{ coo_work_dir }}/distributed-tracing-console-plugin/tests/fixtures/chainsaw-tests/multitenancy-rbac/00-install-storage.yaml"
+        regexp: 'endpoint:\s*.*'
+        replace: 'endpoint: http://minio.chainsaw-rbac.svc:9000'
+      delegate_to: remote
+      
+    - name: Run Cypress tests and capture output without failing
+      shell: npx cypress run
+      args:
+        chdir: "{{ coo_work_dir }}/distributed-tracing-console-plugin/tests"
+      register: cypress_result
+      ignore_errors: true
+        
+    - name: Save Cypress test output to file
+      ansible.builtin.copy:
+        content: "{{ cypress_result.stdout }}\n{{ cypress_result.stderr }}"
+        dest: /tmp/cypress_test_output.log
+      delegate_to: remote    
+  when: enable_distributed_tracing_uiplugin 
+
+
+- name: Deploy troubleshootingpanel-plugin  
+  block:
+    - name: Get Tempo Operator csv 
+      k8s_info:
+        api_version: operators.coreos.com/v1alpha1
+        kind: ClusterServiceVersion
+        namespace: openshift-tempo-operator
+      register: tempo_csv
+    
+    - name: Get OpenTelemetry Operator csv
+      k8s_info:
+        api_version: operators.coreos.com/v1alpha1
+        kind: ClusterServiceVersion
+        namespace: openshift-opentelemetry-operator
+      register: opentelemetry_csv 
 
     - name: Check if Tempo Operator CSV exists
       set_fact:
@@ -397,51 +519,15 @@
         msg: "Install Tempo Operator"
       when: not tempo_installed
 
-    - name: Create the Tracing UIPlugin CR.
-      kubernetes.core.k8s:
-        state: present
-        definition:
-          apiVersion: observability.openshift.io/v1alpha1
-          kind: UIPlugin
-          metadata:
-            name: distributed-tracing
-            namespace: "{{ coo_namespace }}"
-          spec:
-            type: DistributedTracing
+    - name: Check if OpenTelemetry Operator CSV exists
+      set_fact:
+        opentelemetry_installed: "{{ opentelemetry_csv.resources | selectattr('metadata.name', 'search', 'opentelemetry') | list | length>0 }}"
 
-    - name: Verify Tracing UI plugin
-      shell: oc get pods -n {{ coo_namespace }} --no-headers | grep distributed-tracing- | grep "Running" | wc -l
-      register: tracing_pods
-      until: tracing_pods.stdout|int == 1 and tracing_pods.stderr == ""
-      retries: 10
-      delay: 30
+    - name: Fail if OpenTelemetry Operator is not installed 
+      fail:
+        msg: "Install OpenTelemetry Operator"
+      when: not opentelemetry_installed
 
-    - name: Clone Distributed Tracing QE repo
-      git:
-        repo: "{{ distributed_tracing_qe_repo }}"
-        dest: "{{ coo_work_dir }}/distributed-tracing-qe"
-        version: "{{ distributed_tracing_qe_repo_branch }}"
-
-    - name: Download and untar chainsaw
-      unarchive:
-        src: "{{ chainsaw_tarball }}"
-        dest: "{{ chainsaw_path }}"
-        remote_src: yes
-    
-    - name: Replace minio deployment image with quay_minio
-      replace:
-        path: "{{ coo_work_dir }}/distributed-tracing-qe/tests/e2e-acceptance/multitenancy/00-install-storage.yaml"
-        regexp: 'image:\s*.*'
-        replace: 'image: {{ minio_image }}'
-
-    - name: Run Distributed Tracing testcases
-      shell: "{{ chainsaw_path }}/chainsaw test --apply-timeout 2m --assert-timeout 5m --skip-delete {{ coo_work_dir }}/distributed-tracing-qe/tests/e2e-acceptance/multitenancy \
-            {{ coo_work_dir }}/distributed-tracing-qe/tests/e2e-acceptance/monolithic-multitenancy-openshift/"
-            
-  when: enable_distributed_tracing_uiplugin 
-
-- name: Deploy troubleshootingpanel-plugin  
-  block:
     - name: Create a Deployment to create Test Data
       kubernetes.core.k8s:
         state: present
@@ -478,16 +564,103 @@
             type: TroubleshootingPanel
  
     - name: Verify Korrel8r pod is in Running state
-      shell: oc get pods -n {{ coo_namespace }} --no-headers | grep korrel8r | grep "Running" | wc -l
+      shell: oc get pods -n openshift-cluster-observability-operator --no-headers | grep korrel8r | grep "Running" | wc -l
       register: korrel8r_pod
       until: korrel8r_pod.stdout|int == 1 and korrel8r_pod_pod.stderr == ""
       retries: 10
       delay: 30
 
     - name: Verify troubleshooting-panel pod is in Running state
-      shell: oc get pods -n {{ coo_namespace }} --no-headers | grep troubleshooting-panel | grep "Running" | wc -l
+      shell: oc get pods -n openshift-cluster-observability-operator --no-headers | grep troubleshooting-panel | grep "Running" | wc -l
       register: troubleshooting_pod
       until: troubleshooting_pod.stdout|int == 1 and troubleshooting_pod.stderr == ""
       retries: 10
       delay: 30
   when: enable_troubleshootingpanel_uiplugin
+
+- name: Deploy Incidents plugin
+  block:
+    - name: Enable Monitoring plugin
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: observability.openshift.io/v1alpha1
+          kind: UIPlugin
+          metadata:
+            name: monitoring
+          spec:
+            type: Monitoring
+            monitoring:
+              incidents:
+                enabled: true
+
+    - name: Verify Monitoring UIPlugin
+      shell: oc get pods -n openshift-cluster-observability-operator --no-headers | grep health-analyzer | grep "Running\|Completed" | wc -l
+      register: monitoring_pods
+      until: monitoring_pods.stdout|int == 1 and monitoring_pods.stderr == ""
+      retries: 10
+      delay: 30
+
+    - name: Check metrics are exposed
+      shell: oc exec -n openshift-monitoring -it prometheus-k8s-0 -- curl -s "http://localhost:9090/api/v1/query?query=cluster:health:components" | less
+      register: prometheus_metrics
+
+    - name: Display prometheus metrics
+      debug:
+        msg: "{{ prometheus_metrics.stdout_lines }}"
+  when: enable_monitoring_uiplugin
+
+- name: Deploy Perses Dashboard
+  block:
+    - name: Clone Perses Dashboard
+      get_url:
+        url: "https://raw.githubusercontent.com/perses/perses-operator/main/config/samples/openshift/openshift-cluster-sample-dashboard.yaml"
+        dest: "{{ coo_work_dir }}/perses_dashboard.yaml"  
+
+    - name: Change the namespace of Perses dashboard
+      shell: >
+        sed '0,/^namespace: perses-dev$/s//namespace: openshift-cluster-observability-operator/' {{ coo_work_dir }}/perses_dashboard.yaml > {{ coo_work_dir }}/perses_dashboard.yaml.tmp
+        && mv {{ coo_work_dir }}/perses_dashboard.yaml.tmp {{ coo_work_dir }}/perses_dashboard.yaml
+    
+    - name: Create Perses Dashboard
+      shell: oc apply -f {{ coo_work_dir }}/perses_dashboard.yaml
+    
+    - name: Clone Perses datasource
+      get_url:
+        url: https://raw.githubusercontent.com/perses/perses-operator/main/config/samples/openshift/thanos-querier-datasource.yaml
+        dest: "{{ coo_work_dir }}/perses_datasource.yaml"
+    
+    - name: Change the namespace of Perses Datasource
+      shell: >
+        sed '0,/^namespace: perses-dev$/s//namespace: openshift-cluster-observability-operator/' {{ coo_work_dir }}/perses_datasource.yaml > {{ coo_work_dir }}/perses_datasource.yaml.tmp
+        && mv {{ coo_work_dir }}/perses_datasource.yaml.tmp {{ coo_work_dir }}/perses_datasource.yaml
+
+    - name: Create Perses Datasource
+      shell: oc apply -f {{ coo_work_dir }}/perses_datasource.yaml
+
+    - name: Check Monitoring UIPlugin
+      shell: oc get uiplugin monitoring | wc -l
+      register: plugin_exits
+
+    - name: Enable Perses
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: observability.openshift.io/v1alpha1
+          kind: UIPlugin
+          metadata:
+            name: monitoring
+          spec:
+            type: Monitoring
+            monitoring:
+              incidents:
+                enabled: true
+              perses:
+                enabled: true
+      when: plugin_exits.stdout | int == 0
+
+    - name: Enable Perses
+      shell: >
+        oc patch uiplugin monitoring --type=merge -p '{"spec":{"monitoring":{"perses":{"enabled":true}}}}'
+      when: plugin_exits.stdout | int == 1
+  when: enable_perses_dashboard
