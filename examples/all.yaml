@@ -570,3 +570,10 @@ restricted_cpuv2: ""
 none_cpuv1: ""
 none_cpuv2: ""
 
+#ocp-cso vars
+cso_enabled: false
+cso_namespace: ""        
+cso_catalogsource_name:  ""     
+cso_catalogsource_image: "" 
+cso_operator_channel :   
+

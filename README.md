@@ -54,6 +54,7 @@ This repository consists of additional ansible playbooks for the following:
 1. Deploy Openshift Data Foundation operator
 1. Enabling Kdump
 1. Enable Topology Manager on Power
+1. Deploy Container Security Operator 
 
 ## Assumptions:
 
