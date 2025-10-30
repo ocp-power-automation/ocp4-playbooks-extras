@@ -166,3 +166,6 @@
 - import_playbook: ocp-odf-operator.yml
   when: odf_enabled is defined and odf_enabled
 
+- import_playbook: ocp-cso.yml
+  when: cso_enabled is defined and cso_enabled
+
