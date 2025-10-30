@@ -53,7 +53,11 @@ This repository consists of additional ansible playbooks for the following:
 1. Verify IPI day2 operations
 1. Deploy Openshift Data Foundation operator
 1. Enabling Kdump
+<<<<<<< HEAD
 1. Enable Topology Manager on Power
+=======
+1. Deploy Quay Operator
+>>>>>>> 6699156 (ocp_quay)
 
 ## Assumptions:
 
