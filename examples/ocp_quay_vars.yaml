@@ -1,0 +1,13 @@
+#ocp-quay vars
+
+quay_enabled: false            #set to true for quay operator installation
+lso_index: "" # provide LSO index image
+cluster_upi: true  #set to true if using UPI cluster
+quay_registry_namespace: ""        #Nmaespace for quay-registry
+quay_catalogsource_name:  ""     # CatalogSource Name
+quay_catalogsource_image: "" # CatalogSource Image
+quay_operator_channel :    # Version of Quay to be installed 
+quay_registry_hostname: "" # Hostname for Quayconfig
+volume_path: "/dev/disk/by-id/......" #Get the volume path using "ls /dev/disk/by-id/......"
+odf_index: "" #Example - quay.io/rhceph-dev/ocs-registry:4.16.3
+odf_channel:  #Define this to set subscription channel for ODF Operator

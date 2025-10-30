@@ -1,0 +1,5 @@
+---
+- name: Automate Quay operator in OpenShift
+  hosts: bastion 
+  roles:
+  - ocp-quay
