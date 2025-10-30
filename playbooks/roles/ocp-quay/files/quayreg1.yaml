@@ -1,0 +1,7 @@
+apiVersion: quay.redhat.com/v1
+kind: QuayRegistry
+metadata:
+  name: quayreg1
+  namespace: quay-registry
+spec:
+  configBundleSecret: config-bundle-secret
