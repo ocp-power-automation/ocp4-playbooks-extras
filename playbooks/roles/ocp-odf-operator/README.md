@@ -35,6 +35,7 @@ Role Variables
 | update_channel  | no | It uses default channel | It is used to set subscription channel for ODF Operator |
 | odf_catalogsource_image  | no | It uses default redhat-operators CatalogSource | It is used to set Index-Image of ODF Operator in the CatalogSource |
 | test_pod_image  |no | quay.io/powercloud/nginx-unprivileged:latest| Test image to be used for operator validation |
+| odf_enable_global_secret   |no | False| Flag to be set to true to use custom role for updating pull sec for brew registry image  |
 
 #### Note:
 
