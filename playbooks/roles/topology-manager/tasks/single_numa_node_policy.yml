@@ -70,7 +70,7 @@
               memory: 100Mi
 
 - name: Verify the pod doesn't gets scheduled
-  shell: oc get pods | awk 'NR==2 {print $3}' 
+  shell: oc get pod podcpu{{ single_node_cpuv1 }} | awk 'NR==2 {print $3}' 
   register: result
   until: result.stdout == "ContainerStatusUnknown"
   retries: 5
@@ -103,7 +103,7 @@
               memory: 310Mi
 
 - name: Verify the pod gets scheduled
-  shell: oc get pods | awk 'NR==2 {print $3}' 
+  shell: oc get pod podcpu{{ single_node_cpuv2 }} | awk 'NR==2 {print $3}' 
   register: result
   until: result.stdout == "Running"
   retries: 5
