@@ -34,6 +34,39 @@
       custom_catalogsource_image: "{{ compliance_catalogsource_image }}"
   when: compliance_catalogsource_image != '' and compliance_catalogsource_image != None
 
+- name: Create ImageDigestMirrorSet for Compliance Operator
+  block:
+  - name: Create ImageDigestMirrorSet resource
+    kubernetes.core.k8s:
+      state: present
+      definition:
+        apiVersion: config.openshift.io/v1
+        kind: ImageDigestMirrorSet
+        metadata:
+          name: compliance-operator-mirror-set
+        spec:
+          imageDigestMirrors:
+            - mirrors:
+              - quay.io/redhat-user-workloads/ocp-isc-tenant/compliance-operator-bundle-release
+              source: registry.redhat.io/compliance/openshift-compliance-operator-bundle
+            - mirrors:
+              - quay.io/redhat-user-workloads/ocp-isc-tenant/compliance-operator-openscap-release
+              source: registry.redhat.io/compliance/openshift-compliance-openscap-rhel8
+            - mirrors:
+              - quay.io/redhat-user-workloads/ocp-isc-tenant/compliance-operator-must-gather-release
+              source: registry.redhat.io/compliance/openshift-compliance-must-gather-rhel8
+            - mirrors:
+              - quay.io/redhat-user-workloads/ocp-isc-tenant/compliance-operator-release
+              source: registry.redhat.io/compliance/openshift-compliance-rhel8-operator
+            - mirrors:
+              - quay.io/redhat-user-workloads/ocp-isc-tenant/compliance-operator-content-release
+              source: registry.redhat.io/compliance/openshift-compliance-content-rhel8
+
+  - name: Wait 30 seconds for ImageDigestMirrorSet to reconcile
+    pause:
+      seconds: 30
+      prompt: "Waiting 30 seconds for Compliance Operator ImageDigestMirrorSet to reconcile..."
+
 - name: Search for the StorageClass
   kubernetes.core.k8s_info:
     kind: StorageClass
