@@ -131,7 +131,7 @@
   register: kdump_conf_check
   failed_when: kdump_conf_check.rc != 0
 
-# trigger crash file
+# trigger crash up to 10 times to account for logs not being generated on every run.
 - name: Repeat crash trigger 10 times with pauses
   include_tasks: crash_trigger.yml
   loop: "{{ range(1, 11) | list }}"
