@@ -155,7 +155,7 @@
   shell: |
     openshift-tests run openshift/conformance/parallel --dry-run | ./invert_excluded.py excluded_tests > test-suite.txt
     openshift-tests run -f ./test-suite.txt {{ repository_command }} -o {{ results_dir }}/conformance-parallel-out-0.txt --junit-dir {{ results_dir }}/conformance-parallel > {{ results_dir }}/openshift-cmd-out-log-0.txt 2>&1
-    sed -e 's/\"/\\"/g;s/.*/\"&\"/'  {{ results_dir }}/conformance-parallel-out-0.txt   | awk '/Failing tests:/,EOF' | tail -n +3 | head -n -4 > {{ results_dir }}/failed-e2e-results.txt
+    sed -e 's/"/\\"/g;s/^[ \t]*\*[ \t]*//;s/.*/"&"/'{{ results_dir }}/conformance-parallel-out-0.txt   | awk '/(Failing tests:|Blocking test failures:)/,EOF' | tail -n +3 | head -n -4 > {{ results_dir }}/failed-e2e-results.txt
   args:
     chdir: "{{ test_dir }}/origin"
   environment: "{{ e2e_env }}"
@@ -166,7 +166,7 @@
 - name: Re run e2e failed tests
   shell: |
     cnt=0
-    pattern="(error: [0-9]* fail, [0-9]* pass, [0-9]* skip|[0-9]* pass, [0-9]* skip) \(([0-9]*h[0-9]*m[0-9]*s|[0-9]*m[0-9]*s|[0-9.]*s)\)"
+    pattern="(error: [0-9]* fail, [0-9]* pass, [0-9]* skip|error: [0-9]* blocking fail, [0-9]* informing fail, [0-9]* pass, [0-9]* skip|[0-9]* pass, [0-9]* skip) \(([0-9]*h[0-9]*m[0-9]*s|[0-9]*m[0-9]*s|[0-9.]*s)\)"
     IFS=' ' read -ra ADDR1 <<< $(cat {{ results_dir }}/openshift-cmd-out-log-0.txt | tail -5 | grep -oE "${pattern}" | head -1)
     if  [ "0" -ne "$(wc -l < "{{ results_dir }}/failed-e2e-results.txt")" ]
     then
@@ -181,7 +181,7 @@
         f_test="$(wc -l < "{{ results_dir }}/failed-e2e-results.txt")"
         cnt=$(( $cnt + 1 ))
         openshift-tests run -f {{ results_dir }}/failed-e2e-results.txt {{ repository_command }} -o {{ results_dir }}/conformance-parallel-out-${cnt}.txt --junit-dir {{ results_dir }}/conformance-parallel &> {{ results_dir }}/openshift-cmd-out-log-${cnt}.txt
-        sed -e 's/\"/\\"/g;s/.*/\"&\"/' "{{ results_dir }}/conformance-parallel-out-${cnt}.txt" | awk '/Failing tests:/,EOF' | tail -n +3 | head -n -4 > {{ results_dir }}/failed-e2e-results.txt
+        sed -e 's/"/\\"/g;s/^[ \t]*\*[ \t]*//;s/.*/"&"/' "{{ results_dir }}/conformance-parallel-out-${cnt}.txt" | awk '/(Failing tests:|Blocking test failures:)/,EOF' | tail -n +3 | head -n -4 > {{ results_dir }}/failed-e2e-results.txt
         awk -i inplace '/\S/' "{{ results_dir }}/failed-e2e-results.txt"
 
         IFS=' ' read -ra ADDR2 <<< $(cat {{ results_dir }}/openshift-cmd-out-log-${cnt}.txt | tail -5 | grep -oE "${pattern}" | head -1)
@@ -230,7 +230,7 @@
           summary=$(cat {{ results_dir }}/openshift-cmd-out-log-0.txt | tail -5 | grep -oE "${pattern}" | head -1)
       fi
       mv {{ results_dir }}/conformance-parallel-out-0.txt {{ results_dir }}/conformance-parallel-out.txt
-      sed -e 's/\"/\\"/g;s/.*/\"&\"/'  {{ results_dir }}/conformance-parallel-out.txt   | awk '/Failing tests:/,EOF' | tail -n +3 | head -n -4 > {{ results_dir }}/failed-e2e-results.txt
+      sed -e 's/"/\\"/g;s/^[ \t]*\*[ \t]*//;s/.*/"&"/' {{ results_dir }}/conformance-parallel-out.txt   | awk '/(Failing tests:|Blocking test failures:)/,EOF' | tail -n +3 | head -n -4 > {{ results_dir }}/failed-e2e-results.txt
       echo $summary |sed 's/error://' >> {{ results_dir }}/summary.txt
     fi
   args:
@@ -240,4 +240,3 @@
   register: op
   when: e2e_tests_enabled and co_status.stdout|int == 0
   ignore_errors: yes
-
