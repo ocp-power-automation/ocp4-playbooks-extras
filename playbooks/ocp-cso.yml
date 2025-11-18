@@ -1,0 +1,5 @@
+---
+- name: Automate Container Security Operator in OpenShift
+  hosts: bastion 
+  roles:
+  - ocp-cso

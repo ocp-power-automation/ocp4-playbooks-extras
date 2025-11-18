@@ -1,0 +1,8 @@
+#ocp-cso vars
+
+cso_enabled: false
+cso_namespace: ""        #Namespace for cso-registry
+cso_catalogsource_name:  ""     # CatalogSource Name
+cso_catalogsource_image: "" # CatalogSource Image
+cso_operator_channel :    # Version of CSO to be installed 
+ 
