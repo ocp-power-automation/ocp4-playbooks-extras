@@ -166,3 +166,6 @@
 - import_playbook: ocp-odf-operator.yml
   when: odf_enabled is defined and odf_enabled
 
+- import_playbook: ocp-quay.yml
+  when: quay_enabled is defined and quay_enabled
+
