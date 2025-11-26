@@ -1,0 +1,5 @@
+---
+- name: Validate autoscaling of nodes on PowerVS IPI
+  hosts: localhost
+  roles:
+    - ocp-node-autoscaling

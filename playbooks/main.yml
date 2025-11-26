@@ -1,5 +1,8 @@
 ---
 
+- import_playbook: ocp-node-autoscaling.yml
+  when: ocp-node-autoscaling is defined and ocp-node-autoscaling
+
 - import_playbook: ocp-service-controller-function.yml
   when: ocp-service is defined and ocp-service
 
