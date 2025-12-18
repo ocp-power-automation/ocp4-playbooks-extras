@@ -468,11 +468,14 @@ helm_op: false
 ansible_op: false
 go_op: false
 op_cleanup: false
-operator_sdk_version: "1.38.0"
+operator_sdk_version: "1.42.0"
 op_api_dir: "/tmp/operator-api"
 helm_op_image: "quay.io/{{quay_username}}/nginx-operator-helm:v1"
 ansible_op_image: "quay.io/{{quay_username}}/memcached-operator-ansible:v1"
 go_op_image: "quay.io/{{quay_username}}/memcached-operator-go:v1"
+quay_username: ""
+quay_token: ""
+
 
 # ocp-cluster-etcd-operator vars
 cluster_etcd_enabled: false
