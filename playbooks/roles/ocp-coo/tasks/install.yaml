@@ -4,55 +4,91 @@
   include_role:
     name: check-cluster-health
 
+- name: Get the ocp server version
+  shell: oc version | grep  "Server Version" | awk '{print $3}' | cut -d . -f 1,2
+  register: ocp_version
+
+- set_fact:
+    ocp_version: "{{ ocp_version.stdout }}"
+
 - name: Cluster Observability Operator deployment
   block:
-    - name: Setup a catalogsource for installing cluster observability operator
+    - name: Create ImageContentSourcePolicy and custom CatalogSource
       block:
         - name: Include the global pull-secret update role to extract podman-secret
           include_role:
             name: global-secret-update
-
-        - name: Create ImageContentSourcePolicy
-          k8s:
-            state: present
-            definition:
-              apiVersion: operator.openshift.io/v1alpha1
-              kind: ImageContentSourcePolicy
-              metadata:
-                name: brew-registry
-              spec:
-                repositoryDigestMirrors:
-                - mirrors:
-                  - brew.registry.redhat.io
-                  source: registry.redhat.io
-                - mirrors:
-                  - brew.registry.redhat.io
-                  source: registry-proxy.engineering.redhat.com
-
+  
+        - name: Run ImageContentSourcePolicy
+          shell: oc apply -f "{{ role_path }}/files/ImageContentSourcePolicy.yml"
+          when: ocp_version | float == 4.12
+  
+        - name: Run ImageDigestMirrorSet
+          shell: oc apply -f "{{ role_path }}/files/ImageDigestMirrorSet.yml"
+          when: ocp_version | float >= 4.13
+  
+        - name: Create CatalogSource
+          template:
+            src: "{{ role_path }}/templates/CatalogSource.yaml.j2"
+            dest: "{{ role_path }}/files/CatalogSource.yml"
+  
         # Create custom CatalogSource
-        - name: Create a custom CatalogSource
-          k8s:
-            state: present
-            definition:
-              apiVersion: operators.coreos.com/v1alpha1
-              kind: CatalogSource
-              metadata:
-                name: "{{ coo_catalogsource_name }}"
-                namespace: openshift-marketplace
-              spec:
-                displayName: coo-catalog
-                icon:
-                  base64data: ""
-                  mediatype: ""
-                image: "{{ coo_catalogsource_image }}"
-                sourceType: grpc
-                grpcPodConfig:
-                  securityContextConfig: restricted
-                updateStrategy:
-                  registryPoll:
-                    interval: 1m0s
-      when: coo_catalogsource_image != '' or coo_catalogsource_image == None
-
+        - name: Run CatalogSource
+          shell: oc apply -f "{{ role_path }}/files/CatalogSource.yml"
+  
+        - name: Check ImageContentSourcePolicy and CatalogSource added
+          shell:  oc get CatalogSource -n openshift-marketplace | grep "coo" |wc -l
+          register: output
+  
+        - name: Fail if CatalogSource not added
+          fail:
+            msg: "CatalogSource not added !"
+          when: output.stdout|int != 1
+  
+        - name: Set fact variable for Subscription
+          set_fact:
+            coo_op_source: "coo"
+  
+      when: coo_catalogsource_image != '' or coo_catalogsource_image != None
+  
+    # Default CatalogSource
+    - name: Use default sources
+      block: 
+        - name: Check if the ImageContentSourcePolicy exists
+          shell: oc get ImageContentSourcePolicy | grep brew-registry | wc -l
+          register: icsp
+    
+        - name: Check if the ImageDigestMirrorSet exists
+          shell: oc get ImageDigestMirrorSet | grep idms-coo | wc -l
+          register: idms
+    
+        - name: Check if the CatalogSource exists
+          shell:  oc get CatalogSource -n openshift-marketplace | grep "coo" |wc -l
+          register: output
+    
+        - name: Delete ImageContentSourcePolicy if it exists
+          shell: oc delete ImageContentSourcePolicy brew-registry
+          when: icsp.stdout|int == 1
+    
+        - name: Delete ImageDigestMirrorSet if it exists
+          shell: oc delete ImageDigestMirrorSet idms-coo
+          when: idms.stdout|int == 1
+    
+        - name: Delete CatalogSource if it exists
+          shell: oc delete CatalogSource coo -n openshift-marketplace
+          when: 
+            - output.stdout|int == 1
+    
+        - name: Set disableAllDefaultSources to false
+          shell: |
+            oc patch operatorhub.config.openshift.io/cluster -p='{"spec":{"disableAllDefaultSources":false}}' --type=merge
+    
+        - name: Set fact variable for subscription
+          set_fact:
+            coo_op_source: "redhat-operators"
+    
+      when: coo_catalogsource_image == '' or coo_catalogsource_image == None
+    
     - name: Create a target namespace
       kubernetes.core.k8s:
         state: present
@@ -60,20 +96,18 @@
           apiVersion: v1
           kind: Namespace
           metadata:
-            name: "{{ coo_namespace }}"
-    
-    - name: Create a OperatorGroup into target namespace
+            name: openshift-cluster-observability-operator
+        
+    - name: Create a OperatorGroup for COO
       kubernetes.core.k8s:
         state: present
         definition:
           apiVersion: operators.coreos.com/v1
           kind: OperatorGroup
           metadata:
-            name: coo-og
-            namespace: "{{ coo_namespace }}"
-            labels:
-              og_label: openshift-observability-operator
-    
+            name: openshift-cluster-observability-operator
+            namespace: openshift-cluster-observability-operator
+        
     - name: Create a subscription for cluster observability operator
       kubernetes.core.k8s:
         state: present
@@ -81,22 +115,24 @@
           apiVersion: operators.coreos.com/v1alpha1
           kind: Subscription
           metadata:
-            name: cluster-observability-subscription
-            namespace: "{{ coo_namespace }}"
-            labels:
-              operators.coreos.com/observability-operator.openshift-operators: ""
+            name: cluster-observability-operator
+            namespace: openshift-cluster-observability-operator
+          labels:
+            operators.coreos.com/observability-operator.openshift-operators: ""
           spec:
             channel: "{{ coo_channel }}"
             installPlanApproval: Automatic
             name: cluster-observability-operator
-            source: "{{ coo_catalogsource_name }}"
+            source: "{{ coo_op_source }}"
             sourceNamespace: openshift-marketplace
-
+    
     - name: Verfiy cluster observability operator installation
-      shell: oc get pods -n "{{ coo_namespace }}" --no-headers | grep -v "Running\|Completed" | wc -l
+      shell: oc get pods -n openshift-cluster-observability-operator --no-headers | grep -v "Running\|Completed" | wc -l
       register: coo_pods
       until: coo_pods.stdout|int == 0 and coo_pods.stderr == ""
       retries: 10
       delay: 30
+      
   environment: "{{ coo_e2e_env }}"
   when: coo_operator_deploy
+    

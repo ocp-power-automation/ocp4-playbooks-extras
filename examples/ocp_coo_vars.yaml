@@ -1,24 +1,19 @@
 ---
 
 # cluster observability operator vars
-
 coo_operator_deploy: true
-coo_cleanup: true
-enable_dashboard_uiplugin: false
-enable_logging_uiplugin: false
-enable_distributed_tracing_uiplugin: false
-enable_troubleshootingpanel_uiplugin: false
-coo_role_enable: false
-coo_namespace: "openshift-observability-operator"
-coo_catalogsource_name: "coo-catalog"
-coo_catalogsource_image: "brew.registry.redhat.io/rh-osbs/iib:760399"
-coo_channel: "development"
+coo_cleanup: false
+enable_coo_stack: true
+enable_logging_uiplugin: true
+enable_distributed_tracing_uiplugin: true
+enable_troubleshootingpanel_uiplugin: true
+enable_monitoring_uiplugin: true
+enable_perses_dashboard: true
+coo_catalogsource_image: "quay.io/redhat-user-workloads/cluster-observabilit-tenant/cluster-observability-operator/coo-fbc-v4-20@sha256:c19e912526e49dc37fdaf24b4953dd671193ca3aa6797da60721d9ddfcd4daf0"
+coo_channel: "stable"
 coo_e2e_namespace: "coo-e2e"
-coo_logstack_namespace: "openshift-logging"
-minio_image: "quay.io/minio/minio:latest"
-distributed_tracing_qe_repo: "https://github.com/openshift/distributed-tracing-qe.git"
+distributed_tracing_qe_repo: "https://github.com/openshift/distributed-tracing-console-plugin.git"
 distributed_tracing_qe_repo_branch: "main"
 chainsaw_tarball: "https://github.com/kyverno/chainsaw/releases/download/v0.2.9-beta.1/chainsaw_linux_ppc64le.tar.gz"
-chainsaw_test_namespace: "chainsaw-multitenancy"
 chainsaw_path: "/usr/local/"
 coo_work_dir: "/tmp/coo_logs"
