@@ -1,0 +1,2 @@
+## node-autoscaling required vars
+autoscaling_enabled: false

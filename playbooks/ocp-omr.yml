@@ -1,0 +1,7 @@
+---
+
+- name: Installation of OMR
+  hosts: bastion
+  roles:
+  - ocp-omr
+  

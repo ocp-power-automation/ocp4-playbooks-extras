@@ -1,5 +1,9 @@
 ---
 
+## node-autoscaling required vars
+autoscaling_enabled: false
+
+
 ## clusterresourceoverride-operator role variables
 cro_role_enable: false
 cro_e2e: false
@@ -34,7 +38,6 @@ noo_e2e_repo_branch: "main"    # Set the specific OCP "release-4.x" branch for r
 noo_go_tarball: "https://go.dev/dl/go1.20.10.linux-ppc64le.tar.gz"
 noo_backend_e2e: false
 noo_e2e_github_repo: "https://github.com/openshift/openshift-tests-private"
-
 
 ## ocp-scheduler vars
 scheduler_role_enable: false
@@ -461,7 +464,6 @@ lso_channel: ""               #stable,alpha,beta
 lso_catalogsource_name: ""       #my-operator-catalog
 device_path: "" 
 
-
 # ocp-operator-api vars
 op_api_role_enable: false
 helm_op: false
@@ -570,3 +572,13 @@ restricted_cpuv2: ""
 none_cpuv1: ""
 none_cpuv2: ""
 
+# ocp-omr vars
+enable_mirror_registry: false  #set it to true to install mirror registry
+registry_url: ""
+registry_username: ""
+registry_password: ""
+quay_index_image: ""
+local_copy_dir: "/root"
+mirror_registry_dir: "/root/mirror-registry-dir"
+init_password: ""
+registry_hostname: ""
