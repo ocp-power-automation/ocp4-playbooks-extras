@@ -54,6 +54,8 @@ This repository consists of additional ansible playbooks for the following:
 1. Deploy Openshift Data Foundation operator
 1. Enabling Kdump
 1. Enable Topology Manager on Power
+1. Validate Autoscaling of nodes on IPI cluster
+1. Run Mirror Registry Installation
 
 ## Assumptions:
 

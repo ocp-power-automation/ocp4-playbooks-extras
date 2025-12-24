@@ -184,8 +184,6 @@
             #      matchOn:
             #      - nodename: ["special-.*-node-.*"]
         operand:
-          image: >-
-            registry.redhat.io/openshift4/ose-node-feature-discovery-rhel9
           imagePullPolicy: Always
           namespace: openshift-nfd
           servicePort: 12000
