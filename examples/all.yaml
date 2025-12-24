@@ -461,7 +461,6 @@ lso_channel: ""               #stable,alpha,beta
 lso_catalogsource_name: ""       #my-operator-catalog
 device_path: "" 
 
-
 # ocp-operator-api vars
 op_api_role_enable: false
 helm_op: false
@@ -570,3 +569,13 @@ restricted_cpuv2: ""
 none_cpuv1: ""
 none_cpuv2: ""
 
+# ocp-omr vars
+enable_mirror_registry: false  #set it to true to install mirror registry
+registry_url: ""
+registry_username: ""
+registry_password: ""
+quay_index_image: ""
+local_copy_dir: "/root"
+mirror_registry_dir: "/root/mirror-registry-dir"
+init_password: ""
+registry_hostname: ""

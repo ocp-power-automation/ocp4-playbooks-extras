@@ -1,0 +1,10 @@
+enable_mirror_registry: false
+registry_url: ""
+registry_username: ""
+registry_password: ""
+quay_index_image: ""
+local_copy_dir: "/root"
+mirror_registry_dir: "/root/mirror-registry-dir"
+init_password: ""
+registry_hostname: ""
+
