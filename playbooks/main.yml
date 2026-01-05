@@ -166,3 +166,5 @@
 - import_playbook: ocp-odf-operator.yml
   when: odf_enabled is defined and odf_enabled
 
+- import_playbook: ocp-omr.yml
+  when: enable_mirror_registry is defined and enable_mirror_registry
