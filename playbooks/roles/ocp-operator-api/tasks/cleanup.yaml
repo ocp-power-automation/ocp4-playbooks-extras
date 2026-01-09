@@ -1,5 +1,4 @@
 ---
-
 - name: Cleanup
   block:
     - name: Delete Nginx instance
@@ -16,7 +15,7 @@
       delay: 10
 
     - name: Nginx helm operator cleanup
-      command: make undeploy IMG="{{ HELM_OP_IMAGE }}"
+      command: make undeploy IMG="{{ helm_op_image }}"
       args:
         chdir: "{{ op_api_dir }}/helm-op"
       ignore_errors: true
@@ -35,7 +34,7 @@
       delay: 10
 
     - name: Memcached ansible operator cleanup
-      command: make undeploy IMG="{{ ANSIBLE_OP_IMAGE }}"
+      command: make undeploy IMG="{{ ansible_op_image }}"
       args:
         chdir: "{{ op_api_dir }}/ansible-op"
       ignore_errors: true
@@ -54,7 +53,7 @@
       delay: 10
 
     - name: MemcachedGo operator cleanup
-      command: make undeploy IMG="{{ GO_OP_IMAGE }}"
+      command: make undeploy IMG="{{ go_op_image }}"
       args:
         chdir: "{{ op_api_dir }}/go-op"
       ignore_errors: true
