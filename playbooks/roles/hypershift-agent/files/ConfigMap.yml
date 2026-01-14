@@ -22,6 +22,39 @@ data:
         insecure = false
 
     [[registry]]
+      location = "registry.stage.redhat.io/multicluster-engine"
+      insecure = false
+      blocked = false
+      mirror-by-digest-only = true
+      prefix = ""
+
+      [[registry.mirror]]
+        location = "brew.registry.redhat.io/rh-osbs/multicluster-engine"
+        insecure = false
+
+    [[registry]]
+      location = "registry.stage.redhat.io/oadp"
+      insecure = false
+      blocked = false
+      mirror-by-digest-only = true
+      prefix = ""
+
+      [[registry.mirror]]
+        location = "brew.registry.redhat.io/rh-osbs/oadp"
+        insecure = false
+
+    [[registry]]
+      location = "registry.redhat.io/oadp"
+      insecure = false
+      blocked = false
+      mirror-by-digest-only = true
+      prefix = ""
+
+      [[registry.mirror]]
+        location = "brew.registry.redhat.io/rh-osbs/oadp"
+        insecure = false
+
+    [[registry]]
       location = "registry.redhat.io/multicluster-engine"
       insecure = false
       blocked = false
@@ -29,7 +62,29 @@ data:
       prefix = ""
 
       [[registry.mirror]]
-        location = "brew.registry.redhat.io/multicluster-engine"
+        location = "quay.io:443/acm-d"
+        insecure = false
+
+    [[registry]]
+      location = "registry-proxy.engineering.redhat.com"
+      insecure = false
+      blocked = false
+      mirror-by-digest-only = true
+      prefix = ""
+
+      [[registry.mirror]]
+        location = "brew.registry.redhat.io"
+        insecure = false
+
+    [[registry]]
+      location = "registry-proxy.engineering.redhat.com/rh-osbs"
+      insecure = false
+      blocked = false
+      mirror-by-digest-only = true
+      prefix = ""
+
+      [[registry.mirror]]
+        location = "brew.registry.redhat.io/rh-osbs"
         insecure = false
 
     [[registry]]
@@ -40,5 +95,27 @@ data:
       prefix = ""
 
       [[registry.mirror]]
-        location = "brew.registry.redhat.io/rhacm2"
+        location = "quay.io:443/acm-d"
+        insecure = false
+
+    [[registry]]
+      location = "quay.io:443/acm-d/postgresql-13"
+      insecure = false
+      blocked = false
+      mirror-by-digest-only = true
+      prefix = ""
+
+      [[registry.mirror]]
+        location = "registry.redhat.io/rhel9/postgresql-13"
+        insecure = false
+
+    [[registry]]
+      location = "registry.redhat.io/openshift4"
+      insecure = false
+      blocked = false
+      mirror-by-digest-only = true
+      prefix = ""
+
+      [[registry.mirror]]
+        location = "quay.io:443/acm-d"
         insecure = false
