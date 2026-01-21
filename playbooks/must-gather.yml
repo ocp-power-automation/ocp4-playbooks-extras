@@ -1,0 +1,5 @@
+---
+- name: Collect must-gather logs
+  hosts: bastion
+  roles:
+    - must-gather
