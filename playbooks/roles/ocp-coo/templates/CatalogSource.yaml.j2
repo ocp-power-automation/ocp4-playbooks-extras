@@ -1,0 +1,11 @@
+---
+apiVersion: operators.coreos.com/v1alpha1
+kind: CatalogSource
+metadata:
+  name: coo
+  namespace: openshift-marketplace
+spec:
+  sourceType: grpc
+  publisher: redhat
+  displayName: Red Hat Operators for COO
+  image: "{{ coo_catalogsource_image }}"
