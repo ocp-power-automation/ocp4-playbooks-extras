@@ -15,8 +15,9 @@ Requirements
 
 - Running OCP 4.x cluster is needed.
 - Cluster must not contain default StorageClass.
-- A secret with PowerVC certificate in the `default` namespace.
-  Secret name must be `powervc-certificate` and must contains `certificate` field.
+- Optional : 
+- A secret with PowerVC certificate in the `default` namespace 
+  Secret name should be `powervc-certificate` and must contains `certificate` field.
   eg. 
 
   ```
