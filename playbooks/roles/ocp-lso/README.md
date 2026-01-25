@@ -20,6 +20,7 @@ Role Variables
 | lso_catalogsource_name         | no       |  `my-operator-catalog`    | Catalog source name for LSO    |
 | lso_enabled                    | no       |  `true`    | True for running playbook    |
 | device_path                    | yes       |      | set its value by running "ls /dev/disk/by-id/" in your cluster    |
+| lso_enable_global_secret       | no       |   `false`   | Role var to update the global pull-secret.    |
 | upi_cluster                    | yes       |      | set its value true if using UPI Cluster & if Using IPI Cluster set its value false    |
 
 Example Playbook
