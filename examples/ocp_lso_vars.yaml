@@ -8,4 +8,5 @@ lso_channel: ""               #stable,alpha,beta
 lso_catalogsource_name: ""    #my-operator-catalog
 device_path: ""               #add this by running "ls /dev/disk/by-id/......"
 busybox_image: ""             #quay.io/powercloud/busybox:ubi
+lso_enable_global_secret: false
 upi_cluster: true
