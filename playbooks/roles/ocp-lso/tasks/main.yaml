@@ -294,20 +294,18 @@
                       name: local-data
 
     - name: Verify the status of Persistent Volumes
-      shell: "oc get pv --selector storage.openshift.com/owner-kind=LocalVolumeSet | grep Bound"
+      shell: "oc get pv --selector storage.openshift.com/owner-kind=LocalVolumeSet | grep Bound || true"
       register: check_pv
-      until: check_pv.stdout|int == 0 and check_pv.stderr == ""
+      until: "'Bound' in check_pv.stdout"
       retries: 10
       delay: 30
-      failed_when: check_pv.rc != 0
 
     - name: Verify PVC status
-      shell: "oc get pvc test-local-claim -n default | grep Bound"
+      shell: "oc get pvc test-local-claim -n default | grep Bound || true"
       register: pvc_status
-      until: pvc_status.stdout|int == 0 and pvc_status.stderr == ""
+      until: "'Bound' in pvc_status.stdout"
       retries: 10
       delay: 30
-      failed_when: pvc_status.rc != 0
 
     - name: Verify Pod status
       shell: "oc get pods busybox-lso -n default -o jsonpath='{.status.phase}'"
