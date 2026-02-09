@@ -1,6 +1,8 @@
+diff --git a/test/extended/netobserv/loki_storage.go b/test/extended/netobserv/loki_storage.go
+index 6d5995161..f097d8f01 100644
 --- a/test/extended/netobserv/loki_storage.go
 +++ b/test/extended/netobserv/loki_storage.go
-@@ -52,15 +52,17 @@ type resource struct {
+@@ -45,15 +45,17 @@ type s3Credential struct {
  }
  
  func getAWSCredentialFromCluster(oc *exutil.CLI) s3Credential {
@@ -22,78 +24,53 @@
  	o.Expect(err).NotTo(o.HaveOccurred())
  
  	accessKeyID, err := os.ReadFile(dirname + "/aws_access_key_id")
-@@ -637,7 +639,7 @@ func useExtraObjectStorage(oc *exutil.CLI) string {
- 		deployMinIO(oc)
+@@ -606,11 +608,12 @@ func useExtraObjectStorage(oc *exutil.CLI) string {
  		return "minio"
+ 	}
+ 	if strings.Contains(err.Error(), "No resources found") || strings.Contains(err.Error(), "not found") {
+-		e2e.Logf("deploy MinIO and use this MinIO as storage service")
+-		deployMinIO(oc)
+-		return "minio"
++		//e2e.Logf("deploy MinIO and use this MinIO as storage service")
++		//deployMinIO(oc)
++		e2e.Logf("Using AWS S3 as a default object storage ...")
++		return "s3"
  	}
 -	return ""
 +	return "s3"
  }
  
- // return the storage type per different platform
-@@ -662,7 +664,9 @@ func getStorageType(oc *exutil.CLI) string {
- 		}
- 	default:
- 		{
--			return useExtraObjectStorage(oc)
-+			//return useExtraObjectStorage(oc)
-+			return "s3"
-+
- 		}
- 	}
- }
+ func patchLokiOperatorWithAWSRoleArn(oc *exutil.CLI, subNamespace, roleArn string) {
 diff --git a/test/extended/netobserv/test_flowcollector.go b/test/extended/netobserv/test_flowcollector.go
-index e4e26e05f..2e858a1b6 100644
+index a97b467db..0dd07c6ae 100644
 --- a/test/extended/netobserv/test_flowcollector.go
 +++ b/test/extended/netobserv/test_flowcollector.go
-@@ -140,10 +140,11 @@ var _ = g.Describe("[sig-netobserv] Network_Observability", func() {
+@@ -350,10 +350,12 @@ var _ = g.Describe("[sig-netobserv] Network_Observability", func() {
  
- 		g.By("Deploy lokiStack")
- 		// get storageClass Name
--		sc, err := getStorageClassName(oc)
--		if err != nil || len(sc) == 0 {
--			g.Skip("StorageClass not found in cluster, skip this case")
--		}
-+		//sc, err := getStorageClassName(oc)
-+		sc := "nfs-storage-provisioner"
-+		//if err != nil || len(sc) == 0 {
-+		//	g.Skip("StorageClass not found in cluster, skip this case")
-+		//}
+ 			g.By("Deploy lokiStack")
+ 			// get storageClass Name
+-			sc, err := getStorageClassName(oc)
+-			if err != nil || len(sc) == 0 {
+-				g.Skip("StorageClass not found in cluster, skip this case")
+-			}
++			//sc, err := getStorageClassName(oc)
++			//if err != nil || len(sc) == 0 {
++			//	g.Skip("StorageClass not found in cluster, skip this case")
++			//}
++
++			sc := "nfs-storage-provisioner"
  
- 		lokiTenant := "openshift-network"
- 
-@@ -155,7 +156,7 @@ var _ = g.Describe("[sig-netobserv] Network_Observability", func() {
- 		ls = &lokiStack{
- 			Name:          "lokistack",
- 			Namespace:     namespace,
--			TSize:         "1x.demo",
-+			TSize:         "1x.extra-small",
- 			StorageType:   objectStorageType,
- 			StorageSecret: "objectstore-secret",
- 			StorageClass:  sc,
-@@ -816,8 +817,8 @@ var _ = g.Describe("[sig-netobserv] Network_Observability", func() {
- 		o.Expect(err).NotTo(o.HaveOccurred())
- 		bearerToken := getSAToken(oc, "netobserv-plugin", namespace)
- 
--		g.By("Wait for a min before logs gets collected and written to loki")
--		time.Sleep(60 * time.Second)
-+		g.By("Wait for 2 mins before logs gets collected and written to loki")
-+		time.Sleep(120 * time.Second)
- 
- 		// Scenario1: Verify SCTP traffic
- 		lokilabels := Lokilabels{
-diff --git a/test/extended/testdata/netobserv/kafka/kafka-default.yaml b/test/extended/testdata/netobserv/kafka/kafka-default.yaml
-index 04b6bddcc..2e9f4d82e 100644
---- a/test/extended/testdata/netobserv/kafka/kafka-default.yaml
-+++ b/test/extended/testdata/netobserv/kafka/kafka-default.yaml
-@@ -73,4 +73,4 @@ parameters:
- - name: NAMESPACE
-   value: "netobserv"
- - name: STORAGE_CLASS
--  value: "gp2"
-+  value: "nfs-storage-provisioner"
-diff --git a/test/extended/testdata/netobserv/kafka/topic-consumer-tls.yaml b/test/extended/testdata/netobserv/kafka/topic-consumer-tls.yaml
-index b7114d752..7c6f5fb50 100644
+ 			objectStorageType := getStorageType(oc)
+ 			if len(objectStorageType) == 0 && ipStackType != "ipv6single" {
+@@ -364,7 +366,7 @@ var _ = g.Describe("[sig-netobserv] Network_Observability", func() {
+ 			ls = &lokiStack{
+ 				Name:          "lokistack",
+ 				Namespace:     lokiStackNS,
+-				TSize:         "1x.demo",
++				TSize:         "1x.extra-small",
+ 				StorageType:   objectStorageType,
+ 				StorageSecret: "objectstore-secret",
+ 				StorageClass:  sc,
 --- a/test/extended/testdata/netobserv/kafka/topic-consumer-tls.yaml
 +++ b/test/extended/testdata/netobserv/kafka/topic-consumer-tls.yaml
 @@ -48,7 +48,7 @@ objects:
