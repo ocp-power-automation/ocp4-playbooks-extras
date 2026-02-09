@@ -1,5 +1,8 @@
 ---
 
+- import_playbook: ocp-node-autoscaling.yml
+  when: ocp-node-autoscaling is defined and ocp-node-autoscaling
+
 - import_playbook: ocp-service-controller-function.yml
   when: ocp-service is defined and ocp-service
 
@@ -165,4 +168,7 @@
 
 - import_playbook: ocp-odf-operator.yml
   when: odf_enabled is defined and odf_enabled
+
+- import_playbook: ocp-cso.yml
+  when: cso_enabled is defined and cso_enabled
 

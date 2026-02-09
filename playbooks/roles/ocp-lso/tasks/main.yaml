@@ -104,6 +104,7 @@
         - name: Include the global pull-secret update role to extract podman-secret
           include_role:
             name: global-secret-update
+          when: lso_enable_global_secret  
 
     - name: Include role to create ImageContentSourcePolicy and CatalogSource
       include_role:
@@ -311,7 +312,7 @@
     - name: Verify Pod status
       shell: "oc get pods busybox-lso -n default -o jsonpath='{.status.phase}'"
       register: pod_status
-      until: pod_status.stdout|int == 0 and pod_status.stderr == ""
+      until: pod_status.stdout == "Running"
       retries: 5
       delay: 10
-      failed_when: pod_status.stdout != "Pending"
+      failed_when: pod_status.stdout not in ["Running", "Succeeded"]

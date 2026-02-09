@@ -1,0 +1,101 @@
+ # check if Cluster Health is good
+- name: Check if cluster operators and nodes are healthy
+  include_role:
+    name: check-cluster-health
+
+- name: Check if cso_namespace is defined, and set default if not
+  set_fact:
+     cso_namespace: "{{ cso_namespace | default('quay-registry') }}"  # Set default namespace if not defined
+
+- name: Create a target namespace
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: "{{ cso_namespace }}"
+  when: cso_namespace is defined
+
+# Custom ImageContentSourcePolicy and CatalogSource
+- name: Create ImageContentSourcePolicy and CatalogSource
+  block:
+  - name: Include the global-secret-update role
+    include_role:
+      name: global-secret-update
+
+  - name: Include role to create ImageContentSourcePolicy and CatalogSource
+    include_role:
+      name: set-custom-catalogsource
+    vars:
+      custom_catalogsource_name: "{{ cso_catalogsource_name }}"
+      custom_catalogsource_display_name: "Custom CSO CatalogSource"
+      custom_catalogsource_image: "{{ cso_catalogsource_image }}"
+  when: cso_catalogsource_image | default('') | length > 0
+
+- name: Use default CatalogSource if no custom image is provided
+  set_fact:
+    cso_catalogsource_name: "redhat-operators"
+  when: cso_catalogsource_image | default('') | length == 0
+
+- name: Verify creation of Catsrc
+  shell: oc get catsrc -A | grep "{{ cso_catalogsource_name }}"
+  register: catsrc
+  until: catsrc.stdout|int == 0 and catsrc.stderr == ""
+  retries: 10
+  delay: 30
+
+- name: Check if CSO CatalogSource exists and is READY
+  shell: >
+    oc get catalogsource {{ cso_catalogsource_name }} -n openshift-marketplace -o jsonpath='{.status.connectionState.lastObservedState}'
+  register: cso_catsrc_check
+  retries: 10
+  delay: 15
+  until: cso_catsrc_check.rc == 0
+  changed_when: false
+  failed_when: cso_catsrc_check.rc != 0
+
+- name: Debug output for CSO CatalogSource check
+  debug:
+    msg: "CSO CatalogSource '{{ cso_catalogsource_name }}' is present and in Ready state."
+
+- name: Create OperatorGroup for CSO
+  k8s:
+    state: present
+    definition:
+      apiVersion: operators.coreos.com/v1
+      kind: OperatorGroup
+      metadata:
+        name: container-security-operator-group
+        namespace: "{{ cso_namespace }}"
+      spec: {}
+
+- name: Create CSO Operator Subscription
+  k8s:
+    state: present
+    definition:
+      apiVersion: operators.coreos.com/v1alpha1
+      kind: Subscription
+      metadata:
+        name: container-security-operator
+        namespace: "{{ cso_namespace }}"
+      spec:
+        channel: "{{ cso_operator_channel }}"
+        name: container-security-operator
+        source: "{{ cso_catalogsource_name }}"
+        sourceNamespace: openshift-marketplace
+        installPlanApproval: Automatic
+
+- name: Check if cso Operator CSV is in 'Succeeded' phase
+  shell: |
+    oc get csv -n {{ cso_namespace }} --no-headers | grep container-security-operator | grep Succeeded
+  register: csv_status
+  retries: 10
+  delay: 30
+  until: csv_status.stdout != "" and csv_status.stderr == ""
+  failed_when: csv_status.rc != 0
+
+- name: Debug container-security-operator CSV status
+  debug:
+    msg: "Container Security Operator CSV has successfully reached 'Succeeded' state."
+

@@ -1,5 +1,4 @@
 ---
-
 - name: Invoke the role check-cluster-health to check cluster status
   include_role:
     name: check-cluster-health
@@ -8,7 +7,7 @@
   get_url:
     url: "https://github.com/operator-framework/operator-sdk/releases/download/v{{ operator_sdk_version }}/operator-sdk_linux_ppc64le"
     dest: /usr/local/bin/operator-sdk
-    mode: '0755'
+    mode: "0755"
 
 - name: Install required packages
   package:
@@ -19,7 +18,7 @@
     state: present
 
 - name: Ensure quay_username and quay_token are defined and not None
-  fail: 
+  fail:
     msg: "Invalid quay username or token"
   when: >
     quay_username is not defined or
@@ -34,7 +33,7 @@
   ansible.builtin.file:
     path: "{{ op_api_dir }}"
     state: directory
-    mode: '0755'
+    mode: "0755"
 
 - name: Create secrets to pull the operator images
   copy:
@@ -51,13 +50,37 @@
     docker_config_json: >
       {"auths":{"quay.io":{"username":"{{ quay_username }}","password":"{{ quay_token }}","auth":"{{ (quay_username + ':' + quay_token) | b64encode }}"}}}
 
+- name: Ensure host entry for proxy.golang.org exists
+  lineinfile:
+    path: /etc/hosts
+    line: "142.250.31.141 proxy.golang.org"
+    state: present
+
+- name: Ensure host entry for sum.golang.org exists
+  lineinfile:
+    path: /etc/hosts
+    line: "172.253.62.141 sum.golang.org"
+    state: present
+
+- name: Ensure host entry for galaxy.ansible.com exists
+  lineinfile:
+    path: /etc/hosts
+    line: "104.26.0.234 galaxy.ansible.com"
+    state: present
+
+- name: Ensure host entry for ansible-galaxy-ng.s3.dualstack.us-east-1.amazonaws.com exists
+  lineinfile:
+    path: /etc/hosts
+    line: "16.15.177.186 ansible-galaxy-ng.s3.dualstack.us-east-1.amazonaws.com s3-r-w.dualstack.us-east-1.amazonaws.com"
+    state: present
+
 - name: Test helm based operator
   block:
     - name: Create working directory for helm based nginx operator
       ansible.builtin.file:
         path: "{{ op_api_dir }}/helm-op"
         state: directory
-        mode: '0755'
+        mode: "0755"
 
     - name: Intialize the helm based nginx operator project
       command: operator-sdk init --plugins=helm --domain=helm.com --group=helm --version=v1 --kind=Nginx
@@ -88,12 +111,12 @@
       check_mode: no
 
     - name: Build and push Nginx-helm operator image
-      command: make docker-build docker-push IMG="{{ HELM_OP_IMAGE }}"
+      command: make docker-build docker-push IMG="{{ helm_op_image }}"
       args:
         chdir: "{{ op_api_dir }}/helm-op"
 
     - name: Deploy helm based nginx operator
-      command: make deploy IMG="{{ HELM_OP_IMAGE }}"
+      command: make deploy IMG="{{ helm_op_image }}"
       args:
         chdir: "{{ op_api_dir }}/helm-op"
 
@@ -115,20 +138,19 @@
       delay: 10
   when: helm_op
 
-
 - name: Test ansible based operator
-  block: 
+  block:
     - name: Create working directory for ansible based memcached operator
       ansible.builtin.file:
         path: "{{ op_api_dir }}/ansible-op"
         state: directory
-        mode: '0755'
+        mode: "0755"
 
     - name: Intialize ansible based memcached operator project
       command: operator-sdk init --domain=example.com --plugins=ansible
       args:
         chdir: "{{ op_api_dir }}/ansible-op"
-    
+
     - name: Create api for ansible based memcached operator project
       command: operator-sdk create api --group cache --version v1 --kind Memcached --generate-role
       args:
@@ -162,7 +184,7 @@
         src: memcached-role.yaml
         dest: "{{ op_api_dir }}/ansible-op/roles/memcached/tasks/main.yml"
         owner: root
-        group: root 
+        group: root
 
     - name: Add size variable in defaults/main.yaml
       lineinfile:
@@ -178,14 +200,14 @@
         state: present
 
     - name: Build and push memcached operator image
-      command: make docker-build docker-push IMG="{{ ANSIBLE_OP_IMAGE }}"
+      command: make docker-build docker-push IMG="{{ ansible_op_image }}"
       args:
         chdir: "{{ op_api_dir }}/ansible-op"
 
     - name: Deploy ansible based memcached operator
-      command: make deploy IMG="{{ ANSIBLE_OP_IMAGE }}"
+      command: make deploy IMG="{{ ansible_op_image }}"
       args:
-        chdir: "{{ op_api_dir }}/ansible-op"    
+        chdir: "{{ op_api_dir }}/ansible-op"
 
     - name: Verify ansible based memcached operator
       shell: oc get pods -n ansible-op-system --no-headers | grep -v "Running\|Completed" | wc -l
@@ -212,7 +234,7 @@
       ansible.builtin.file:
         path: "{{ op_api_dir }}/go-op"
         state: directory
-        mode: '0755'
+        mode: "0755"
 
     - name: Intialize go based memcached operator project
       command: operator-sdk init --domain=memcached.com --repo=github.com/example-inc/memcached-operator
@@ -259,16 +281,25 @@
         regexp: '^(docker-build:\s+test.*\n).*?(\n)'
         replace: '\1'
 
+    - name: Get sigs.k8s.io/controller-runtime version from go.mod file
+      shell: |
+        cat {{ op_api_dir }}/go-op/go.mod | grep "controller-runtime" | awk '{print $NF}'| cut -c 2- | cut -d '.' -f 1,2
+      register: controller_runtime_version
+
+    - name: Display the controller-runtime version information
+      debug:
+        var: controller_runtime_version.stdout
+
     - name: Add new recipe for docker-build target to setup test env and execute docker build command
       blockinfile:
         path: "{{ op_api_dir }}/go-op/Makefile"
-        block: "\tgo install sigs.k8s.io/controller-runtime/tools/setup-envtest@release-0.16\n \tdocker build --build-arg GOARCH=${GOARCH} -t ${IMG} ."
+        block: "\tgo install sigs.k8s.io/controller-runtime/tools/setup-envtest@release-{{ controller_runtime_version.stdout }} && DOCKER_BUILDKIT=0 docker build --build-arg GOARCH=${GOARCH} -t ${IMG} ."
         insertafter: "docker-build: test"
         state: present
       check_mode: no
 
     - name: Build and push memcached-go operator image
-      command: make docker-build docker-push IMG="{{ GO_OP_IMAGE }}" GOARCH=$(arch)
+      command: make docker-build docker-push IMG="{{ go_op_image }}" GOARCH=$(arch)
       args:
         chdir: "{{ op_api_dir }}/go-op"
 
@@ -278,7 +309,7 @@
         chdir: "{{ op_api_dir }}/go-op"
 
     - name: Deploy memcached-go operator
-      command: make deploy IMG="{{ GO_OP_IMAGE }}"
+      command: make deploy IMG="{{ go_op_image }}"
       args:
         chdir: "{{ op_api_dir }}/go-op"
 

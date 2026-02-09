@@ -1,0 +1,7 @@
+#ocp-cso vars
+
+cso_enabled: false
+cso_namespace: "quay-registry"        #Namespace for container security operator
+cso_catalogsource_name:  "CSO Custom CatalogSource"     # CatalogSource Name
+cso_catalogsource_image: "" # CatalogSource Image
+cso_operator_channel:    # Version of cso to be installed 
