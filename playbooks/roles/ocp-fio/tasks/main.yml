@@ -118,6 +118,30 @@
       custom_catalogsource_image: "{{ fio_catalogsource_image }}"
   when: fio_catalogsource_image != '' and fio_catalogsource_image != None
 
+- name: Create ImageDigestMirrorSet for Compliance Operator
+  block:
+  - name: Create ImageDigestMirrorSet resource
+    kubernetes.core.k8s:
+      state: present
+      definition:
+        apiVersion: config.openshift.io/v1
+        kind: ImageDigestMirrorSet
+        metadata:
+          name: compliance-operator-mirror-set
+        spec:
+          imageDigestMirrors:
+            - mirrors:
+              - quay.io/redhat-user-workloads/ocp-isc-tenant/file-integrity-operator-bundle-release
+              source: registry.redhat.io/compliance/openshift-file-integrity-operator-bundle
+            - mirrors:
+              - quay.io/redhat-user-workloads/ocp-isc-tenant/file-integrity-operator-release
+              source: registry.redhat.io/compliance/openshift-file-integrity-rhel8-operator
+
+  - name: Wait 30 seconds for ImageDigestMirrorSet to reconcile
+    pause:
+      seconds: 30
+      prompt: "Waiting 30 seconds for Compliance Operator ImageDigestMirrorSet to reconcile..."
+
 - name: Deploy File Integrity Operator
   block:
   - name: Create namespace for File Integrity Operator
