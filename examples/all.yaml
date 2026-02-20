@@ -190,7 +190,7 @@ check_nxgzip_label: false # set to true when the cluster deployed on p10 server
 
 # Go Language Installation
 golang_installation: false
-golang_tarball_url: "https://golang.org/dl/go1.16.10.linux-ppc64le.tar.gz"
+golang_tarball_url: "https://golang.org/dl/go1.24.10.linux-ppc64le.tar.gz"
 golang_installation_path: "/usr/local/"
 
 # ocp-sbo-operator required vars
@@ -360,11 +360,13 @@ nmstate_install_operator: true
 nmstate_catalogsource_image: ""
 nmstate_upgrade_channel: "stable"
 nmstate_directory: "/tmp/nmstate"
-nmstate_golang_tarball: "https://go.dev/dl/go1.18.6.linux-ppc64le.tar.gz"
+nmstate_golang_tarball: "https://go.dev/dl/go1.24.10.linux-ppc64le.tar.gz"
 nmstate_e2e: false
 nmstate_e2e_git_repository: "https://github.com/openshift/kubernetes-nmstate.git"
 nmstate_git_branch: "master"
 nmstate_cleanup: true
+nmstate_namespace: "openshift-nmstate"
+
 
 # ocp-metallb-operator vars
 metallb_enabled: false
@@ -479,6 +481,8 @@ ansible_op_image: "quay.io/{{quay_username}}/memcached-operator-ansible:v1"
 go_op_image: "quay.io/{{quay_username}}/memcached-operator-go:v1"
 quay_username: ""
 quay_token: ""
+docker_username: ""
+docker_password: ""
 
 
 # ocp-cluster-etcd-operator vars

@@ -17,6 +17,18 @@
       - go
     state: present
 
+- name: Ensure docker_username and docker_password are defined and not None
+  fail:
+    msg: "Invalid quay username or token"
+  when: >
+    docker_username is not defined or
+    docker_username is none or
+    docker_password is not defined or
+    docker_password is none
+
+- name: Login to docker.io account
+  shell: docker login docker.io -u {{ docker_username }} -p {{ docker_password }}
+
 - name: Ensure quay_username and quay_token are defined and not None
   fail:
     msg: "Invalid quay username or token"
