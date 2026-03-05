@@ -153,6 +153,7 @@
 # Running E2E
 - name: Prepare test suites and run e2e tests
   shell: |
+    export EXTENSION_BINARY_OVERRIDE_EXCLUDE_TAGS="cloud-credential-operator,aws-cloud-controller-manager,aws-machine-controllers,vsphere-csi-driver-operator"
     openshift-tests run openshift/conformance/parallel --dry-run | ./invert_excluded.py excluded_tests > test-suite.txt
     openshift-tests run -f ./test-suite.txt {{ repository_command }} -o {{ results_dir }}/conformance-parallel-out-0.txt --junit-dir {{ results_dir }}/conformance-parallel > {{ results_dir }}/openshift-cmd-out-log-0.txt 2>&1
     sed -e 's/\"/\\"/g;s/.*/\"&\"/'  {{ results_dir }}/conformance-parallel-out-0.txt   | awk '/Failing tests:/,EOF' | tail -n +3 | head -n -4 > {{ results_dir }}/failed-e2e-results.txt
@@ -166,6 +167,7 @@
 - name: Re run e2e failed tests
   shell: |
     cnt=0
+    export EXTENSION_BINARY_OVERRIDE_EXCLUDE_TAGS="cloud-credential-operator,aws-cloud-controller-manager,aws-machine-controllers,vsphere-csi-driver-operator"
     pattern="(error: [0-9]* fail, [0-9]* pass, [0-9]* skip|[0-9]* pass, [0-9]* skip) \(([0-9]*h[0-9]*m[0-9]*s|[0-9]*m[0-9]*s|[0-9.]*s)\)"
     IFS=' ' read -ra ADDR1 <<< $(cat {{ results_dir }}/openshift-cmd-out-log-0.txt | tail -5 | grep -oE "${pattern}" | head -1)
     if  [ "0" -ne "$(wc -l < "{{ results_dir }}/failed-e2e-results.txt")" ]
