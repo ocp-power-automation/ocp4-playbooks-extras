@@ -5,3 +5,4 @@ metallb_e2e_env:
   KUBECONFIG: "{{ ansible_env.HOME }}/.kube/config"
   IS_OPENSHIFT: true
   NAMESPACE: metallb-system
+  FRRK8S_EXTERNAL_NAMESPACE: "openshift-frr-k8s"
