@@ -1,0 +1,68 @@
+---
+
+- name: SeLinux Profile Testing
+  block:
+    - name: Clone the Demo Repository
+      shell: |
+       git clone https://github.com/pranitaT/spo-demo.git
+       cd spo-demo/
+       git checkout ppc64le-support
+      args:
+        chdir: "{{ role_path }}"
+
+    - name: Build the Demo Image & push to quay repo
+      shell: |
+        make setup
+        podman tag localhost/demo:latest quay.io/{{ quay_username }}/spo-demo:latest
+        podman push quay.io/{{ quay_username }}/spo-demo:latest
+      args:
+        chdir: "{{ role_path }}/spo-demo"
+
+    - name: Create the Required Namespace
+      shell: |
+        oc create -f record-ns.yaml
+        oc project record-demo
+        oc patch spod spod -p '{"spec":{"enableLogEnricher":true}}' --type=merge -n openshift-security-profiles
+        oc create -f profilerecording.yaml
+      args:
+        chdir: "{{ role_path }}/spo-demo"
+      ignore_errors: true
+
+    - name: Verify Profile Recording
+      shell: |
+        oc get profilerecording
+        oc label --overwrite ns record-demo pod-security.kubernetes.io/enforce=privileged
+        oc label --overwrite ns record-demo pod-security.kubernetes.io/warn=privileged
+
+    - name: Edit pod image
+      shell: sed -i "s/jhrozek/{{ quay_username }}/g" 06-demo-pod-record.yaml
+      args:
+        chdir: "{{ role_path }}/spo-demo"
+
+    - name: Create the Demo Pod
+      shell: oc apply -f 06-demo-pod-record.yaml
+      args:
+        chdir: "{{ role_path }}/spo-demo"
+
+    - name: Wait for demo pods to come up
+      shell: 'oc get pods | grep "Running" | wc -l'
+      register: demo_pods
+      until: demo_pods.stdout|int > 0
+      retries: 5
+      delay: 10
+
+    - name: Delete the Demo Pod
+      shell: oc delete po demo
+
+    - name: Wait for Profile Recording to be Ready
+      shell: |
+        oc wait --for=condition=ready --timeout=120s selinuxprofile test-recording-demo
+        oc get selinuxprofile test-recording-demo
+        
+    - name: Verify profile Recording
+      shell: "oc get selinuxprofile | grep test-recording-demo | awk '{print $3}'"
+      register: record_status
+      until: record_status.stdout == "Installed"
+
+    - name: Cleanup SeLinux Project
+      shell: oc delete ns record-demo

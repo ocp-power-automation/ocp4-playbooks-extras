@@ -1,0 +1,5 @@
+---
+- name: SPO installation and validation
+  hosts: bastion
+  roles:
+  - ocp-spo
