@@ -1,0 +1,220 @@
+---
+
+- name: Seccomp Testing
+  block:
+    - name: Enable Log Enricher for SPO DaemonSet (SPOD)
+      shell: |
+        oc -n openshift-security-profiles patch spod spod --type=merge -p '{"spec":{"enableLogEnricher":true}}'
+
+    - name: Create Sectest project
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: project.openshift.io/v1
+          kind: Project
+          metadata:
+            name: sectest
+            labels:
+              spo.x-k8s.io/enable-binding: "true"
+              spo.x-k8s.io/enable-recording: "true"
+
+    - name: Create Seccomp Profile
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: security-profiles-operator.x-k8s.io/v1beta1
+          kind: SeccompProfile
+          metadata:
+            namespace: sectest
+            name: profile1
+          spec:
+            defaultAction: SCMP_ACT_LOG
+
+    - name: Create ImageStream
+      kubernetes.core.k8s:
+        state: present
+        namespace: sectest
+        definition:
+          apiVersion: image.openshift.io/v1
+          kind: ImageStream
+          metadata:
+            name: nginx-test
+
+    - name: Create BuildConfig
+      kubernetes.core.k8s:
+        state: present
+        namespace: sectest
+        definition:
+          apiVersion: build.openshift.io/v1
+          kind: BuildConfig
+          metadata:
+            name: nginx-test
+          spec:
+            source:
+              type: Git
+              git:
+                uri: https://github.com/sclorg/nginx-container.git
+                contextDir: 1.26/test/test-app/
+            strategy:
+              type: Source
+              sourceStrategy:
+                from:
+                  kind: ImageStreamTag
+                  name: nginx:1.22-ubi8
+                  namespace: openshift
+            output:
+              to:
+                kind: ImageStreamTag
+                name: nginx-test:latest
+
+    - name: Create DeploymentConfig
+      kubernetes.core.k8s:
+        state: present
+        namespace: sectest
+        definition:
+          apiVersion: apps.openshift.io/v1
+          kind: DeploymentConfig
+          metadata:
+            name: nginx-test
+          spec:
+            replicas: 1
+            selector:
+              app: nginx-test
+            template:
+              metadata:
+                labels:
+                  app: nginx-test
+              spec:
+                containers:
+                  - name: nginx
+                    image: nginx-test:latest
+                    ports:
+                      - containerPort: 8080
+            triggers:
+              - type: ConfigChange
+              - type: ImageChange
+                imageChangeParams:
+                  automatic: true
+                  containerNames:
+                    - nginx
+                  from:
+                    kind: ImageStreamTag
+                    name: nginx-test:latest
+                    namespace: sectest
+
+    - name: Wait for nginx pods to come up
+      shell: 'oc get pods | grep "Running" | wc -l'
+      register: nginx_pods
+      until: nginx_pods.stdout|int > 0
+      retries: 10
+      delay: 30
+
+    - name: Get the nginx pod
+      shell: oc get pods | grep Running | grep "nginx-container" |awk '{print $1}'
+      register: nginx_pod
+
+    - name: Get the nginx image name
+      shell: oc get pod "{{ nginx_pod.stdout }}" -o=jsonpath='{.status.containerStatuses[0].imageID}'
+      register: nginx_img
+      when: nginx_pod.stdout | length > 0
+
+    - name: Deploy a Pod with Seccomp Profile
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Pod
+          metadata:
+            namespace: sectest
+            name: test-pod
+          spec:
+            securityContext:
+              runAsNonRoot: true
+              seccompProfile:
+                type: Localhost
+                localhostProfile: operator/profile1.json
+            containers:
+              - name: test-container
+                image: "{{ nginx_img.stdout }}"
+                securityContext:
+                  allowPrivilegeEscalation: false
+                  capabilities:
+                    drop: [ALL]
+
+    - name: Label the Pod for Recording
+      shell: oc label pod/test-pod spo.x-k8s.io/enable-recording=true
+
+    - name: Create a Profile Recording
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
+          kind: ProfileRecording
+          metadata:
+            namespace: sectest
+            name: test-recording
+          spec:
+            kind: SeccompProfile
+            recorder: logs
+            podSelector:
+              matchLabels:
+                app: my-app
+
+    - name: Deploy the "My App" Pod for Recording
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Pod
+          metadata:
+            name: my-app-pod
+            namespace: sectest
+            labels:
+              app: my-app
+          spec:
+            securityContext:
+              runAsNonRoot: true
+              seccompProfile:
+                type: RuntimeDefault
+            containers:
+            - name: nginx
+              image: "{{ nginx_img.stdout }}"
+              ports:
+                - containerPort: 8080
+
+    - name: Delete the test pod
+      kubernetes.core.k8s:
+        state: absent
+        namespace: sectest
+        definition:
+          apiVersion: v1
+          kind: Pod
+          metadata:
+            name: my-app-pod
+
+    - name: Verify profile Recording
+      shell: "oc get seccompprofiles -lspo.x-k8s.io/recording-id=test-recording | grep test-recording-nginx | awk '{print $2}'"
+      register: record_status
+      until: record_status.stdout == "Installed"
+      retries: 10
+      delay: 30
+
+    - name: View Logs for Log Enrichment
+      shell: |
+        oc -n openshift-security-profiles logs --since=1m --selector name=spod -c log-enricher
+
+    - name: View Log Enricher profile
+      shell: "oc get seccompprofiles | grep log-enricher | awk '{print $2}'"
+      register: enrich_status
+      until: enrich_status.stdout == "Installed"
+      retries: 10
+      delay: 30
+
+    - name: Cleanup Seccomp project
+      kubernetes.core.k8s:
+        state: absent
+        definition:
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: sectest
