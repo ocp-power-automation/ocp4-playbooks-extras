@@ -1403,21 +1403,23 @@
     retries: 10
     delay: 40
 
-  - name: Fetch the speaker pod name
-    shell: oc get pods -n "{{ metallb_namespace }}" -o wide | awk '{if ($1 ~ /^speaker/) print $1}'
-    register: speaker_pods
-    failed_when: speaker_pods.stdout_lines|length != 2
+  # Get frr-k8s pod
+  - name: Fetch the frr-k8s pod name
+    shell: oc get pod -n "{{ metallb_e2e_env.FRRK8S_EXTERNAL_NAMESPACE }}" -l app=frr-k8s -o jsonpath='{.items[0].metadata.name}'
+    register: frr_pod
 
   # check show-running-config
   - name: check show-running-config
-    shell: oc exec -n "{{ metallb_namespace }}" {{ speaker_pods.stdout_lines[0] }} -c frr -- vtysh -c "show running-config"
+    shell: oc exec -n "{{ metallb_e2e_env.FRRK8S_EXTERNAL_NAMESPACE }}" {{ frr_pod.stdout }} -c frr -- vtysh -c "show running-config"
     register: running_config
-    failed_when: running_config.stderr != ""
+    failed_when: running_config.rc != 0
 
-  - name: check show bgp neighbor
-    shell: oc exec -n "{{ metallb_namespace }}" {{ speaker_pods.stdout_lines[0] }} -c frr -- vtysh -c "show bgp neighbor"
+  - name: check show bgp neighbor on external FRR
+    shell: oc exec -n "{{ metallb_e2e_env.FRRK8S_EXTERNAL_NAMESPACE }}" {{ frr_pod.stdout }} -c frr -- vtysh -c "show bgp neighbor"
     register: bgp_neighbor
-    failed_when: bgp_neighbor.stderr != ""
+    failed_when:
+      - bgp_neighbor.rc != 0
+      - "'Established' not in bgp_neighbor.stdout"
 
   - name: Create a replica set
     kubernetes.core.k8s:

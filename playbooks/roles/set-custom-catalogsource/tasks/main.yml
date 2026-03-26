@@ -62,9 +62,12 @@
         namespace: openshift-marketplace
       spec:
         sourceType: grpc
-        publisher: grpc
+        publisher: Red Hat
         displayName: "{{ custom_catalogsource_display_name }}"
         image: "{{ custom_catalogsource_image }}"
+        updateStrategy:
+          registryPoll:
+            interval: 10m
 
 - name: Check if the CatalogSource has created
   k8s:

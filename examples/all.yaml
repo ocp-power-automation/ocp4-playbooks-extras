@@ -374,7 +374,7 @@ metallb_install_operator: true
 metallb_enable_global_secret: true
 ocp_version: "4.13"
 metallb_catalog_source_image: "quay.io/openshift-release-dev/ocp-release-nightly:iib-int-index-art-operators-{{ ocp_version }}"
-metallb_catalog_source: "qe-app-registry"
+metallb_catalog_source: "metallb-operator-catalog"
 metallb_upgrade_channel: "stable"
 metallb_directory: "/tmp/metallb"
 metallb_namespace: "metallb-system"

@@ -24,10 +24,10 @@
     include_role:
       name: golang-installation
     vars:
-      go_tarball: "{{ metallb_golang_tarball }}"
-      golang_path: "/usr/local"
+      golang_tarball_url: "{{ metallb_golang_tarball }}"
+      golang_installation_path: "/usr/local"
 
-  - name: Setup catalog source for qe-app-registry
+  - name: Create CatalogSource for metallb operator
     block:
     - name: Include the global-secret-update role
       include_role:
@@ -39,9 +39,42 @@
         name: set-custom-catalogsource
       vars:
         custom_catalogsource_name: "{{ metallb_catalog_source }}"
-        custom_catalogsource_display_name: "MetalLB Operator QE catalog source"
+        custom_catalogsource_display_name: "MetalLB Operator catalog source"
         custom_catalogsource_image: "{{ metallb_catalog_source_image }}"
     when: metallb_catalog_source_image != '' and metallb_catalog_source_image != None
+
+  - name: Create ImageDigestMirrorSet for metallb operator
+    block:
+    - name: Create ImageDigestMirrorSet resource
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: config.openshift.io/v1
+          kind: ImageDigestMirrorSet
+          metadata:
+            name: metallb-idms
+          spec:
+            imageDigestMirrors:
+              - mirrors:
+                - quay.io/redhat-user-workloads/ocp-art-tenant/art-images-share
+                source: registry.redhat.io/openshift4/ose-metallb-operator-bundle
+              - mirrors:
+                - quay.io/redhat-user-workloads/ocp-art-tenant/art-images-share
+                source: registry.redhat.io/openshift4/metallb-rhel9-operator
+              - mirrors:
+                - quay.io/redhat-user-workloads/ocp-art-tenant/art-images-share
+                source: registry.redhat.io/openshift4/frr-rhel9
+              - mirrors:
+                - quay.io/redhat-user-workloads/ocp-art-tenant/art-images-share
+                source: registry.redhat.io/openshift4/ose-kube-rbac-proxy-rhel9
+              - mirrors:
+                - quay.io/redhat-user-workloads/ocp-art-tenant/art-images-share
+                source: registry.redhat.io/openshift4/metallb-rhel9
+
+    - name: Wait 30 seconds for ImageDigestMirrorSet to reconcile
+      pause:
+        seconds: 30
+        prompt: "Waiting 30 seconds for metallb Operator ImageDigestMirrorSet to reconcile..."
 
   - name: Clone the git repo
     git:
@@ -146,10 +179,31 @@
         dest: "{{ metallb_directory }}/metallb-operator"
         version: "{{ metallb_e2e_git_branch }}"
 
+    - name: Update FRRK8SStatusCleanerDeploymentName
+      ansible.builtin.replace:
+        path: "{{ metallb_directory }}/metallb-operator/test/consts/const.go"
+        regexp: '(FRRK8SStatusCleanerDeploymentName\s*=\s*")statuscleaner(")'
+        replace: '\1frr-k8s-statuscleaner\2'
+
+    - name: Replace frr-k8s LabelSelector
+      ansible.builtin.replace:
+        path: "{{ metallb_directory }}/metallb-operator/test/e2e/functional/tests/e2e.go"
+        regexp: '(LabelSelector:\s*")app\.kubernetes\.io/component=frr-k8s(")'
+        replace: '\1component=frr-k8s\2'
+
+    - name: Replace statuscleaner LabelSelector
+      ansible.builtin.replace:
+        path: "{{ metallb_directory }}/metallb-operator/test/e2e/functional/tests/e2e.go"
+        regexp: '(LabelSelector:\s*")component=statuscleaner(")'
+        replace: '\1component=frr-k8s-statuscleaner\2'
+
     - name: Run metallb-operator e2e tests
-      shell: make test-e2e > {{ metallb_directory }}/e2e-metallb-repo-logs.txt
+      shell:  |
+        set -o pipefail
+        make test-e2e | tee {{ metallb_directory }}/e2e-metallb-repo-logs.txt
       args:
         chdir: "{{ metallb_directory }}/metallb-operator"
+        executable: /bin/bash
       ignore_errors: false
       environment: "{{ metallb_e2e_env }}"
 
