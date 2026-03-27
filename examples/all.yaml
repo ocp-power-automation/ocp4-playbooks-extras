@@ -39,7 +39,6 @@ noo_go_tarball: "https://go.dev/dl/go1.20.10.linux-ppc64le.tar.gz"
 noo_backend_e2e: false
 noo_e2e_github_repo: "https://github.com/openshift/openshift-tests-private"
 
-
 ## ocp-scheduler vars
 scheduler_role_enable: false
 configure_scheduler_profile: false
@@ -467,7 +466,6 @@ lso_channel: ""               #stable,alpha,beta
 lso_catalogsource_name: ""       #my-operator-catalog
 device_path: "" 
 
-
 # ocp-operator-api vars
 op_api_role_enable: false
 helm_op: false
@@ -588,3 +586,13 @@ cso_catalogsource_name:  ""
 cso_catalogsource_image: "" 
 cso_operator_channel :   
 
+# ocp-omr vars
+enable_mirror_registry: false  #set it to true to install mirror registry
+registry_url: ""
+registry_username: ""
+registry_password: ""
+quay_index_image: ""
+local_copy_dir: "/root"
+mirror_registry_dir: "/root/mirror-registry-dir"
+init_password: ""
+registry_hostname: ""

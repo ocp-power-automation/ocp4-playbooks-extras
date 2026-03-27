@@ -172,3 +172,6 @@
 - import_playbook: ocp-cso.yml
   when: cso_enabled is defined and cso_enabled
 
+- import_playbook: ocp-omr.yml
+  when: enable_mirror_registry is defined and enable_mirror_registry
+

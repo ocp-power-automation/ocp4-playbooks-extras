@@ -1,0 +1,80 @@
+---
+
+- name: Install Package
+  package:
+    name:
+      - podman
+    state: present
+
+- name: Login to podman
+  command: >
+     podman login {{ registry_url}} -u {{ registry_username }} --password-stdin
+  args: 
+    stdin: "{{registry_password}}"
+  register: podman_login
+  no_log: true
+  changed_when: "'Login Succeeded!' in podman_login.stdout"
+  failed_when:  "'Login Succeeded!' not in podman_login.stdout"
+
+- name: Login failure
+  fail:
+    msg: "Invalid credentials for {{ registry_url }}"
+  when: "'Login Succeeded!' not in podman_login.stdout"
+
+- name: Uninstall existing mirror registry if present
+  shell: |
+    if [ -x "{{ mirror_registry_dir }}/mirror-registry" ]; then
+      "{{ mirror_registry_dir }}/mirror-registry" uninstall --autoApprove
+    fi
+  become: yes
+  register: uninstall_result
+  failed_when: false
+  changed_when: uninstall_result.rc == 0
+
+- name: Pull mirror registry
+  shell: podman pull {{ quay_index_image }}
+  register: podman_pull
+  changed_when: podman_pull.rc == 0
+  failed_when: podman_pull.rc != 0
+  ignore_errors: yes
+
+- name: Remove existing mirror registry
+  file:
+    path: "{{ mirror_registry_dir }}"
+    state: absent
+  become: yes
+
+- name: Create mirror registry directory
+  file:
+    path: "{{ mirror_registry_dir }}"
+    state: directory
+    mode: '0755'
+  become: yes
+
+- name: Copy mirror registry from container
+  shell: |
+    container_id=$(podman create {{ quay_index_image }});
+    podman cp $container_id:/mirror-registry.tar.gz {{ local_copy_dir }};
+    podman rm $container_id
+  register: podman_cp
+  failed_when: podman_cp.rc != 0
+
+- name: Extract the mirror registry
+  become: yes
+  shell: tar -xzvf {{ local_copy_dir }}/mirror-registry.tar.gz -C {{ mirror_registry_dir }}
+  register: extract_registry
+  failed_when: extract_registry.rc != 0
+  ignore_errors: yes
+
+- name: Install mirror registry
+  shell: |
+    "{{ mirror_registry_dir }}/mirror-registry" install \ 
+    --initPassword="{{ init_password }}" \
+    --quayHostname="{{ registry_hostname }}"
+  register: install_result
+  become: yes
+  no_log: true 
+
+- name: Successful Installation
+  debug:
+    msg: "{{ install_result.stdout_lines[-2:] }}"
