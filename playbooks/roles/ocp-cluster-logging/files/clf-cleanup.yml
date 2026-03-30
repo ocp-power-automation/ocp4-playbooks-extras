@@ -1,147 +1,225 @@
 ---
-- name: Delete log files and directories if they exist
-  file:
-    state: absent
-    path: /root/clf_logs/
+- name: Cleanup logging resources
+  block:
+    - name: Delete log files and directories if they exist
+      file:
+        state: absent
+        path: /root/clf_logs/
 
-- name: Delete ansible playbook log file
-  file:
-    state: absent
-    path: /root/ocp_ansible_validation_log.txt
+    - name: Delete ansible playbook log file
+      file:
+        state: absent
+        path: /root/ocp_ansible_validation_log.txt
 
-- name: Delete ImageContentSourcePolicy and CatalogSource if they exist
-  block: 
-  - name: Check if the ImageContentSourcePolicy exists
-    shell: oc get ImageContentSourcePolicy | grep brew-registry | wc -l
-    register: icsp_cnt
+    - name: Set disableAllDefaultSources to false
+      shell: |
+        oc patch operatorhub.config.openshift.io/cluster -p='{"spec":{"disableAllDefaultSources":false}}' --type=merge
 
-  - name: Check if the ImageDigestMirrorSet exists
-    shell: oc get ImageDigestMirrorSet | grep fbc-clo-testing-idms | wc -l
-    register: idms
+    - name: Define CatalogSources to cleanup
+      set_fact:
+        catalog_sources_to_cleanup:
+          - cluster-logging
+          - elasticsearch
+          - loki
 
-  - name: Check if the CatalogSource exists
-    shell: oc get CatalogSource -n openshift-marketplace | grep "cluster-logging\|elasticsearch\|loki" | awk 'NR==1{print $1}''NR==2{print $1}''NR==3{print $1}' | xargs
-    register: catalog_src
+    - name: Delete CatalogSources if they exist
+      kubernetes.core.k8s:
+        state: absent
+        api_version: operators.coreos.com/v1alpha1
+        kind: CatalogSource
+        name: "{{ item }}"
+        namespace: openshift-marketplace
+        wait: yes
+      loop: "{{ catalog_sources_to_cleanup }}"
+      loop_control:
+        label: "{{ item }}"
+      ignore_errors: yes
 
-  - name: Delete ImageContentSourcePolicy if it exists
-    shell: oc delete ImageContentSourcePolicy brew-registry
-    when: icsp_cnt.stdout|int == 1
+    - name: Delete ClusterLogForwarder instance
+      kubernetes.core.k8s:
+        state: absent
+        api_version: observability.openshift.io/v1
+        kind: ClusterLogForwarder
+        name: collector
+        namespace: openshift-logging
+        wait: yes
 
-  - name: Delete ImageDigestMirrorSet if it exists
-    shell: oc delete ImageDigestMirrorSet fbc-clo-testing-idms
-    when: idms.stdout|int == 1
+    - name: Delete ClusterLogging instance
+      kubernetes.core.k8s:
+        state: absent
+        api_version: logging.openshift.io/v1
+        kind: ClusterLogging
+        name: instance
+        namespace: openshift-logging
+        wait: yes
+      ignore_errors: yes
 
-  - name: Delete CatalogSource if it exists
-    shell: oc delete CatalogSource -n openshift-marketplace  {{ catalog_src.stdout }}
-    when: catalog_src.stdout|length > 0
+    # Check Lokistack instance and delete if it exists
+    - name: Get LokiStack instances
+      kubernetes.core.k8s_info:
+        api_version: loki.grafana.com/v1
+        kind: LokiStack
+        namespace: openshift-logging
+      register: lokistack_info
 
-  - name: Set disableAllDefaultSources to false
-    shell: |
-      oc patch operatorhub.config.openshift.io/cluster -p='{"spec":{"disableAllDefaultSources":false}}' --type=merge
+    - name: Delete LokiStack instances
+      kubernetes.core.k8s:
+        state: absent
+        api_version: loki.grafana.com/v1
+        kind: LokiStack
+        name: "{{ item.metadata.name }}"
+        namespace: openshift-logging
+        wait: yes
+      loop: "{{ lokistack_info.resources | default([]) }}"
+      loop_control:
+        label: "{{ item.metadata.name }}"
+      when: lokistack_info.resources | length > 0
 
-# Check ClusterLogForwarder instance and delete if it exist
-- name: Check if the ClusterLogForwarder instance exist
-  shell: oc get ClusterLogForwarder -n openshift-logging | wc -l
-  register: check_clf
+    - name: Wait for LokiStack deletion
+      kubernetes.core.k8s_info:
+        api_version: loki.grafana.com/v1
+        kind: LokiStack
+        name: "{{ item.metadata.name }}"
+        namespace: openshift-logging
+      register: loki_check
+      until: loki_check.resources | length == 0
+      retries: 20
+      delay: 10
+      loop: "{{ lokistack_info.resources | default([]) }}"
+      loop_control:
+        label: "{{ item.metadata.name }}"
 
-- name: Delete ClusterLogForwarder instance if it exists
-  shell: oc delete ClusterLogForwarder instance -n openshift-logging
-  when: check_clf.stdout|int != 0
+    - name: Delete the logcollector service account
+      kubernetes.core.k8s:
+        state: absent
+        api_version: v1
+        kind: ServiceAccount
+        name: logcollector
+        namespace: openshift-logging
 
-# Check ClusterLogging instance and delete if it exists
-- name: Check if the ClusterLogging instance exists
-  shell: oc get ClusterLogging -n openshift-logging | wc -l
-  register: check_cl
+    - name: Define operators to cleanup
+      set_fact:
+        operators_to_cleanup:
+          - { name: elasticsearch-operator, namespace: openshift-operators-redhat }
+          - { name: cluster-logging, namespace: openshift-logging }
+          - { name: loki-operator, namespace: openshift-operators-redhat }
 
-- name: Delete ClusterLogging instance if it exists
-  shell: oc delete ClusterLogging instance -n openshift-logging
-  when: check_cl.stdout|int != 0
+    - name: Get ClusterServiceVersions
+      kubernetes.core.k8s_info:
+        api_version: operators.coreos.com/v1alpha1
+        kind: ClusterServiceVersion
+        namespace: "{{ item.namespace }}"
+      register: csv_info
+      loop: "{{ operators_to_cleanup }}"
+      loop_control:
+        label: "{{ item.name }}"
 
-# Check Lokistack instance and delete if it exists
-- name: Check if the lokistack instance exists
-  shell: oc get lokistack -n openshift-logging | grep lokistack | awk 'NR==1{print $1}'
-  register: check_lokistack
+    - name: Get CSVs to be deleted
+      set_fact:
+        csvs_to_delete: >-
+          {{
+            csv_info.results
+            | map(attribute='resources')
+            | flatten
+            | selectattr(
+                'metadata.name',
+                'search',
+                operators_to_cleanup | map(attribute='name') | join('|')
+              )
+            | list
+          }}
 
-- name: Delete lokistack instance if it exists
-  shell: oc delete lokistack {{ check_lokistack.stdout }} -n openshift-logging
-  when: check_lokistack.stdout|length > 0
+    - name: Delete ClusterServiceVersions
+      kubernetes.core.k8s:
+        state: absent
+        api_version: operators.coreos.com/v1alpha1
+        kind: ClusterServiceVersion
+        name: "{{ item.metadata.name }}"
+        namespace: "{{ item.metadata.namespace }}"
+      loop: "{{ csvs_to_delete }}"
+      loop_control:
+        label: "{{ item.metadata.name }}"
+      ignore_errors: yes
 
-# Check and delete service account for log collection
-- name: Check the service account exists
-  shell: oc get serviceaccount -n openshift-logging | grep logcollector | awk 'NR==1{print $1}'
-  register: log_sa
+    - name: Wait for CSV deletion
+      kubernetes.core.k8s_info:
+        api_version: operators.coreos.com/v1alpha1
+        kind: ClusterServiceVersion
+        name: "{{ item.metadata.name }}"
+        namespace: "{{ item.metadata.namespace }}"
+      register: csv_check
+      until: csv_check.resources | length == 0
+      retries: 20
+      delay: 10
+      loop: "{{ csvs_to_delete }}"
+      loop_control:
+        label: "{{ item.metadata.name }}"
 
-- name: Delete the service account
-  shell: oc delete serviceaccount {{ log_sa.stdout }} -n openshift-logging
-  when: log_sa.stdout|length > 0
+    - name: Check if Subscriptions exist
+      kubernetes.core.k8s_info:
+        api_version: operators.coreos.com/v1alpha1
+        kind: Subscription
+        namespace: "{{ item.namespace }}"
+      register: subs_info
+      loop: "{{ operators_to_cleanup }}"
+      loop_control:
+        label: "{{ item.name }}"
 
-# Check and delete Elasticsearch subscription if it exists
-- name: Check if the Elasticsearch subscription exists
-  shell: oc get subscription -n openshift-operators-redhat | grep elasticsearch-operator | wc -l
-  register: elastic_search_sub
+    - name: Delete Subscriptions
+      kubernetes.core.k8s:
+        state: absent
+        api_version: operators.coreos.com/v1alpha1
+        kind: Subscription
+        name: "{{ item.metadata.name }}"
+        namespace: "{{ item.metadata.namespace }}"
+      ignore_errors: yes
+      loop: "{{ subs_info.results | map(attribute='resources') | flatten }}"
+      loop_control:
+        label: "{{ item.metadata.name }}"
+      when: item is defined and item.metadata.name is defined
 
-- name: Delete Elasticsearch subscription if it exists
-  shell: oc delete subscription elasticsearch-operator -n openshift-operators-redhat
-  when: elastic_search_sub.stdout|int != 0
+    # Delete the Operator groups
+    - name: Delete CLO and Loki OperatorGroups
+      kubernetes.core.k8s:
+        state: absent
+        api_version: operators.coreos.com/v1
+        kind: OperatorGroup
+        name: "{{ item.name }}"
+        namespace: "{{ item.namespace }}"
+      ignore_errors: yes
+      loop:
+        - { name: cluster-logging, namespace: openshift-logging }
+        - { name: openshift-operators-redhat, namespace: openshift-operators-redhat }
+      loop_control:
+        label: "{{ item.name }}"
 
-# Check and delete Elasticsearch operator if it exists
-- name: Check if the Elasticsearch operator exists
-  shell: oc get csv -n openshift-logging | grep elasticsearch | awk 'NR==1{print $1}'
-  register: elastic_search_csv
+    - name: Wait for OperatorGroup deletion
+      kubernetes.core.k8s_info:
+        api_version: operators.coreos.com/v1
+        kind: OperatorGroup
+        name: "{{ item.name }}"
+        namespace: "{{ item.namespace }}"
+      register: result
+      until: result.resources | length == 0
+      retries: 10
+      delay: 5
+      loop:
+        - { name: cluster-logging, namespace: openshift-logging }
+        - { name: openshift-operators-redhat, namespace: openshift-operators-redhat }
+      loop_control:
+        label: "{{ item.name }}"
 
-- name: Delete Elasticsearch operator if it exists
-  shell: oc delete clusterserviceversion {{ elastic_search_csv.stdout }} -n openshift-operators-redhat
-  when: elastic_search_csv.stdout|length > 0 
+    - name: Delete ImageContentSourcePolicy instance
+      kubernetes.core.k8s:
+        state: absent
+        api_version: operator.openshift.io/v1alpha1
+        kind: ImageContentSourcePolicy
+        name: brew-registry
 
-# Check and delete ClusterLogging subscription if it exists
-- name: Check if the ClusterLogging subscription exists
-  shell: oc get subscription -n openshift-logging | grep cluster-logging | wc -l
-  register: cluster_logging_subs
-
-- name: Delete ClusterLogging subscription if it exists
-  shell: oc delete subscription cluster-logging -n openshift-logging
-  when: cluster_logging_subs.stdout|int != 0
-
-# Check and delete ClusterLogging operator if it exists
-- name: Check if the ClusterLogging operator exists
-  shell:  oc get csv  -n openshift-logging | grep cluster-logging | awk 'NR==1{print $1}'
-  register: cluster_logging_csv
-
-- name: Delete ClusterLogging operator if it exists
-  shell: oc delete clusterserviceversion {{ cluster_logging_csv.stdout }} -n openshift-logging 
-  when: cluster_logging_csv.stdout|length > 0
-
-# Check and delete lokistack subscription if it exists
-- name: Check if the Loki subscription exists
-  shell: oc get subscription -n openshift-operators-redhat | grep loki-operator | wc -l
-  register: loki_subs
-
-- name: Delete Loki subscription if it exists
-  shell: oc delete subscription loki-operator -n openshift-operators-redhat
-  when: loki_subs.stdout|int != 0
-
-# Check and delete Loki operator if it exists
-- name: Check if the Loki operator exists
-  shell:  oc get csv  -n openshift-operators-redhat | grep loki-operator | awk 'NR==1{print $1}'
-  register: loki_csv
-
-- name: Delete Loki operator if it exists
-  shell: oc delete clusterserviceversion {{ loki_csv.stdout }} -n openshift-operators-redhat
-  when: loki_csv.stdout|length > 0
-
-# Delete the Operator groups
-- name: Check CLO operator group
-  shell: oc get operatorgroup -n openshift-logging | grep cluster-logging | awk 'NR==1{print $1}'
-  register: clo_og
-
-- name: Delete CLO operator group
-  shell: oc delete operatorgroup {{ clo_og.stdout }} -n openshift-logging
-  when: clo_og.stdout|length > 0
-
-- name: Check Loki operator group
-  shell: oc get operatorgroup -n openshift-operators-redhat | grep openshift-operators-redhat | awk 'NR==1{print $1}'
-  register: loki_og
-
-- name: Delete Loki operator group
-  shell: oc delete operatorgroup {{ loki_og.stdout }} -n openshift-operators-redhat
-  when: loki_og.stdout|length > 0
+    - name: Delete ImageDigestMirrorSet instance
+      kubernetes.core.k8s:
+        state: absent
+        api_version: config.openshift.io/v1
+        kind: ImageDigestMirrorSet
+        name: fbc-clo-testing-idms
+  when: clf_clean_up

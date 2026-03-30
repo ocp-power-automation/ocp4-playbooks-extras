@@ -186,15 +186,6 @@
       poll: 10
       when: loki_server_url is defined
 
-    # Deleting CLF Custom Resource instance because Fluentd and CloudWatch stores the logs on their system
-    - name: Delete ClusterLogForwarder
-      shell: oc delete ClusterLogForwarder instance -n openshift-logging
-      when: clo_version | float <= 5.9
-
-    - name: Delete ClusterLogForwarder
-      shell: oc delete obsclf collector -n openshift-logging
-      when: clo_version | float >= 6.0
-
     - name: Check the logging pods are restarting
       shell: oc get pods -n openshift-logging --no-headers | awk '{if ($3 == "Terminating" ) print $1}' | wc -l
       register: pods
