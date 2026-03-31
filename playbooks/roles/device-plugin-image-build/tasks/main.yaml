@@ -1,0 +1,89 @@
+---
+- name: Gather facts
+  setup:
+
+- name: Set bastion IP
+  set_fact:
+    bastion_ip: "{{ ansible_default_ipv4.address }}"
+
+- name: Set crane registry address
+  set_fact:
+    crane_registry_addr: "{{ bastion_ip }}:{{ crane_registry_port }}"
+
+- name: Remove existing device plugin directory if present
+  file:
+    path: "{{ device_plugin_workdir }}"
+    state: absent
+
+- name: Clone oc-dummy-device-plugin repository
+  git:
+    repo: "{{ device_plugin_repo }}"
+    dest: "{{ device_plugin_workdir }}"
+    version: master
+    force: yes
+    update: no
+
+# Download go-toolset Containerfile
+- name: Download Containerfile-go-toolset
+  get_url:
+    url: "{{ go_toolset_containerfile_url }}"
+    dest: "{{ device_plugin_workdir }}/Containerfile-go-toolset"
+    mode: '0644'
+
+# Build go-toolset image
+- name: Build go-toolset image
+  shell: |
+    podman build \
+      -f Containerfile-go-toolset \
+      -t {{ go_toolset_image }} .
+  args:
+    chdir: "{{ device_plugin_workdir }}"
+    executable: /bin/bash
+
+- name: Update builder image in Dockerfile to use go_toolset_image
+  replace:
+    path: "{{ device_plugin_workdir }}/Dockerfile"
+    regexp: '^FROM\s+.*\s+AS\s+builder'
+    replace: 'FROM {{ go_toolset_image }} AS builder'
+
+- name: Verified updated builder image in Dockerfile
+  shell: grep -E '^FROM .* AS builder' Dockerfile
+  args:
+    chdir: "{{ device_plugin_workdir }}"
+
+# Build power-device-plugin image (ppc64le)
+- name: Build power-device-plugin image
+  shell: |
+    podman build \
+      --net=host \
+      -f Dockerfile \
+      -t localhost/{{ pdp_image_name }}:latest .
+  args:
+    chdir: "{{ device_plugin_workdir }}"
+    executable: /bin/bash
+
+- name: Tag power-device-plugin image
+  shell: |
+    podman tag \
+      localhost/{{ pdp_image_name }}:latest \
+      {{ crane_registry_addr }}/{{ pdp_registry_namespace }}/{{ pdp_image_name }}:{{ pdp_image_tag }}
+  args:
+    executable: /bin/bash
+
+- name: Push power-device-plugin image to crane registry
+  shell: |
+    podman push \
+      {{ crane_registry_addr }}/{{ pdp_registry_namespace }}/{{ pdp_image_name }}:{{ pdp_image_tag }} \
+      --tls-verify=false \
+      --remove-signatures
+  args:
+    executable: /bin/bash
+
+- name: Set ECO_HWACCEL_KMM_DEVICE_PLUGIN_IMAGE fact
+  set_fact:
+    ECO_HWACCEL_KMM_DEVICE_PLUGIN_IMAGE: >
+      {{ crane_registry_addr }}/{{ pdp_registry_namespace }}/{{ pdp_image_name }}:{{ pdp_image_tag }}
+
+- name: Show built device plugin image
+  debug:
+    msg: "Device plugin image built and pushed: {{ ECO_HWACCEL_KMM_DEVICE_PLUGIN_IMAGE }}"
