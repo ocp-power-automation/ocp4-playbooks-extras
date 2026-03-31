@@ -172,3 +172,5 @@
 - import_playbook: ocp-cso.yml
   when: cso_enabled is defined and cso_enabled
 
+- import_playbook: ocp-spo.yml
+  when: spo_enabled is defined and spo_enabled

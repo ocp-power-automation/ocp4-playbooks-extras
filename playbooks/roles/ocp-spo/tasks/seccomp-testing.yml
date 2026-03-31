@@ -1,0 +1,125 @@
+---
+
+- name: Seccomp Testing
+  block:
+    - name: Enable Log Enricher for SPO DaemonSet (SPOD)
+      shell: |
+        oc -n openshift-security-profiles patch spod spod --type=merge -p '{"spec":{"enableLogEnricher":true}}'
+        oc new-project sectest
+        oc label ns sectest spo.x-k8s.io/enable-binding=true spo.x-k8s.io/enable-recording=true
+
+    - name: Create Seccomp Profile
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: security-profiles-operator.x-k8s.io/v1beta1
+          kind: SeccompProfile
+          metadata:
+            namespace: sectest
+            name: profile1
+          spec:
+            defaultAction: SCMP_ACT_LOG
+
+    - name: Deploy a Test Application (Nginx)
+      shell: |
+        oc new-app --image-stream="openshift/nginx:1.22-ubi8"~https://github.com/sclorg/nginx-container.git --context-dir=1.26/test/test-app/
+      ignore_errors: true
+
+    - name: Wait for ngnix pods to come up
+      shell: 'oc get pods | grep "Running" | wc -l'
+      register: ngnix_pods
+      until: ngnix_pods.stdout|int > 0
+      retries: 10
+      delay: 30
+
+    - name: Get the ngnix pod
+      shell: oc get pods | grep Running | grep "nginx-container" |awk '{print $1}'
+      register: ngnix_po
+
+    - name: Get the ngnix image name
+      shell: oc get pod "{{ ngnix_po.stdout }}" -o=jsonpath='{.status.containerStatuses[0].imageID}'
+      register: ngnix_img
+
+    - name: Deploy a Pod with Seccomp Profile
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Pod
+          metadata:
+            namespace: sectest
+            name: test-pod
+          spec:
+            securityContext:
+              runAsNonRoot: true
+              seccompProfile:
+                type: Localhost
+                localhostProfile: operator/profile1.json
+            containers:
+              - name: test-container
+                image: "{{ ngnix_img.stdout }}"
+                securityContext:
+                  allowPrivilegeEscalation: false
+                  capabilities:
+                    drop: [ALL]
+
+    - name: Label the Pod for Recording
+      shell: oc label pod/test-pod spo.x-k8s.io/enable-recording=true
+
+    - name: Create a Profile Recording
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
+          kind: ProfileRecording
+          metadata:
+            namespace: sectest
+            name: test-recording
+          spec:
+            kind: SeccompProfile
+            recorder: logs
+            podSelector:
+              matchLabels:
+                app: my-app
+
+    - name: Deploy the "My App" Pod for Recording
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Pod
+          metadata:
+            name: my-app-pod
+            namespace: sectest
+            labels:
+              app: my-app
+          spec:
+            securityContext:
+              runAsNonRoot: true
+              seccompProfile:
+                type: RuntimeDefault
+            containers:
+            - name: nginx
+              image: "{{ ngnix_img.stdout }}"
+              ports:
+                - containerPort: 8080
+
+    - name: Delete the test pod
+      shell: oc delete pod my-app-pod
+
+    - name: Verify profile Recording
+      shell: "oc get seccompprofiles -lspo.x-k8s.io/recording-id=test-recording | grep test-recording-nginx | awk '{print $2}'"
+      register: record_status
+      until: record_status.stdout == "Installed"
+
+    - name: View Logs for Log Enrichment
+      shell: |
+        oc -n openshift-security-profiles logs --since=1m --selector name=spod -c log-enricher
+
+    - name: View Log Enricher profile
+      shell: "oc get seccompprofiles | grep log-enricher | awk '{print $2}'"
+      register: enrich_status
+      until: enrich_status.stdout == "Installed"
+
+    - name: Cleanup Seccomp project
+      shell: oc delete ns sectest

@@ -1,0 +1,17 @@
+---
+
+- name: Run SPO E2E tests from openshift-tests-private repo
+  block:
+    - name: Openshift-tests-private e2e
+      include_role:
+        name: openshift-test-private-e2e
+      vars:
+        openshift_test_private_validation: "{{ openshift_test_private_validation }}"
+        openshift_test_private_directory: "/tmp/openshift_test_private_e2e"
+        openshift_test_private_golang_tarball: "{{ openshift_test_private_golang_tarball }}"
+        openshift_test_private_e2e_repo: "https://github.com/openshift/openshift-tests-private.git"
+        openshift_test_private_git_branch: "{{ openshift_test_private_git_branch }}"
+        testcase_filters: "{{ spo_testcase_filters }}"
+  environment:
+    PATH: "/usr/local/go/bin:{{ ansible_env.PATH }}"
+    KUBECONFIG: "{{ ansible_env.HOME }}/.kube/config"
