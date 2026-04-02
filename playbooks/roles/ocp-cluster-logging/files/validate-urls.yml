@@ -111,10 +111,3 @@
       msg: "AWS CloudWatch secret is not present"
     when: cloudwatch_secret != "" and cloudwatch_secret != None and cw_secret is undefined
 
-# Set default value for Syslog host URL if other urls are empty and cluster_log_forwarder variable is set to true
-- set_fact:
-    syslog_server_url: "tls://rsyslogserver.east.example.com:514"
-  when:
-    - elasticsearch_server_url is undefined and syslog_server_url is undefined
-    - fluentd_server_url is undefined and kafka_server_url is undefined
-    - loki_server_url is undefined and cw_secret is undefined
