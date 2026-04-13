@@ -1,6 +1,14 @@
 ---
 
 # tasks file for playbooks/roles/ocp-coo
-- include_tasks: cleanup.yaml
-- include_tasks: install.yaml
-- include_tasks: e2e.yaml
+- name: Clean up COO operator and stack
+  include_tasks: cleanup.yaml
+  when: coo_cleanup
+
+- name: Deploy COO operator and stack
+  include_tasks: install.yaml
+  when: coo_operator_deploy and not coo_cleanup
+
+- name: Run COO E2E tests
+  include_tasks: e2e.yaml
+  when: enable_coo_stack and not coo_cleanup
