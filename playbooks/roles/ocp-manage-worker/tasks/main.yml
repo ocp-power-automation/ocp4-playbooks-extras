@@ -1,0 +1,92 @@
+---
+- name: Get the  MachineSet name
+  shell: >
+    oc get machinesets -n {{ namespace }} -o=jsonpath='{.items[0].metadata.name}'
+  register: ms_name
+
+- name: Set machineset_name
+  set_fact:
+    machineset_name: "{{ ms_name.stdout | trim }}"
+
+- name: Check if cluster operators and nodes are healthy
+  include_role:
+    name: check-cluster-health
+
+- name: Scale MachineSet to desired replicas
+  command: oc scale --replicas={{ desired_replicas }} machinesets.machine.openshift.io {{ machineset_name }} -n {{ namespace }}
+
+
+- name: Wait for Deleting machines to finish
+  shell: |
+    oc get machines.machine.openshift.io -n {{ namespace }} \
+      -l machine.openshift.io/cluster-api-machineset={{ machineset_name }} \
+      -o jsonpath='{range .items[*]}{.status.phase}{"\n"}{end}' | grep -c '^Deleting$' || true
+  register: deleting_count
+  until: deleting_count.stdout|int == 0
+  retries: 30
+  delay: 20
+  changed_when: false
+
+- name: Print deletion progress
+  debug:
+    msg: "Machines still deleting: {{ deleting_count.stdout }}"
+  when: deleting_count.stdout|int > 0
+
+
+- name: Wait for MachineSet readyReplicas to reach desired
+  shell: oc get machineset {{ machineset_name }} -n {{ namespace }} -o jsonpath='{.status.readyReplicas}'
+  register: ready_replicas
+  until: (ready_replicas.stdout|default('0'))|int == desired_replicas|int
+  retries: 30
+  delay: 20
+  changed_when: false
+
+- name: Wait for all Machines in the MachineSet to be Running
+  shell: |
+    oc get machines.machine.openshift.io -n {{ namespace }} \
+      -l machine.openshift.io/cluster-api-machineset={{ machineset_name }} \
+      -o jsonpath='{range .items[*]}{.status.phase}{"\n"}{end}' | grep -c '^Running$' || true
+  register: running_count
+  until: running_count.stdout|int == desired_replicas|int
+  retries: 36     
+  delay: 60
+  changed_when: false
+  ignore_errors: yes
+
+- name: Print progress after each retry
+  debug:
+    msg: "Current Running Machines: {{ running_count.stdout }} / {{ desired_replicas }}"
+  when: running_count.stdout|int != desired_replicas|int
+
+- name: Fail if Machines did not reach Running phase
+  fail:
+    msg: "Machines in {{ machineset_name }} did not all reach 'Running'. Running={{ running_count.stdout }} expected={{ desired_replicas }}"
+  when: running_count.stdout|int != desired_replicas|int
+
+- name: Wait for all nodes to be Ready
+  shell: oc wait --all --for=condition=Ready nodes --timeout=600s
+
+
+  # Display MachineSet status
+- name: Display final MachineSet status
+  command: oc get machinesets.machine.openshift.io -n {{ namespace }}
+  register: machineset_status
+
+- debug:
+    var: machineset_status.stdout_lines
+
+#  Display Machine status
+- name: Display final Machine status
+  command: oc get machines.machine.openshift.io -n {{ namespace }}
+  register: machine_status
+
+- debug:
+    var: machine_status.stdout_lines
+
+# Display Node status
+- name: Display final Node status
+  command: oc get nodes
+  register: node_status
+
+- debug:
+    var: node_status.stdout_lines
