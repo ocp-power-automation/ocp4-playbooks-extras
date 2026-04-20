@@ -161,6 +161,7 @@ ocp_etcd: false
 ## ocp-cluster-log-forwarding required vars
 ocp_cluster_logging: false
 cluster_log_forwarder: false
+log_enable_global_secret: false
 cluster_logging_channel: ""
 elastic_search_channel: ""
 loki_channel: ""
