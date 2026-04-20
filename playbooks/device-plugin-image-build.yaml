@@ -1,0 +1,5 @@
+- name: build dummy device-plugin-image
+  hosts: bastion
+  roles:
+  - device-plugin-image-build
+  
