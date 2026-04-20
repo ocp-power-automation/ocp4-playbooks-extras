@@ -38,6 +38,7 @@ noo_e2e_repo_branch: "main"    # Set the specific OCP "release-4.x" branch for r
 noo_go_tarball: "https://go.dev/dl/go1.20.10.linux-ppc64le.tar.gz"
 noo_backend_e2e: false
 noo_e2e_github_repo: "https://github.com/openshift/openshift-tests-private"
+kubeadmin_password: ""
 
 
 ## ocp-scheduler vars
