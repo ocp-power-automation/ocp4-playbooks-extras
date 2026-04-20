@@ -92,8 +92,9 @@
   until: "'True' in mcp_status.stdout"
 
 - name: Create ImageContentSourcePolicy
-  shell: oc apply -f /tmp/icsp.yaml
-  register: icsp_creation
+  kubernetes.core.k8s:
+    state: present
+    src: "/tmp/icsp.yaml"
 
 - name: Wait 120 seconds for ImageContentSourcePolicy to reconcile
   pause:
