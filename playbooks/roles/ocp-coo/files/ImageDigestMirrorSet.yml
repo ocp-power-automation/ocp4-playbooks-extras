@@ -1,0 +1,9 @@
+apiVersion: config.openshift.io/v1
+kind: ImageDigestMirrorSet
+metadata:
+  name: idms-coo
+spec:
+  imageDigestMirrors:
+  - mirrors:
+    - quay.io/redhat-user-workloads/cluster-observabilit-tenant/cluster-observability-operator
+    source: registry.redhat.io/cluster-observability-operator
