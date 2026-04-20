@@ -23,6 +23,7 @@
   - name: Include the global-secret-update role
     include_role:
       name: global-secret-update
+    when: cso_enable_global_secret
 
   - name: Include role to create ImageContentSourcePolicy and CatalogSource
     include_role:
@@ -58,6 +59,72 @@
 - name: Debug output for CSO CatalogSource check
   debug:
     msg: "CSO CatalogSource '{{ cso_catalogsource_name }}' is present and in Ready state."
+
+- name: Copy pull-secrets
+  copy:
+    src: "{{ cso_pull_secrets_path }}"
+    dest: /tmp/
+
+- name: Copy icsp
+  copy:
+    src: "{{ cso_icsp_path }}"
+    dest: /tmp/
+
+- name: merge existing and new pull secrets
+  block:
+    - name: Get existing pull-secret
+      kubernetes.core.k8s_info:
+        kind: Secret
+        name: pull-secret
+        namespace: openshift-config
+      register: existing_secret
+
+    - name: Decode existing pull-secret
+      set_fact:
+        existing_pull_secret_json: "{{ existing_secret.resources[0].data['.dockerconfigjson'] | b64decode }}"
+
+    - name: Read new pull-secret file
+      set_fact:
+        new_pull_secret_json: "{{ lookup('file', '/tmp/pull-secret.json') }}"
+
+    - name: Merge pull secrets
+      set_fact:
+        merged_pull_secret_json: "{{ existing_pull_secret_json | combine(new_pull_secret_json, recursive=True) | to_json }}"
+
+    - name: Update pull-secret
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: pull-secret
+            namespace: openshift-config
+          type: kubernetes.io/dockerconfigjson
+          data:
+            .dockerconfigjson: "{{ merged_pull_secret_json | b64encode }}"
+
+- name: Wait 120 seconds to reconcile
+  pause:
+    seconds: 120
+    prompt: "Waiting 120 seconds to reconcile..."
+
+- name: Wait for MCP rollout
+  shell: oc get mcp -o jsonpath='{.items[*].status.conditions[?(@.type=="Updated")].status}'
+  register: mcp_status
+  retries: 30
+  delay: 30
+  until: "'True' in mcp_status.stdout"
+
+- name: Create ImageContentSourcePolicy
+  kubernetes.core.k8s:
+    state: present
+    src: "/tmp/icsp.yaml"
+
+- name: Wait 120 seconds for ImageContentSourcePolicy to reconcile
+  pause:
+    seconds: 120
+    prompt: "Waiting 120 seconds for ImageContentSourcePolicy to reconcile..."
 
 - name: Create OperatorGroup for CSO
   k8s:
