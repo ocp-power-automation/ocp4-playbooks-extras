@@ -23,6 +23,7 @@
   - name: Include the global-secret-update role
     include_role:
       name: global-secret-update
+    when: cso_enable_global_secret
 
   - name: Include role to create ImageContentSourcePolicy and CatalogSource
     include_role:
@@ -58,6 +59,46 @@
 - name: Debug output for CSO CatalogSource check
   debug:
     msg: "CSO CatalogSource '{{ cso_catalogsource_name }}' is present and in Ready state."
+
+- name: Copy pull-secrets
+  copy:
+    src: "{{ cso_pull_secrets_path }}"
+    dest: /tmp/
+
+- name: Copy icsp
+  copy:
+    src: "{{ cso_icsp_path }}"
+    dest: /tmp/
+
+- name: merge existing and new pull secrets
+  shell: |
+    oc get secret pull-secret -n openshift-config -o jsonpath='{.data.\.dockerconfigjson}' | base64 -d > /tmp/current-pull-secret.json
+    jq -s '.[0] * .[1]' /tmp/current-pull-secret.json /tmp/pull-secret.json > /tmp/merged-pull-secret.json
+    cat /tmp/merged-pull-secret.json | jq .
+    oc set data secret/pull-secret -n openshift-config --from-file=.dockerconfigjson=/tmp/merged-pull-secret.json
+  args:
+    executable: /bin/bash
+
+- name: Wait 120 seconds to reconcile
+  pause:
+    seconds: 120
+    prompt: "Waiting 120 seconds to reconcile..."
+
+- name: Wait for MCP rollout
+  shell: oc get mcp -o jsonpath='{.items[*].status.conditions[?(@.type=="Updated")].status}'
+  register: mcp_status
+  retries: 30
+  delay: 30
+  until: "'True' in mcp_status.stdout"
+
+- name: Create ImageContentSourcePolicy
+  shell: oc apply -f /tmp/icsp.yaml
+  register: icsp_creation
+
+- name: Wait 120 seconds for ImageContentSourcePolicy to reconcile
+  pause:
+    seconds: 120
+    prompt: "Waiting 120 seconds for ImageContentSourcePolicy to reconcile..."
 
 - name: Create OperatorGroup for CSO
   k8s:

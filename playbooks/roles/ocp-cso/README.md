@@ -22,6 +22,9 @@ Role Variables
 | cso_catalogsource_name       | no       |  | CSO Catalogsource Name   |
 | cso_catalogsource_image      | no       |        | CSO Catalogsource Image |
 | cso_operator_channel     | no       |        | CSO operator Image |
+| cso_enable_global_secret     | no       | false       | CSO enable global secret |
+| cso_pull_secrets_path     | no       |        | CSO pull secrets path |
+| cso_icsp_path     | no       |        | CSO icsp path |
 
 
 Example Playbook
