@@ -1,0 +1,96 @@
+---
+
+- name: Create ImageDigestMirrorSet
+  kubernetes.core.k8s:
+    state: present
+    src: "{{ role_path }}/files/ImageDigestMirrorSet.yml"
+
+- name: Create a namespace
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: "openshift-security-profiles"
+        labels:
+          openshift.io/cluster-monitoring: "true"
+          pod-security.kubernetes.io/enforce: privileged
+          pod-security.kubernetes.io/audit: privileged
+          pod-security.kubernetes.io/warn: privileged
+
+- name: Create Operator Group
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: operators.coreos.com/v1
+      kind: OperatorGroup
+      metadata:
+        name: security-profiles-operator-group
+        namespace: openshift-security-profiles
+        spec: {}
+
+- name: Deploy SPO Operator
+  block:
+    - name: Setup custom catalog source
+      include_role:
+        name: set-custom-catalogsource
+      vars:
+        custom_catalogsource_name: "security-profiles-operator"
+        custom_catalogsource_display_name: "Red Hat Operators SPO"
+        custom_catalogsource_image: "{{ spo_catalogsource_image }}"
+
+    - name: Check if the catalogsource for SPO is ready
+      shell: "oc get catalogsource security-profiles-operator -n openshift-marketplace -ojsonpath='{.status.connectionState.lastObservedState}'"
+      register: catsrc_status
+      until: catsrc_status.stdout == "READY"
+      retries: 15
+      delay: 60
+  when: spo_catalogsource_image != '' and spo_catalogsource_image != None
+
+- name: Create subscription for SPO operator
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: operators.coreos.com/v1alpha1
+      kind: Subscription
+      metadata:
+        name: security-profiles-operator-sub
+        namespace: openshift-security-profiles
+      spec:
+        channel: "{{ spo_upgrade_channel }}"
+        installPlanApproval: Automatic
+        name: security-profiles-operator
+        source: security-profiles-operator
+        sourceNamespace: openshift-marketplace
+
+- name: Wait for spod to come up
+  shell: 'oc get pods -n openshift-security-profiles | grep "Running" | wc -l'
+  register: spo_pods
+  until: spo_pods.stdout|int > 0
+  retries: 15
+  delay: 60
+
+- name: Ensure quay_username and quay_token are defined and not None
+  fail:
+    msg: "Invalid quay username or token"
+  when: >
+    quay_username is not defined or
+    quay_username is none or
+    quay_token is not defined or
+    quay_token is none
+
+- name: Login to quay.io account
+  shell: podman login quay.io -u {{ quay_username }} -p {{ quay_token }}
+
+- name: Login to Openshift
+  shell: "oc login {{ login_ocp_token }}"
+
+- name: Seccomp Testing 
+  include_tasks: seccomp-testing.yml
+
+- name: Selinux Profile Testing
+  include_tasks: selinux-testing.yml
+
+- name: E2E tests
+  include_tasks: spo-openshift-tests-private.yml
