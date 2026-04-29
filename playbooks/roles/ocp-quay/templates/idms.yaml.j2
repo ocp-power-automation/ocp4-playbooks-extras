@@ -1,0 +1,45 @@
+apiVersion: operator.openshift.io/v1alpha1
+kind: ImageContentSourcePolicy
+metadata:
+  name: konfluxquay{{ quay_version_short }}
+spec:
+  repositoryDigestMirrors:
+    - mirrors:
+        - quay.io/redhat-user-workloads/quay-eng-tenant/quay-operator-v{{ quay_version_dash }}
+      source: registry.redhat.io/quay/quay-operator-{{ rhel_version }}
+
+    - mirrors:
+        - quay.io/redhat-user-workloads/quay-eng-tenant/quay-operator-bundle-v{{ quay_version_dash }}
+      source: registry.redhat.io/quay/quay-operator-bundle
+
+    - mirrors:
+        - quay.io/redhat-user-workloads/quay-eng-tenant/container-security-operator-bundle-v{{ quay_version_dash }}
+      source: registry.redhat.io/quay/quay-container-security-operator-bundle
+
+    - mirrors:
+        - quay.io/redhat-user-workloads/quay-eng-tenant/quay-bridge-operator-bundle-v{{ quay_version_dash }}
+      source: registry.redhat.io/quay/quay-bridge-operator-bundle
+
+    - mirrors:
+        - quay.io/redhat-user-workloads/quay-eng-tenant/quay-quay-v{{ quay_version_dash }}
+      source: registry.redhat.io/quay/quay-{{ rhel_version }}
+
+    - mirrors:
+        - quay.io/redhat-user-workloads/quay-eng-tenant/quay-bridge-operator-v{{ quay_version_dash }}
+      source: registry.redhat.io/quay/quay-bridge-operator-{{ rhel_version }}
+
+    - mirrors:
+        - quay.io/redhat-user-workloads/quay-eng-tenant/container-security-operator-v{{ quay_version_dash }}
+      source: registry.redhat.io/quay/quay-container-security-operator-{{ rhel_version }}
+
+    - mirrors:
+        - quay.io/redhat-user-workloads/quay-eng-tenant/quay-clair-v{{ quay_version_dash }}
+      source: registry.redhat.io/quay/clair-{{ rhel_version }}
+
+    - mirrors:
+        - brew.registry.redhat.io
+      source: registry.stage.redhat.io
+
+    - mirrors:
+        - brew.registry.redhat.io
+      source: registry-proxy.engineering.redhat.com
