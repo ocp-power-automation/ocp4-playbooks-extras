@@ -1,0 +1,17 @@
+# Git repo
+pdp_repo_url: "https://github.com/cdvultur/oc-dummy-device-plugin"
+pdp_repo_dir: "/root/oc-dummy-device-plugin"
+
+# Go toolset
+go_toolset_containerfile: "Containerfile-go-toolset"
+go_toolset_image: "go-toolset"
+
+# Power device plugin
+pdp_image_name: "power-device-plugin"
+pdp_image_tag: "latest-ppc64le"
+
+# Registry (injected dynamically)
+pdp_registry_namespace: "ubi9"
+
+# Build options
+pdp_build_net: host

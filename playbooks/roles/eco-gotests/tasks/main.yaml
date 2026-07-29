@@ -1,0 +1,191 @@
+# Environment variables check block
+
+- set_fact:
+    github_username: "{{ lookup('ansible.builtin.env','GITHUB_USERNAME') }}"
+    github_personal_access_token: "{{ lookup('ansible.builtin.env','GITHUB_ACCESS_TOKEN') }}"
+
+- fail:
+    msg: "Please set eco_gotests_repo variable with the e2e repo URL."
+  when: eco_gotests_repo == "" or eco_gotests_repo == None
+
+# Cluster health check
+- name: Invoke the role check-cluster-health to check cluster status
+  include_role:
+    name: check-cluster-health
+
+# openshift-test-private e2e run block
+- name: Validate eco
+  block:
+    - fail:
+        msg: "Please set the environment variables GITHUB_USERNAME and GITHUB_ACCESS_TOKEN"
+      when: github_username == "" and github_personal_access_token == ""
+
+    - name: Include role for installation of Go lang
+      include_role:
+        name: golang-installation
+      vars:
+        go_tarball: "{{ golang_tarball_url }}"
+        golang_path: "/usr/local"
+
+    - name: Set Go environment facts
+      set_fact:
+        go_root: "/usr/local/go"
+        go_path: "/root/go"
+        go_bin: "/root/go/bin"
+
+    - name: Ensure eco-gotests directory exists
+      git:
+        repo: https://github.com/openshift-kni/eco-gotests.git
+        dest: /tmp/eco-gotests
+        version: main
+        
+    - name: Ginkgo installation
+      shell: |
+        export GOROOT={{ go_root }}
+        export GOPATH={{ go_path }}
+        export PATH=$PATH:{{ go_root }}/bin:{{ go_bin }}
+        go install github.com/onsi/ginkgo/v2/ginkgo@$(grep ginkgo /tmp/eco-gotests/go.mod | awk '{print $2}')
+      args:
+        executable: /bin/bash
+      environment:
+        GOROOT: "{{ go_root }}"
+        GOPATH: "{{ go_path }}"
+        PATH: "{{ ansible_env.PATH }}:{{ go_root }}/bin:{{ go_bin }}"
+
+    - name: Verify ginkgo installation
+      command: "{{ go_bin }}/ginkgo version"
+      register: ginkgo_version
+      changed_when: false
+
+    - name: Display ginkgo version
+      debug:
+        msg: "Ginkgo installed successfully: {{ ginkgo_version.stdout }}"
+
+    - name: Symlink ginkgo binary to /usr/local/bin
+      file:
+        src: "{{ go_bin }}/ginkgo"
+        dest: /usr/local/bin/ginkgo
+        state: link
+
+    - name: Install local container registry ( Crane registry )
+      include_role:
+        name: crane-registry
+
+    - name: Add the following nameservers in /etc/resolv.conf
+      lineinfile:
+        path: /etc/resolv.conf
+        line: "{{ item }}"
+        state: present
+        insertafter: EOF
+        create: no
+      loop:
+        - "nameserver 10.0.10.4"
+        - "nameserver 10.0.10.5"
+      become: yes
+
+    - name: Configure local registry as insecure
+      copy:
+        dest: /etc/containers/registries.conf.d/local-crane.conf
+        content: |
+          [[registry]]
+          location = "{{ crane_registry_addr }}"
+          insecure = true
+
+    - name: Check crane registry is reachable
+      command: >
+        curl -s -k http://{{ crane_registry_addr }}/v2/_catalog
+      register: crane_registry_catalog
+      changed_when: false
+
+    - name: Show crane registry catalog
+      debug:
+        msg: "Crane registry reachable. Catalog: {{ crane_registry_catalog.stdout }}"
+
+    - name: Build oc-dummy-device-plugin image for KMM tests
+      include_role:
+        name: device-plugin-image-build
+
+    - name: Install KMM operator
+      include_role:
+        name: ocp-kmm
+
+    - name: Wait for KMM operator to be available
+      shell: |
+        oc wait deployment/kmm-operator-controller -n openshift-kmm --for=condition=Available --timeout=300s
+      args:
+        executable: /bin/bash
+
+    - name: Set KMM environment variables for eco-gotests
+      set_fact:
+        kmm_test_env:
+          GLOG_v: "101"
+          KUBECONFIG: "/root/.kube/config"
+          GOPATH: "/root/go"
+          GOMODCACHE: "/root/go/pkg/mod"
+          PATH: "/usr/local/go/bin:/root/go/bin:/root/.local/bin:/root/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin"
+          ECO_HWACCEL_KMM_REGISTRY: "{{ crane_registry_addr }}/{{ pdp_registry_namespace }}"
+          ECO_TEST_FEATURES: "modules"
+          ECO_TEST_LABELS: "KMM"
+          ECO_HWACCEL_KMM_SUBSCRIPTION_NAME: "kernel-module-management"
+          ECO_HWACCEL_KMM_UPGRADE_TARGET_VERSION: "2.6.0"
+          ECO_HWACCEL_KMM_CATALOG_SOURCE_NAME: "redhat-operators"
+          ECO_HWACCEL_KMM_PULL_SECRET: "YWRtaW46YWRtaW4K"
+          ECO_HWACCEL_KMM_SERVICEACCOUNT: "kmm-helper-sa"
+          ECO_HWACCEL_KMM_DEVICE_PLUGIN_IMAGE: "{{ crane_registry_addr }}/{{ pdp_registry_namespace }}/{{ pdp_image_name }}:{{ pdp_image_tag }}"
+
+    - name: Show KMM environment variables
+      debug:
+        var: kmm_test_env    
+
+    - name: Run KMM Ginkgo tests with full logs
+      shell: |
+        set -o pipefail
+        # For all kmm tests
+        /usr/local/bin/ginkgo -vv --no-color --trace ./tests/hw-accel/kmm/modules -- -v=90 2>&1 | tee ~/all-kmm-tests-$(date +%d%m%y).log
+        
+        # For Device plugin test
+        # /usr/local/bin/ginkgo -focus="should deploy module with a device plugin" -vv --no-color --trace ./tests/hw-accel/kmm/modules -- -v=90 2>&1 | tee ~/device-plugin-$(date +%d%m%y%s).log
+        
+        # For External Registry Test
+        # /usr/local/bin/ginkgo -focus="should build and push image to quay|should delete simple-kmod module|should generate events on nodes when module is loaded|should deploy prebuild image|should delete simple-kmod module|should deploy prebuild image with global secret|should build image without loading it" -vv --no-color --trace ./tests/hw-accel/kmm/modules -- -v=90 2>&1 | tee ~/externel-registry-test.log
+        
+        # For Multistage-build test
+        # /usr/local/bin/ginkgo -focus="should use internal image-stream|should sign an existing image and load the signed module" -vv --no-color --trace ./tests/hw-accel/kmm/modules -- -v=90 2>&1 | tee ~/multistage-build-test.log
+        
+        # For Multiple modules test
+        # /usr/local/bin/ginkgo -focus="should fail if any of the modules is not present" -vv --no-color --trace ./tests/hw-accel/kmm/modules -- -v=90 2>&1 | tee ~/Multiple-modules-test-$(date +%d%m%y%s).log
+        
+        # For Signing test
+        # /usr/local/bin/ginkgo -focus="should use build and sign a module|should generate event about build being created and completed|should generate event about sign being created and completed|Should be able to run preflightvalidation with no push|Should be able to run preflightvalidation and push to registry" -vv --no-color --trace ./tests/hw-accel/kmm/modules -- -v=90 2>&1 | tee ~/signing-test-$(date +%d%m%y%s).log
+        
+        # For taint tolerations test
+        # /usr/local/bin/ginkgo -focus="should deploy module with NoSchedule toleration|should deploy module with NoExecute toleration|should deploy module with device plugin and NoSchedule toleration|should deploy module with device plugin and NoExecute toleration|should handle taints used by cluster upgrade" -vv --no-color --trace ./tests/hw-accel/kmm/modules -- -v=90 2>&1 | tee ~/taint-tolerations-test-$(date +%d%m%y%s).log
+        
+        # For clamAV test
+        # /usr/local/bin/ginkgo -focus="should pass malware testing" -vv --no-color --trace ./tests/hw-accel/kmm/modules -- -v=90 2>&1 | tee ~/clamAV-test.log
+        
+        # For Firmware test
+        # /usr/local/bin/ginkgo -focus="should properly build a module with firmware support" -vv --no-color --trace ./tests/hw-accel/kmm/modules -- -v=90 2>&1 | tee ~/firmware-test.log
+
+        # For Intree replacement test
+        # /usr/local/bin/ginkgo -focus="should replace in-tree module" -vv --no-color --trace ./tests/hw-accel/kmm/modules -- -v=90 2>&1 | tee ~/intree-replacement-test.log
+
+        # For Mustgather test
+        # /usr/local/bin/ginkgo -focus="Check must-gather functionality" -vv --no-color --trace ./tests/hw-accel/kmm/modules -- -v=90 2>&1 | tee ~/mustgather-test.log
+
+        # For olm test
+        # /usr/local/bin/ginkgo -focus="Operator should be properly installed|Webhook server should be properly installed" -vv --no-color --trace ./tests/hw-accel/kmm/modules -- -v=90 2>&1 | tee ~/olm-test.log
+
+        # For version test
+        # /usr/local/bin/ginkgo -focus="should be able to use a version|should upgrade from a version to another" -vv --no-color --trace ./tests/hw-accel/kmm/modules -- -v=90 2>&1 | tee ~/version-test.log
+
+        # For webhook validation test
+        # /usr/local/bin/ginkgo -focus="should fail if no container image is specified in the module|should fail if the regexp isn't valid in the module|should fail if no regexp nor literal are set in a kernel mapping|should fail if both regexp and literal are set in a kernel mapping|should fail if there are duplications in modulesLoadingOrder|should fail if the 'main' kmod isn't the first one in modulesLoadingOrder|should fail creating module with both moduleName and rawargs|should require rawargs when moduleName is not net|should require image tag or digest for container image|should allow only specific effects|should allow only specific operator|should check value is empty for operator Exists" -vv --no-color --trace ./tests/hw-accel/kmm/modules -- -v=90 2>&1 | tee ~/webhook-validation.log
+
+        # For DTK auto test
+        # /usr/local/bin/ginkgo -focus="should use DTK_AUTO parameter|should be able to modify a kmod in a module|should fail to update an existing module with something that is wrong|should be able to run preflightvalidation with no push to registry|should be able to run preflightvalidation and push to registry" -vv --no-color --trace ./tests/hw-accel/kmm/modules -- -v=90 2>&1 | tee ~/DTK-auto-test.log
+
+      args:
+        chdir: "{{ eco_gotests_directory }}"
+        executable: /bin/bash
+      environment: "{{ kmm_test_env }}"

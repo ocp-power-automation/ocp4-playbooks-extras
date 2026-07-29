@@ -1,0 +1,66 @@
+---
+- name: Gather facts (for bastion IP)
+  setup:
+
+- name: Set crane registry address dynamically
+  set_fact:
+    crane_registry_addr: "{{ ansible_default_ipv4.address }}:{{ crane_port }}"
+
+- name: Show detected crane registry address
+  debug:
+    msg: "Crane registry will run on {{ crane_registry_addr }}"
+
+- name: Download crane tarball
+  get_url:
+    url: "{{ crane_download_url }}"
+    dest: "/tmp/{{ crane_tarball }}"
+    mode: '0644'
+  when: install_crane_registry
+
+- name: Extract crane tarball
+  unarchive:
+    src: "/tmp/{{ crane_tarball }}"
+    dest: /tmp
+    remote_src: yes
+  when: install_crane_registry
+
+- name: Install crane binary
+  copy:
+    src: "/tmp/crane"
+    dest: "{{ crane_install_dir }}/crane"
+    mode: '0755'
+    remote_src: yes
+
+- name: Create registry data directory
+  file:
+    path: "{{ crane_data_dir }}"
+    state: directory
+    mode: '0755'
+
+- name: Install systemd service for crane registry
+  template:
+    src: crane-registry.service.j2
+    dest: /etc/systemd/system/crane-registry.service
+    mode: '0644'
+
+- name: Reload systemd daemon
+  command: systemctl daemon-reexec
+
+- name: Enable and start crane registry
+  systemd:
+    name: crane-registry
+    enabled: yes
+    state: started
+
+- name: Verify crane installation
+  command: "{{ crane_install_dir }}/crane version"
+  register: crane_version_out
+  changed_when: false
+
+- name: Display crane version
+  debug:
+    msg: "Crane installed successfully: {{ crane_version_out.stdout }}"
+
+- name: Validate worker access to the crane registry and apply fixes if needed
+  include_tasks: connectivity.yaml
+  
