@@ -1,0 +1,15 @@
+---
+
+install_crane_registry: true
+
+crane_version: "v0.20.6"
+crane_port: "40000"
+
+crane_install_dir: "/usr/local/bin"
+crane_data_dir: "/root/registry-data"
+
+crane_tarball: "go-containerregistry_Linux_ppc64le.tar.gz"
+crane_download_url: "https://github.com/google/go-containerregistry/releases/download/{{ crane_version }}/go-containerregistry_Linux_ppc64le.tar.gz"
+
+crane_firewall_zone: public
+crane_test_timeout: 3
