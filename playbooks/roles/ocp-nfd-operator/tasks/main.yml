@@ -9,21 +9,40 @@
 - name: Check all nodes are Ready
   shell: oc wait --all  --for=condition=Ready nodes 
 
-# Uses user defined ImageContentSourcePolicy and CatalogSource
-- name: Create ImageContentSourcePolicy and CatalogSource
-  block: 
+# Uses user defined ImageDigestMirrorSet and CatalogSource
+- name: Create ImageDigestMirrorSet and CatalogSource
+  block:
+  - name: Get cluster version to determine openshift version
+    shell: oc version | awk 'NR==1{print $3}' | cut -d'.' -f1
+    register: cluster_major_version
+
+  - name: Set openshift_version fact for 4.x clusters
+    set_fact:
+      openshift_version: "openshift4"
+    when: cluster_major_version.stdout == "4"
+
+  - name: Set openshift_version fact for 5.x clusters
+    set_fact:
+      openshift_version: "openshift5"
+    when: cluster_major_version.stdout == "5"
+
   - name: Create CatalogSource
     template:
       src: "{{ role_path }}/templates/CatalogSource.yaml.j2"
       dest: "{{ role_path }}/files/CatalogSource.yml"
 
-  - name: Run ImageSource
-    shell: oc apply -f "{{ role_path }}/files/ImageContentSourcePolicy.yml"
+  - name: Create ImageDigestMirrorSet
+    template:
+      src: "{{ role_path }}/templates/ImageDigestMirrorSet.yaml.j2"
+      dest: "{{ role_path }}/files/ImageDigestMirrorSet.yml" 
+
+  - name: Run ImageDigestMirrorSet
+    shell: oc apply -f "{{ role_path }}/files/ImageDigestMirrorSet.yml"
      
   - name: Run CatalogSource
     shell: oc apply -f "{{ role_path }}/files/CatalogSource.yml"
  
-  - name: Check ImageSource and CatalogSource added
+  - name: Check ImageDigestMirrorSet and CatalogSource added
     shell:  oc get CatalogSource -n openshift-marketplace | grep "nfd-catalogsource" |wc -l
     register: output
 
@@ -38,20 +57,20 @@
   when: nfd_catalogsource != '' and nfd_catalogsource != None
 
 
-# Uses default ImageContentSourcePolicy and CatalogSource
+# Uses default ImageDigestMirrorSet and CatalogSource
 - name: Use Default Sources
   block: 
-  - name: Check ImageContentSourcePolicy exists
-    shell: oc get ImageContentSourcePolicy | grep brew-registry | wc -l
-    register: icsp
+  - name: Check ImageDigestMirrorSet exists
+    shell: oc get ImageDigestMirrorSet | grep nfd-images-mirror-set | wc -l
+    register: idms
 
   - name: Check CatalogSource exists
     shell:  oc get CatalogSource -n openshift-marketplace | grep "nfd-catalogsource" |wc -l
     register: output
 
-  - name: Delete ImageContentSourcePolicy if exist
-    shell: oc delete ImageContentSourcePolicy brew-registry
-    when: icsp.stdout|int == 1
+  - name: Delete ImageDigestMirrorSet if exist
+    shell: oc delete ImageDigestMirrorSet nfd-images-mirror-set
+    when: idms.stdout|int == 1
 
   - name: Delete CatalogSource if exists
     shell: oc delete CatalogSource nfd-catalogsource -n openshift-marketplace
