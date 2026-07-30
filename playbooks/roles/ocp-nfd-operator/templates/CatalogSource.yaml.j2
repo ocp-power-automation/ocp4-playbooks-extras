@@ -6,8 +6,11 @@ metadata:
   namespace: openshift-marketplace
 spec:
   sourceType: grpc
-  publisher: redhat
-  displayName: NFD Operators CatalogSource
   image: "{{ nfd_catalogsource }}"
+  displayName: Operators CatalogSource
+  publisher: Red Hat
+  updateStrategy:
+    registryPoll:
+      interval: 10m
 
 
