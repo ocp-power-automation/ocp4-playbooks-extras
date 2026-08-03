@@ -1,0 +1,35 @@
+---
+- name: Scale MachineSet to zero replicas
+  command: >
+    oc scale
+    --replicas=0
+    {{ machineset_api }}
+    {{ machineset_name }}
+    -n {{ namespace }}
+
+- name: Wait for deleting machines to complete
+  shell: |
+    oc get {{ machine_api }} -n {{ namespace }} \
+      -l machine.openshift.io/cluster-api-machineset={{ machineset_name }} \
+      -o jsonpath='{range .items[*]}{.status.phase}{"\n"}{end}' |
+      grep -c '^Deleting$' || true
+  register: deleting_count
+  until: deleting_count.stdout | int == 0
+  retries: 30
+  delay: 20
+  changed_when: false
+
+- name: Wait for MachineSet scale down
+  shell: >
+    oc get machineset {{ machineset_name }}
+    -n {{ namespace }}
+    -o jsonpath='{.status.readyReplicas}'
+  register: scaledown_status
+  until: (scaledown_status.stdout | default('0')) | int == 0
+  retries: 30
+  delay: 20
+  changed_when: false
+
+- name: Display scale down status
+  debug:
+    msg: "MachineSet scaled down successfully"
