@@ -53,3 +53,68 @@ namespace: openshift-machine-api
 desired_replicas: 1
 
 run_testcase: all
+
+
+
+---
+
+## Running All Testcases
+
+```bash
+ansible-playbook playbooks/ocp-resize-machineset.yml
+```
+
+---
+
+## Running a Single Testcase
+
+### Recommended Memory
+
+```bash
+ansible-playbook playbooks/ocp-resize-machineset.yml \
+-e run_testcase=recommended_32gb
+```
+
+### Memory 0
+
+```bash
+ansible-playbook playbooks/ocp-resize-machineset.yml \
+-e run_testcase=memory_0
+```
+
+### Memory 24GB
+
+```bash
+ansible-playbook playbooks/ocp-resize-machineset.yml \
+-e run_testcase=memory_24gb
+```
+
+### Memory 84GB
+
+```bash
+ansible-playbook playbooks/ocp-resize-machineset.yml \
+-e run_testcase=memory_84gb
+```
+
+### Negative Memory
+
+```bash
+ansible-playbook playbooks/ocp-resize-machineset.yml \
+-e run_testcase=negative_memory
+```
+
+### Negative Processor
+
+```bash
+ansible-playbook playbooks/ocp-resize-machineset.yml \
+-e run_testcase=negative_processor
+```
+
+### Invalid Maximum Values
+
+```bash
+ansible-playbook playbooks/ocp-resize-machineset.yml \
+-e run_testcase=max_invalid_values
+```
+
+---
