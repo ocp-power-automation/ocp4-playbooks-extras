@@ -1,8 +1,10 @@
 ---
-- name: Get the  MachineSet name
+- name: Get worker MachineSet name
   shell: >
-    oc get machinesets -n {{ namespace }} -o=jsonpath='{.items[0].metadata.name}'
-  register: ms_name
+    oc get machinesets -n {{ namespace }} \
+    -o=jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' |
+    grep worker | head -1
+  register: ms_name  
 
 - name: Set machineset_name
   set_fact:
