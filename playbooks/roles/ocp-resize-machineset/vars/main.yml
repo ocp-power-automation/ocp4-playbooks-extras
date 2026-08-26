@@ -1,0 +1,18 @@
+---
+machineset_api: machinesets.machine.openshift.io
+
+machine_api: machines.machine.openshift.io
+
+machine_phase_running: Running
+
+machine_phase_deleting: Deleting
+
+wait_retries: 30
+
+wait_delay: 20
+
+machine_wait_retries: 36
+
+machine_wait_delay: 60
+
+node_wait_timeout: 1800s
