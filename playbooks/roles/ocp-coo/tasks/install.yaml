@@ -4,12 +4,17 @@
   include_role:
     name: check-cluster-health
 
-- name: Get the ocp server version
-  shell: oc version | grep  "Server Version" | awk '{print $3}' | cut -d . -f 1,2
+- name: Get the OCP server version
+  ansible.builtin.shell: >
+    oc version | awk '/Server Version/{print $3}' | cut -d. -f1,2
   register: ocp_version
+  changed_when: false
+  failed_when: ocp_version.stdout | length == 0
 
-- set_fact:
-    ocp_version: "{{ ocp_version.stdout }}"
+- name: Set derived facts and paths
+  ansible.builtin.set_fact:
+    ocp_server_version: "{{ ocp_version.stdout | float }}"
+    coo_work_dir_path: "{{ coo_work_dir | default('/tmp/coo_logs', true) }}"
 
 - name: Cluster Observability Operator deployment
   block:
@@ -20,28 +25,43 @@
             name: global-secret-update
           when: coo_enable_global_secret
   
+        - name: Copy ImageContentSourcePolicy manifest (OCP < 4.13)
+          ansible.builtin.copy:
+            src: "{{ role_path }}/files/ImageContentSourcePolicy.yml"
+            dest: "{{ coo_work_dir_path }}/ImageContentSourcePolicy.yml"
+            mode: "0644"
+          when: ocp_server_version | float < 4.13
+
         - name: Run ImageContentSourcePolicy
           kubernetes.core.k8s:
             state: present
-            src:  "{{ role_path }}/files/ImageContentSourcePolicy.yml"
-          when: ocp_version | float == 4.12
+            src:  "{{ coo_work_dir_path }}/ImageContentSourcePolicy.yml"
+          when: ocp_server_version | float < 4.13
   
+        - name: Copy ImageDigestMirrorSet manifest (OCP ≥ 4.13)
+          ansible.builtin.copy:
+            src: "{{ role_path }}/files/ImageDigestMirrorSet.yml"
+            dest: "{{ coo_work_dir_path }}/ImageDigestMirrorSet.yml"
+            mode: "0644"
+          when: ocp_server_version | float >= 4.13
+
         - name: Run ImageDigestMirrorSet
           kubernetes.core.k8s:
             state: present
-            src: "{{ role_path }}/files/ImageDigestMirrorSet.yml"
-          when: ocp_version | float >= 4.13
+            src: "{{ coo_work_dir_path }}/ImageDigestMirrorSet.yml"
+          when: ocp_server_version | float >= 4.13
   
-        - name: Create CatalogSource
-          template:
+        - name: Render CatalogSource manifest from template
+          ansible.builtin.template:
             src: "{{ role_path }}/templates/CatalogSource.yaml.j2"
-            dest: "{{ role_path }}/files/CatalogSource.yml"
+            dest: "{{ coo_work_dir_path }}/CatalogSource.yml"
+            mode: "0644"
   
         # Create custom CatalogSource
         - name: Run CatalogSource
           kubernetes.core.k8s:
             state: present
-            src: "{{ role_path }}/files/CatalogSource.yml"
+            src: "{{ coo_work_dir_path }}/CatalogSource.yml"
   
         - name: Check ImageContentSourcePolicy and CatalogSource added
           shell:  oc get CatalogSource -n openshift-marketplace | grep "coo" |wc -l
@@ -51,6 +71,20 @@
           fail:
             msg: "CatalogSource not added !"
           when: output.stdout|int != 1
+          
+        - name: Wait for CatalogSource pod to be Running in openshift-marketplace
+          kubernetes.core.k8s_info:
+            api_version: v1
+            kind: Pod
+            namespace: openshift-marketplace
+            label_selectors:
+              - "olm.catalogSource={{ coo_catalogsource_name }}"
+          register: coo_cs_pod
+          until:
+            - coo_cs_pod.resources | length > 0
+            - coo_cs_pod.resources | selectattr('status.phase', 'equalto', 'Running') | list | length > 0
+          retries: 10
+          delay: 30
   
         - name: Set fact variable for Subscription
           set_fact:
@@ -142,4 +176,4 @@
       
   environment: "{{ coo_e2e_env }}"
   when: coo_operator_deploy
-    
+  
