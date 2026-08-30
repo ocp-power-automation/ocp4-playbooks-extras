@@ -1,0 +1,14 @@
+[Unit]
+Description=Local Container Registry using Crane
+After=network.target
+
+[Service]
+ExecStart={{ crane_install_dir }}/crane registry serve \
+    --insecure \
+    --disk {{ crane_data_dir }} \
+    --address {{ crane_registry_addr }}
+Restart=always
+User=root
+
+[Install]
+WantedBy=multi-user.target

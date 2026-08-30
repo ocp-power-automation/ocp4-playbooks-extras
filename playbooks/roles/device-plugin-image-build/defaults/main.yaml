@@ -1,0 +1,15 @@
+---
+# Registry
+crane_registry_port: 40000
+pdp_registry_namespace: ubi9
+pdp_image_name: power-dev-plugin
+pdp_image_tag: latest-ppc64le
+
+# Build paths
+device_plugin_workdir: /tmp/oc-dummy-device-plugin
+go_toolset_image: go-toolset
+
+# Repo
+device_plugin_repo: https://github.com/cdvultur/oc-dummy-device-plugin.git
+go_toolset_containerfile_url: >
+  https://raw.githubusercontent.com/openshift/oc-mirror/refs/heads/main/Dockerfile
