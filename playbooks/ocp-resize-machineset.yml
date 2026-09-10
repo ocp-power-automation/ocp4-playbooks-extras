@@ -1,0 +1,7 @@
+---
+- name: Validate MachineSet Resize
+  hosts: localhost
+  gather_facts: false
+
+  roles:
+    - ocp-resize-machineset

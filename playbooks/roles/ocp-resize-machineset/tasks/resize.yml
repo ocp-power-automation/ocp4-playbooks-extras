@@ -1,0 +1,105 @@
+---
+- name: Starting resize testcase
+  debug:
+    msg:
+      - "Testcase : {{ testcase.testcase }}"
+      - "Memory   : {{ testcase.memory }}"
+      - "CPU      : {{ testcase.processors }}"
+      - "Expected : {{ testcase.expected_result }}"
+
+- name: Patch MachineSet
+  shell: |
+    oc patch machineset {{ machineset_name }} \
+    -n {{ namespace }} \
+    --type merge \
+    -p '{
+      "spec": {
+        "template": {
+          "spec": {
+            "providerSpec": {
+              "value": {
+                "memoryGiB": {{ testcase.memory }},
+                "processors": "{{ testcase.processors }}"
+              }
+            }
+          }
+        }
+      }
+    }'
+  register: resize_result
+  ignore_errors: true
+
+- name: Display patch output
+  debug:
+    var: resize_result.stdout_lines
+
+- block:
+
+    - name: Scale MachineSet for negative testcase
+      command: >
+        oc scale --replicas=1
+        machineset/{{ machineset_name }}
+        -n {{ namespace }}
+
+    - name: Wait for provisioning attempt
+      pause:
+        minutes: 2
+
+    - name: Get machine phase
+      shell: |
+        oc get {{ machine_api }} -n {{ namespace }} \
+          -l machine.openshift.io/cluster-api-machineset={{ machineset_name }} \
+          -o jsonpath='{range .items[*]}{.status.phase}{"\n"}{end}'
+      register: negative_phase
+
+    - name: Display machine phase
+      debug:
+        var: negative_phase.stdout_lines
+
+    - name: Fail if machine reached Running state
+      fail:
+        msg: "Negative testcase failed because machine reached Running state"
+      when:
+        - "'Running' in negative_phase.stdout"
+
+    - name: Show negative testcase result
+      debug:
+        msg: "PASS - {{ testcase.testcase }} (Machine did not reach Running state)"
+      when:
+        - "'Running' not in negative_phase.stdout"
+
+  always:
+
+    - name: Scale MachineSet back to zero
+      command: >
+        oc scale --replicas=0
+        machineset/{{ machineset_name }}
+        -n {{ namespace }}
+
+  when: testcase.expected_result == "failure"  
+
+- name: Validate successful testcase
+  include_tasks: validate.yml
+  when:
+    - testcase.expected_result == "success"
+    - resize_result.rc == 0
+
+- name: Show successful testcase result
+  debug:
+    msg: "PASS - {{ testcase.testcase }} (Memory={{ testcase.memory }}GiB, Processor={{ testcase.processors }})"
+  when:
+    - testcase.expected_result == "success"
+    - resize_result.rc == 0
+
+- name: Show negative testcase result
+  debug:
+    msg: "PASS - {{ testcase.testcase }} (Expected failure observed)"
+  when:
+    - testcase.expected_result == "failure"
+    - resize_result.rc != 0
+
+- name: Cleanup testcase resources
+  include_tasks: cleanup.yml
+  when:
+    - testcase.expected_result == "success"
+    - resize_result.rc == 0
