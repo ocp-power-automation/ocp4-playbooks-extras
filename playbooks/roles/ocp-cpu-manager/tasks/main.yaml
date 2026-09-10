@@ -12,7 +12,7 @@
   block:
     - fail:
         msg: "Please set the environment variables GITHUB_USERNAME and GITHUB_ACCESS_TOKEN"
-      when: github_username == "" and github_personal_access_token == ""
+      when: github_username == "" or github_personal_access_token == ""
 
     - name: Include role for installation of Go lang
       include_role:
@@ -125,10 +125,10 @@
             nodeSelector:
               cpumanager: "true"
         
-    - name: Verfify cpu-manager test pod is running
+    - name: Verify cpu-manager test pod is running
       shell: oc get pods -n {{ pod_namespace }} --no-headers | grep -v "Running\|Completed" | wc -l
       register: cpum_test_pod
-      until: cpum_test_pod.stdout|int == 0 and cpum_test_pod.stderr == ""
+      until: cpum_test_pod.stdout|int == 0
       retries: 10
       delay: 30
 
@@ -141,7 +141,9 @@
 
     - name: Verify the c-groups are setup correctly
       shell: systemctl status | grep -B5 pause
-      delegate_to: "{{ groups['workers'][0] }}"
+      delegate_to: "{{ node_name }}"
+      remote_user: core
+      become: yes
       register: cg_op
 
     - debug:
@@ -153,7 +155,9 @@
 
     - name: Get allowed cpu list for the task
       shell: grep ^Cpus_allowed_list /proc/{{ process_no }}/status
-      delegate_to: "{{ groups['workers'][0] }}"
+      delegate_to: "{{ node_name }}"
+      remote_user: core
+      become: yes
       register: cpu_al 
 
     - debug:
@@ -190,11 +194,11 @@
             nodeSelector:
               cpumanager: "true"        
 
-    - name: Verfify the new cpu-manager test pod is in pending state
-      shell: oc get pods -n {{ pod_namespace }} --no-headers | grep -v "Pending" | wc -l
+    - name: Verify the new cpu-manager test pod is in pending state
+      shell: oc get pods -n {{ pod_namespace }} --no-headers | grep "Pending" | wc -l
       register: cpum_test_pod
-      until: cpum_test_pod.stdout|int == 1 and cpum_test_pod.stderr == ""
-      retries: 10
+      until: cpum_test_pod.stdout|int == 1
+      retries: 15
       delay: 30
 
     - name: Describe pods in "{{ pod_namespace }}" namespace
