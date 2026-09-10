@@ -25,6 +25,9 @@ cro_test_resource_cpu_limit: "512Mi"
 cro_test_resource_memory_limit: "2000m"
 
 
+# ocp-machine-health-check variables
+machine_health_check_enable: false
+
 # ocp-network-observability role vars
 noo_role_enable: false
 noo_deploy: false

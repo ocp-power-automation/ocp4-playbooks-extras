@@ -1,0 +1,527 @@
+---
+# tasks file for playbooks/roles/ocp-lso
+
+# Check the health of Cluster Operators
+- name: Check if cluster operators and nodes are healthy
+  include_role:
+    name: check-cluster-health
+
+# Scale the machineset and machineHealthCheck.
+- name: Check the nodes before validating the machineHealthCheck.
+  shell: oc get nodes
+  register: check_machineset
+
+- debug:   
+    msg: "{{ check_machineset.stdout_lines }}"
+
+- name: Get the machineset for machineHealthCheck.
+  shell: oc get machinesets -n openshift-machine-api -o=jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' | grep worker | head -1 
+  register: get_machineset
+
+- name: Check the machines before validating the machineHealthCheck.
+  shell: oc get machines -n openshift-machine-api
+  register: check_machines
+
+- debug:
+    msg: "{{ check_machines.stdout_lines }}"
+
+- name: Create a machineHealthCheck.
+  kubernetes.core.k8s:
+    api_version: machine.openshift.io/v1beta1
+    state: present
+    kind: MachineHealthCheck
+    name: health-check-2
+    namespace: openshift-machine-api
+    definition:
+      spec:
+        selector:
+          matchLabels:
+            machine.openshift.io/cluster-api-machine-role: worker
+            machine.openshift.io/cluster-api-machine-type: worker
+            machine.openshift.io/cluster-api-machineset: "{{ get_machineset.stdout }}"
+        unhealthyConditions:
+        - type:    "Ready"
+          timeout: "300s"
+          status: "False"
+        - type:    "Ready"
+          timeout: "300s"
+          status: "Unknown"    
+        maxUnhealthy: "2"
+        nodeStartupTimeout: "30m"
+
+- name: Check machineHealthCheck after creation.
+  kubernetes.core.k8s_info:
+    api_version: machine.openshift.io/v1beta1
+    kind: MachineHealthCheck
+    name: health-check-2
+    namespace: openshift-machine-api
+  register: check_machinehealthcheck
+
+- debug: 
+    msg: "{{ check_machinehealthcheck.resources }}"
+
+
+- name: Check currentHealthy machines for machinehealthcheck health-check-2
+  shell: oc get machinehealthcheck.machine.openshift.io/health-check-2 -n openshift-machine-api -o=jsonpath='{.items[0].status.currentHealthy}'
+  register: current_healthy  
+
+- name: Check expected machines for machinehealthcheck health-check-2
+  shell:  oc get machinehealthcheck.machine.openshift.io/health-check-2 -n openshift-machine-api -o=jsonpath='{.items[0].status.expectedMachines}'
+  register: expected_machines
+
+- name: Fail incase the currentHealthy machines are not equals to expected machines.
+  fail:
+    msg: Fail due to currentHealthy machines are not equals to expected machines.
+  when: (current_healthy.stdout | int) != (expected_machines.stdout | int)
+
+- name: "Case-1: Delete 1 node If the node for a machine is removed from the cluster, a machine health check considers the machine to be unhealthy and remediates it immediately."
+  block:
+  - name: Check all the machines are in Running state in case1.
+    shell: oc get machines -n openshift-machine-api
+    register: running_machines_case1
+
+  - debug:
+      msg: "{{ running_machines_case1.stdout_lines }}"
+
+  - name: Check the machineset in case1
+    shell: oc get machineset -n openshift-machine-api -o=jsonpath='{.items[0].status.readyReplicas}'
+    register: machineset_check_case1
+
+  - debug:
+      msg: "{{ machineset_check_case1.stdout_lines }}"
+
+  - name: Check the nodes of the cluster in case1.
+    shell: oc get nodes 
+    register: node_check_case1
+    
+  - debug:
+      msg: "{{ node_check_case1.stdout_lines }}"
+
+  - name: Get the worker nodes in case1
+    shell: oc get nodes | grep worker    
+    register: worker_nodes_case1
+
+
+  - name: Set first node name
+    set_fact:
+      first_node: "{{ (worker_nodes_case1.stdout.split()) | first }}" 
+
+  # Delete the one worker node
+  - name: Delete the first worker node in case1
+    kubernetes.core.k8s:
+      api_version: v1
+      kind: Node
+      name: "{{ first_node }}"
+      state: absent
+          
+
+  - name: Wait till the Machine resources get Deleted in case1
+    shell: oc get machines -n openshift-machine-api -o jsonpath='{.items[*].status.phase}'
+    register: deleting_status
+    until: deleting_status.stdout.find("Deleting") != -1
+    retries: 20
+    delay: 30
+
+  - name: Check if any machines are deleting in case1
+    shell: oc get machines -n openshift-machine-api
+    register: post_delete_machine_status   
+
+  - debug:
+      msg: "{{ post_delete_machine_status.stdout_lines }}"
+
+  - name: Check machineHealthcheck after deleting in case1
+    shell: oc get machinehealthcheck -n openshift-machine-api
+    register: post_delete_machinehealth_check
+
+  - debug: 
+      msg: "{{ post_delete_machinehealth_check.stdout_lines }}"
+
+  - name: Get the new machines provisioned in case1.
+    kubernetes.core.k8s_info:
+      api_version: machine.openshift.io/v1beta1
+      kind: Machine
+      namespace: openshift-machine-api
+      field_selectors:
+        - status.phase=Provisioning
+    register: provision_node
+  
+  # Wait for 120 seconds before continuing
+  - name: Sleep for 120 seconds
+    ansible.builtin.wait_for:
+      timeout: 120
+
+  - name: Check if any machines are deleting in case1
+    shell: oc get machines -n openshift-machine-api
+    register: post_sleep_machine_status
+
+  - debug:
+      msg: "{{ post_sleep_machine_status.stdout_lines }}"
+
+  - name: Filter worker nodes in Provisioning state in case1
+    shell: oc get machines -n openshift-machine-api -o jsonpath='{.items[?(@.status.phase=="Provisioning")].metadata.name}{"\n"}{.items[?(@.status.phase=="Provisioned")].metadata.name}'
+    register: provisioning_machines
+
+  - name: Show provisioning worker node names
+    debug:
+      msg: "{{ provisioning_machines.stdout }}"
+ 
+  - name: Wait for new Machine resources to have Running phase in case1
+    shell: oc wait --for=jsonpath='{.status.phase}'=Running --all --timeout=360s machines -n openshift-machine-api
+    register: result
+    until: result.stderr == ""
+    retries: 10
+    delay: 10
+
+  - name: Wait for all nodes to be in Ready state in case1
+    shell: oc wait --all --for=condition=Ready --timeout=240s nodes
+    register: ready_status
+    until: ready_status.stderr == ""
+    retries: 2
+    delay: 10
+
+
+  - name: Check currentHealthy machines for machinehealthcheck health-check-2 in case1
+    shell: oc get machinehealthcheck.machine.openshift.io/health-check-2 -n openshift-machine-api -o=jsonpath='{.status.currentHealthy}'
+    register: current_healthy_case1
+
+  - name: Check expected machines for machinehealthcheck health-check-2 in case1
+    shell:  oc get machinehealthcheck.machine.openshift.io/health-check-2 -n openshift-machine-api -o=jsonpath='{.status.expectedMachines}'
+    register: expected_machines_case1
+
+  - name: Fail incase the currentHealthy machines are not equals to expected machines.
+    fail:
+      msg: Fail due to currentHealthy machines are not equals to expected machines.
+    when: (current_healthy_case1.stdout | int) != (expected_machines_case1.stdout | int) 
+
+  - debug:
+      msg: "Case 1 is successful and new machine {{ provisioning_machines.stdout }} get provisioned after deleting the worker node."
+
+
+- name: "Case-2: Make a node in 'NotReady' state  
+  If a machine fails the health check, the machine is automatically deleted and one is created to take its place.
+  ssh to one of the worker nodes and stop the kubelet service so that it goes to 'NotReady' state."
+  block:
+    - name: Check all the machines are in Running state in case2.
+      shell: oc get machines -n openshift-machine-api
+      register: running_machines_case2
+
+
+    - debug:
+        msg: "{{ running_machines_case2.stdout_lines }}"
+
+    - name: Check the machineset in case2
+      shell: oc get machineset -n openshift-machine-api -o=jsonpath='{.items[0].status.readyReplicas}'
+      register: machineset_check_case2
+
+    - debug:
+        msg: "{{ machineset_check_case2.stdout_lines }}"
+
+    - name: Check the nodes of the cluster in case2.
+      shell: oc get nodes
+      register: node_check_case2
+
+    - debug:
+        msg: "{{ node_check_case2.stdout_lines }}"
+
+    - name: Get the worker nodes in case2
+      shell: oc get nodes | grep worker
+      register: worker_nodes_case2
+
+    - name: Set first node name
+      shell: oc get nodes -A   -o json   | jq -r '.items[]
+            | select(.metadata.name | test("worker"))
+                | [.metadata.name]    | @tsv' | head -n 1
+      register: first_node
+        
+    - name: name of first node.
+      debug: 
+        msg:  "first node is {{ first_node.stdout }}"
+
+    - name: Stop the kubelet for the {{ first_node.stdout }} in case2.
+      ansible.builtin.shell: |
+        oc debug node/{{ first_node.stdout }} -- sh -c 'chroot /host systemctl stop kubelet; echo "kubelet stopped on {{ first_node.stdout }}"'
+      register: debug_node
+      ignore_errors: yes
+    
+    - name: Debug output for kubelet stop.
+      ansible.builtin.debug:
+        var: debug_node.stdout_lines
+
+    - name: Check the nodes
+      shell: oc get nodes
+      register: ready_nodes
+
+    - debug:
+        msg: "{{ ready_nodes.stdout_lines }}"
+
+    - name: Check the node gets into NotReady state.
+      shell: oc get machines -A
+      register: notready_node
+
+    - debug:
+        msg: "The node {{ notready_node.stdout_lines }}gets into Not Ready after stopping the kubelet"
+
+    - name: Check if any machines are deleting in case2
+      shell: oc get machines -n openshift-machine-api
+      register: post_delete_machine_status_case2
+
+    - debug:
+        msg: "{{ post_delete_machine_status_case2.stdout_lines }}"
+
+    - name: Check machineHealthcheck after deleting in case2
+      shell: oc get machinehealthcheck -n openshift-machine-api
+      register: post_delete_machinehealth_check_case2
+
+    - debug:
+        msg: "{{ post_delete_machinehealth_check_case2.stdout_lines }}"
+
+    # Wait for 120 seconds before continuing
+    - name: Sleep for 120 seconds
+      ansible.builtin.wait_for:
+        timeout: 120
+
+    - name: Get machines in case2     
+      shell: oc get machines -n openshift-machine-api
+      register: after_wait
+    
+    - debug:
+        msg: "{{ after_wait.stdout_lines }}"
+
+    - name: Filter worker nodes in Provisioning state in case2
+      shell: oc get machines -n openshift-machine-api -o jsonpath='{.items[?(@.status.phase=="Provisioning")].metadata.name}{"\n"}{.items[?(@.status.phase=="Provisioned")].metadata.name}'
+      register: provisioning_machines_case2
+
+    - name: Show provisioning worker node names in case2
+      debug:
+        msg: "{{ provisioning_machines_case2.stdout }}"
+
+    - name: Wait for new Machine resources to have Running phase in case2
+      shell: oc wait --for=jsonpath='{.status.phase}'=Running --all --timeout=360s machines -n openshift-machine-api
+      register: result_case2
+      until: result_case2.stderr == ""
+      retries: 10
+      delay: 10
+
+    - name: Wait for all nodes to be in Ready state in case2
+      shell: oc wait --all --for=condition=Ready --timeout=240s nodes
+      register: ready_status_case2
+      until: ready_status_case2.stderr == ""
+      retries: 2
+      delay: 10
+
+    - name: Check currentHealthy machines for machinehealthcheck health-check-2 in case2
+      shell: oc get machinehealthcheck.machine.openshift.io/health-check-2 -n openshift-machine-api -o=jsonpath='{.status.currentHealthy}'
+      register: current_healthy_case2
+
+    - name: Check expected machines for machinehealthcheck health-check-2 in case2
+      shell:  oc get machinehealthcheck.machine.openshift.io/health-check-2 -n openshift-machine-api -o=jsonpath='{.status.expectedMachines}'
+      register: expected_machines_case2
+
+    - name: Fail incase the currentHealthy machines are not equals to expected machines in case2.
+      fail:
+        msg: Fail due to currentHealthy machines are not equals to expected machines.
+      when: (expected_machines_case2.stdout | int) != (current_healthy_case2.stdout | int) 
+
+    - debug:
+        msg: "Case 2 is successful and new machine {{ provisioning_machines_case2.stdout }} get provisioned after deleting the worker node."
+
+- name: '''Case-3: Validate the setting for "maxUnhealthy"
+  for example, If maxUnhealthy is set to 2, remediation will not be performed if 3 or more nodes are unhealthy.'''
+  block:
+    - name: Get the machineset for machineHealthCheck.
+      shell: oc get machinesets -n openshift-machine-api -o=jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' | grep worker | head -1 
+      register: get_machineset_case3
+ 
+    - name: Scale MachineSet to 5 replicas in case3
+      kubernetes.core.k8s:
+        state: patched
+        api_version: machine.openshift.io/v1beta1
+        kind: MachineSet
+        name: "{{ get_machineset_case3.stdout | trim }}"
+        namespace: openshift-machine-api
+        definition:
+          spec:
+            replicas: 5
+
+    - name: Sleep for 120 seconds
+      ansible.builtin.wait_for:
+        timeout: 120
+
+    - name: Wait for new Machine resources to have Running phase in case3
+      shell: oc wait --for=jsonpath='{.status.phase}'=Running --all --timeout=360s machines -n openshift-machine-api
+      register: result
+      until: result.stderr == ""
+      retries: 10
+      delay: 10    
+
+    - name: Wait for all nodes to be in Ready state in case3
+      shell: oc wait --all --for=condition=Ready --timeout=240s nodes
+      register: ready_status
+      until: ready_status.stderr == ""
+      retries: 2
+      delay: 10
+
+    - name: Check all the machines are in Running state in case3.
+      shell: oc get machines -n openshift-machine-api
+      register: running_machines_case3
+
+    - debug:
+        msg: "{{ running_machines_case3.stdout_lines }}"  
+
+    - name: Check the nodes in case3
+      shell: oc get nodes 
+      register: node_check_case3
+
+    - debug:
+        msg: "{{ node_check_case3.stdout_lines }}"
+
+    - name: Check machineHealthcheck after deleting in case3
+      shell: oc get machinehealthcheck -n openshift-machine-api
+      register: machinehealth_check_case3
+
+    - debug:
+        msg: "{{ machinehealth_check_case3.stdout_lines }}"
+
+    - name: Get the worker nodes in case3
+      shell: oc get nodes | grep worker
+      register: worker_nodes_case3
+
+    - name: Get the 3 worker nodes in case3
+      shell: oc get nodes -A   -o json   | jq -r '.items[]
+            | select(.metadata.name | test("worker"))
+            | [.metadata.name]    | @tsv' | head -n 3
+      register: three_nodes
+
+    - name: Stop the kubelet for the {{ three_nodes.stdout }} in case3.
+      ansible.builtin.shell: |
+        timeout 15s oc debug node/{{ item }} -- chroot /host systemctl stop kubelet 
+        echo "kubelet stopped on {{ item }}"
+      loop: "{{ three_nodes.stdout_lines }}"
+      register: debug_node
+      ignore_errors: yes
+ 
+    - name: Check the nodes after kubelet stop
+      shell: oc get nodes
+      register: check_nodes_case3
+
+    - debug:
+        msg: "{{ check_nodes_case3.stdout_lines }}"
+
+    - name: Sleep for 300 seconds
+      ansible.builtin.wait_for:
+        timeout: 300
+
+    - name: Checked the machines and nodes after sometime.
+      shell: oc get machines -n openshift-machine-api; oc get nodes 
+      register: machines_nodes_check
+
+
+    - debug: 
+        msg: "{{ machines_nodes_check.stdout_lines }}"
+  
+
+    - name: Check the machineheathCheck.
+      shell: oc get machinehealthcheck -n openshift-machine-api
+      register: machinehealthcheck_after_case3
+
+    - debug: 
+        msg: "{{ machinehealthcheck_after_case3.stdout_lines }}"
+
+    - name: Check currentHealthy machines for machinehealthcheck health-check-2 in case3 
+      shell: oc get machinehealthcheck.machine.openshift.io/health-check-2 -n openshift-machine-api -o=jsonpath='{.status.currentHealthy}'
+      register: current_healthy_case3
+
+    - name: Check expected machines for machinehealthcheck health-check-2 in case3
+      shell: oc get machinehealthcheck.machine.openshift.io/health-check-2 -n openshift-machine-api -o=jsonpath='{.status.expectedMachines}'
+      register: expected_machines_case3
+
+    - name: Fail incase the currentHealthy machines are equals to expected machines in case3.
+      fail:
+        msg: Fail due to remediation perform.
+      when: (expected_machines_case3.stdout | int) == (current_healthy_case3.stdout | int) 
+    
+    - debug:
+        msg: "Case 3 is successful no new machine get provision after stopping the kubelet of 3 or more worker node."    
+
+- name: '''Case-4: Stop the machinehealthcheck , modify the yaml to set maxUnhealthy: "4" and apply the yaml.'''
+  block:
+    - name: Modify the yaml to set maxUnhealthy 4 and apply the yaml
+      kubernetes.core.k8s:
+        state: patched
+        api_version: machine.openshift.io/v1beta1
+        kind: MachineHealthCheck
+        name: health-check-2
+        namespace: openshift-machine-api
+        definition:
+          spec:
+            maxUnhealthy: "4"
+  
+    - name: Check machineHealthcheck after  set maxUnhealthy 4 in case4 
+      shell: oc get machinehealthcheck.machine.openshift.io -A 
+      register: post_patch_machinehealth_check_case4
+    
+    - debug:
+        msg: "{{ post_patch_machinehealth_check_case4.stdout_lines }}"
+
+    - name: Check  machines  after  set maxUnhealthy 4 in case4
+      shell: oc get machines -n openshift-machine-api
+      register: post_patch_machine_status_case4
+
+    - debug:
+        msg: "{{ post_patch_machine_status_case4.stdout_lines }}"
+
+    - name: Sleep for 120 seconds
+      ansible.builtin.wait_for:
+        timeout: 120
+
+    - name: Get machines in case4 
+      shell: oc get machines -n openshift-machine-api
+      register: after_wait_machines
+
+    - debug:
+        msg: "{{ after_wait_machines.stdout_lines }}"
+
+    - name: Check the nodes in case4 
+      shell: oc get nodes
+      register: node_check_case4
+
+    - debug:
+        msg: "{{ node_check_case4.stdout_lines }}"
+
+    - name: Filter worker nodes in Provisioning state in case 4 
+      shell: oc get machines -n openshift-machine-api -o jsonpath='{.items[?(@.status.phase=="Provisioning")].metadata.name}{"\n"}{.items[?(@.status.phase=="Provisioned")].metadata.name}'
+      register: provisioning_machines_case4
+
+    - name: Show provisioning worker node names in case 4 
+      debug:
+        msg: "{{ provisioning_machines_case4.stdout }}"
+
+    - name: Wait for new Machine resources to have Running phase in case4 
+      shell: oc wait --for=jsonpath='{.status.phase}'=Running --all --timeout=360s machines -n openshift-machine-api
+      register: result_case4
+      until: result_case4.stderr == ""
+      retries: 10
+      delay: 10
+
+    - name: Wait for all nodes to be in Ready state in case4 
+      shell: oc wait --all --for=condition=Ready --timeout=240s nodes
+      register: ready_status_case4
+      until: ready_status_case4.stderr == ""
+      retries: 2
+      delay: 10
+
+    - name: Check currentHealthy machines for machinehealthcheck health-check-2 in case4 
+      shell: oc get machinehealthcheck.machine.openshift.io/health-check-2 -n openshift-machine-api -o=jsonpath='{.status.currentHealthy}'
+      register: current_healthy_case4
+
+    - name: Check expected machines for machinehealthcheck health-check-2 in case4 
+      shell:  oc get machinehealthcheck.machine.openshift.io/health-check-2 -n openshift-machine-api -o=jsonpath='{.status.expectedMachines}'
+      register: expected_machines_case4
+
+    - name: Fail incase the currentHealthy machines are not equals to expected machines in case4.
+      fail:
+        msg: Fail due to currentHealthy machines are not equals to expected machines.
+      when: (expected_machines_case4.stdout | int) != (current_healthy_case4.stdout | int) 
+
+    - debug:
+        msg: "Case 4 is successful and new machine {{ provisioning_machines_case4.stdout }} get provisioned after deleting the worker node."

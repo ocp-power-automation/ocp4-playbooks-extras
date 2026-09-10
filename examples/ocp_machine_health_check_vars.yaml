@@ -1,0 +1,2 @@
+## ocp-machine-health-check required vars
+machine_health_check_enable: false
