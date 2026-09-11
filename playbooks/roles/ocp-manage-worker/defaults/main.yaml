@@ -1,0 +1,2 @@
+namespace: openshift-machine-api
+desired_replicas: 5
