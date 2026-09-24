@@ -4,12 +4,6 @@
   include_role:
     name: check-cluster-health
 
-- name: Create a coo logs directory
-  ansible.builtin.file:
-    path: "{{ coo_work_dir }}"
-    state: directory
-    mode: '0755'
-
 - name: Deploy COO stack
   block:
     - name: Create a target namespace
@@ -258,8 +252,9 @@
     - name: Clone Distributed Tracing QE repo
       git:
         repo: "{{ distributed_tracing_qe_repo }}"
-        dest: "{{ coo_work_dir }}/distributed-tracing-console-plugin"
+        dest: "{{ coo_work_dir_path }}/distributed-tracing-console-plugin"
         version: "{{ distributed_tracing_qe_repo_branch }}"
+        force: true
 
     - name: Download and untar chainsaw
       unarchive:
@@ -267,17 +262,145 @@
         dest: "{{ chainsaw_path }}"
         remote_src: yes
 
-    - name: Run Distributed Tracing testcases
-      shell: "{{ chainsaw_path }}/chainsaw test --skip-delete {{ coo_work_dir }}/distributed-tracing-console-plugin/tests/fixtures/chainsaw-tests"
+    - name: Set chainsaw tests base path facts
+      set_fact:
+        chainsaw_tests_dir: "{{ coo_work_dir_path }}/distributed-tracing-console-plugin/tests/fixtures/chainsaw-tests"
+        tls_profile_dir: "{{ coo_work_dir_path }}/distributed-tracing-console-plugin/tests/fixtures/chainsaw-tests/tls-profile"
+
+    - name: Discover standalone chainsaw test directories
+      find:
+        paths: "{{ chainsaw_tests_dir }}"
+        file_type: directory
+        recurse: false
+      register: chainsaw_test_dirs
+
+    # ---------------------------------------------------------------
+    # Pre-render tls-profile shared files
+    #
+    # tls-profile-setup references ../tls-profile/00-install-tls-scanner.yaml
+    # and ../tls-profile/00-assert.yaml via apply/assert blocks. Chainsaw
+    # cannot resolve ($COO_NAMESPACE) in externally referenced files from
+    # step outputs, so we substitute the literal namespace up front.
+    # ---------------------------------------------------------------
+    - name: Pre-render ($COO_NAMESPACE) in tls-profile shared apply/assert files
+      replace:
+        path: "{{ item }}"
+        regexp: '\(\$COO_NAMESPACE\)'
+        replace: "{{ coo_operator_namespace }}"
+      loop:
+        - "{{ tls_profile_dir }}/00-install-tls-scanner.yaml"
+        - "{{ tls_profile_dir }}/00-assert.yaml"
+
+    - name: Pre-render bare $COO_NAMESPACE inside JMESPath join() in tls-profile shared files
+      replace:
+        path: "{{ item }}"
+        regexp: '\$COO_NAMESPACE'
+        replace: "'{{ coo_operator_namespace }}'"
+      loop:
+        - "{{ tls_profile_dir }}/00-install-tls-scanner.yaml"
+        - "{{ tls_profile_dir }}/00-assert.yaml"
+
+    # ---------------------------------------------------------------
+    # Fix relative helper path in tls-profile-* chainsaw-test.yaml files
+    #
+    # All tls-profile-* tests source tls-helpers.sh with:
+    #   . ../tls-profile/tls-helpers.sh
+    # Chainsaw runs inline script content from a temp directory, so the
+    # relative path fails. Replace with the absolute path.
+    # ---------------------------------------------------------------
+    - name: Rewrite relative tls-helpers.sh path to absolute in tls-profile-* chainsaw-test.yaml files
+      replace:
+        path: "{{ chainsaw_tests_dir }}/{{ item }}/chainsaw-test.yaml"
+        regexp: '\. \.\./tls-profile/tls-helpers\.sh'
+        replace: ". {{ tls_profile_dir }}/tls-helpers.sh"
+      loop:
+        - tls-profile-setup
+        - tls-profile-intermediate
+        - tls-profile-modern
+        - tls-profile-custom-ciphers
+        - tls-profile-old
+        - tls-profile-revert
+
+    # ---------------------------------------------------------------
+    # Run standalone tests (all dirs except tls-profile* suite)
+    # ---------------------------------------------------------------
+    - name: Delete stale hotrod-curl Jobs from prior runs
+      kubernetes.core.k8s:
+        state: absent
+        api_version: batch/v1
+        kind: Job
+        name: hotrod-curl
+        namespace: "{{ item }}"
+      loop:
+        - chainsaw-mmo-rbac
+        - chainsaw-rbac
+      ignore_errors: true
+
+    - name: Run standalone Distributed Tracing testcases
+      shell: "{{ chainsaw_path }}/chainsaw test --skip-delete {{ item.path }}"
       register: tracing_tests
+      loop: "{{ chainsaw_test_dirs.files | rejectattr('path', 'search', '/tls-profile') | sort(attribute='path') | list }}"
+      loop_control:
+        label: "{{ item.path | basename }}"
       async: 300
       poll: 30
       ignore_errors: true
 
-    - name: Save the tracing tests in a file
+    - name: Save standalone test outputs to individual files
       copy:
-        content: "{{ tracing_tests.stdout }}"
-        dest: "{{ coo_work_dir }}/tracing_tests_output.txt"
+        content: |
+          === Test: {{ item.item.path | basename }} ===
+          --- STDOUT ---
+          {{ item.stdout }}
+          --- STDERR ---
+          {{ item.stderr }}
+          --- Return Code: {{ item.rc }} ---
+        dest: "{{ coo_work_dir_path }}/tracing_tests_{{ item.item.path | basename }}.txt"
+      loop: "{{ tracing_tests.results }}"
+      loop_control:
+        label: "{{ item.item.path | basename }}"
+
+    - name: Report failed standalone chainsaw tests
+      debug:
+        msg: "FAILED standalone tests: {{ tracing_tests.results | selectattr('rc', 'ne', 0) | map(attribute='item.path') | map('basename') | list }}"
+      when: tracing_tests.results | selectattr('rc', 'ne', 0) | list | length > 0
+
+    # ---------------------------------------------------------------
+    # Run tls-profile-* suite in strict sequential order
+    #
+    # These tests share cluster state (tls-scanner pod, scaled-down
+    # operator) and must run in order:
+    #   setup → intermediate → modern → custom-ciphers → old → revert
+    # ---------------------------------------------------------------
+    - name: Run tls-profile test suite in order
+      shell: >
+        {{ chainsaw_path }}/chainsaw test --skip-delete
+        {{ chainsaw_tests_dir }}/tls-profile-setup
+        {{ chainsaw_tests_dir }}/tls-profile-intermediate
+        {{ chainsaw_tests_dir }}/tls-profile-modern
+        {{ chainsaw_tests_dir }}/tls-profile-custom-ciphers
+        {{ chainsaw_tests_dir }}/tls-profile-old
+        {{ chainsaw_tests_dir }}/tls-profile-revert
+      register: tls_profile_tests
+      async: 1200
+      poll: 30
+      ignore_errors: true
+
+    - name: Save tls-profile suite output to file
+      copy:
+        content: |
+          === Test: tls-profile suite ===
+          --- STDOUT ---
+          {{ tls_profile_tests.stdout }}
+          --- STDERR ---
+          {{ tls_profile_tests.stderr }}
+          --- Return Code: {{ tls_profile_tests.rc }} ---
+        dest: "{{ coo_work_dir_path }}/tracing_tests_tls-profile-suite.txt"
+
+    - name: Report tls-profile suite result
+      debug:
+        msg: "tls-profile suite FAILED (rc={{ tls_profile_tests.rc }})"
+      when: tls_profile_tests.rc != 0
   when: enable_distributed_tracing_uiplugin 
 
 
@@ -397,7 +520,7 @@
     - name: Clone Perses Config
       ansible.builtin.git:
         repo: "https://github.com/perses/perses-operator.git"
-        dest: "{{ coo_work_dir }}/perses-operator"
+        dest: "{{ coo_work_dir_path }}/perses-operator"
         force: true
 
     - name: Change the namespace in Perses config files
@@ -406,8 +529,8 @@
         regexp: '^(\s*)namespace:.*'
         replace: '\1namespace: "{{ coo_operator_namespace }}"'
       loop:
-        - "{{ coo_work_dir }}/perses-operator/config/samples/openshift/openshift-cluster-sample-dashboard.yaml"
-        - "{{ coo_work_dir }}/perses-operator/config/samples/openshift/thanos-querier-datasource.yaml"
+        - "{{ coo_work_dir_path }}/perses-operator/config/samples/openshift/openshift-cluster-sample-dashboard.yaml"
+        - "{{ coo_work_dir_path }}/perses-operator/config/samples/openshift/thanos-querier-datasource.yaml"
 
     - name: Create Perses Dashboard and Datasource
       k8s:
@@ -415,8 +538,8 @@
         kubeconfig: "{{ coo_e2e_env.KUBECONFIG }}"
         src: "{{ item }}"
       loop:
-        - "{{ coo_work_dir }}/perses-operator/config/samples/openshift/openshift-cluster-sample-dashboard.yaml"
-        - "{{ coo_work_dir }}/perses-operator/config/samples/openshift/thanos-querier-datasource.yaml"
+        - "{{ coo_work_dir_path }}/perses-operator/config/samples/openshift/openshift-cluster-sample-dashboard.yaml"
+        - "{{ coo_work_dir_path }}/perses-operator/config/samples/openshift/thanos-querier-datasource.yaml"
       register: perses_config
        
     - name: Fail if any failed
@@ -467,3 +590,15 @@
                 enabled: true
       when: monitoring_uiplugin.resources | selectattr('metadata.name', 'search', 'monitoring') | length == 0
   when: enable_perses_dashboard
+
+- name: Create archive on target machine
+  ansible.builtin.archive:
+    path: "{{ coo_work_dir_path }}"
+    dest: /tmp/coo_testoutput.tar.gz
+    format: gz
+
+- name: Fetch archive to Ansible controller
+  ansible.builtin.fetch:
+    src: /tmp/coo_testoutput.tar.gz
+    dest: "{{ playbook_dir }}/../../deploy/"
+    flat: true
