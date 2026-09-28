@@ -1,0 +1,6 @@
+---
+- name: Manage Kubernetes Worker Nodes
+  hosts: bastion
+  roles:
+    - ocp-manage-worker
+
