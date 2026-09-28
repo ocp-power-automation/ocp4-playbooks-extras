@@ -254,7 +254,7 @@
 
     - name: Create Hypershift Cluster Agent
       shell: |
-        hcp create cluster agent --name={{ hosted_cluster_name }} --pull-secret={{ pull_secret_file }} --infra-availability-policy {{ infra_availability_policy }} --control-plane-availability-policy=SingleReplica --agent-namespace={{ hosted_control_plane_namespace }} --ssh-key {{ ssh_pub_key }} --base-domain={{ base_domain }} --api-server-address=api.{{ hosted_cluster_name }}.{{ base_domain }} --release-image={{ ocp_release_image }} --render-sensitive --render --node-pool-replicas -1 > {{ hypershift_dir }}/render-{{ hosted_cluster_name }}.yaml
+        OPENSHIFT_INSTALL_EXPERIMENTAL_DISABLE_IMAGE_POLICY=true hcp create cluster agent --name={{ hosted_cluster_name }} --pull-secret={{ pull_secret_file }} --infra-availability-policy {{ infra_availability_policy }} --control-plane-availability-policy=SingleReplica --agent-namespace={{ hosted_control_plane_namespace }} --ssh-key {{ ssh_pub_key }} --base-domain={{ base_domain }} --api-server-address=api.{{ hosted_cluster_name }}.{{ base_domain }} --release-image={{ ocp_release_image }} --render-sensitive --render --node-pool-replicas -1 > {{ hypershift_dir }}/render-{{ hosted_cluster_name }}.yaml
       ignore_errors: true
       environment:
         PATH: "{{ hypershift_dir }}/bin:{{ ansible_env.PATH }}"
