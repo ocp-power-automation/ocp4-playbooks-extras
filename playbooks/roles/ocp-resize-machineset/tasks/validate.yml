@@ -1,0 +1,114 @@
+---
+- name: Ensure MachineSet starts from zero replicas
+  command: >
+    oc scale --replicas=0
+    machineset/{{ machineset_name }}
+    -n {{ namespace }}
+
+- name: Wait for worker2 machines to be removed
+  shell: |
+    oc get {{ machine_api }} -n {{ namespace }} \
+      -l machine.openshift.io/cluster-api-machineset={{ machineset_name }} \
+      --no-headers 2>/dev/null | wc -l
+  register: existing_machines
+
+  until: existing_machines.stdout | int == 0
+  retries: 30
+  delay: 20
+
+  changed_when: false
+
+- name: Scale MachineSet to desired replicas
+  command: >
+    oc scale
+    --replicas={{ desired_replicas }}
+    machineset/{{ machineset_name }}
+    -n {{ namespace }}
+
+- name: Wait for expected machine count
+  shell: |
+    oc get {{ machine_api }} -n {{ namespace }} \
+      -l machine.openshift.io/cluster-api-machineset={{ machineset_name }} \
+      --no-headers | wc -l
+  register: machine_count
+  until: machine_count.stdout | int == desired_replicas | int
+  retries: 20
+  delay: 180
+  changed_when: false
+
+- name: Show worker2 machine status
+  command: >
+    oc get machines.machine.openshift.io
+    -n {{ namespace }}
+    -l machine.openshift.io/cluster-api-machineset={{ machineset_name }}
+  register: machine_status
+
+- debug:
+    var: machine_status.stdout_lines
+
+- name: Wait for Running machines
+  shell: |
+    oc get {{ machine_api }} -n {{ namespace }} \
+     -l machine.openshift.io/cluster-api-machineset={{ machineset_name }} \
+      -o jsonpath='{range .items[*]}{.status.phase}{"\n"}{end}' |
+      grep -c '^Running$' || true
+  register: running_count
+  until: running_count.stdout | int == desired_replicas | int
+  retries: 30
+  delay: 120
+#  retries: "{{ machine_wait_retries }}"
+#  delay: "{{ machine_wait_delay }}"
+  changed_when: false
+
+- name: Display machine phases
+  shell: |
+    oc get machines.machine.openshift.io -n {{ namespace }} \
+    -l machine.openshift.io/cluster-api-machineset={{ machineset_name }} \
+    -o custom-columns=NAME:.metadata.name,PHASE:.status.phase --no-headers
+  register: machine_phase_output
+
+- debug:
+    var: machine_phase_output.stdout_lines
+
+
+- name: Display running machine count
+  debug:
+    msg: "Running Machines {{ running_count.stdout }}/{{ desired_replicas }}"
+
+- name: Fail if machines are not Running
+  fail:
+    msg: >
+      Machines did not reach Running state.
+      Running={{ running_count.stdout }}
+      Expected={{ desired_replicas }}
+  when: running_count.stdout | int != desired_replicas | int
+
+- name: Wait for all nodes Ready
+  shell: >
+    oc wait --all --for=condition=Ready nodes
+    --timeout={{ node_wait_timeout }}
+
+- name: Check cluster health after resize
+  include_role:
+    name: check-cluster-health
+
+- name: Display MachineSet status
+  command: oc get machinesets.machine.openshift.io -n {{ namespace }}
+  register: machineset_status
+
+- debug:
+    var: machineset_status.stdout_lines
+
+- name: Display Machine status
+  command: oc get machines.machine.openshift.io -n {{ namespace }}
+  register: machine_status
+
+- debug:
+    var: machine_status.stdout_lines
+
+- name: Display Node status
+  command: oc get nodes
+  register: node_status
+
+- debug:
+    var: node_status.stdout_lines

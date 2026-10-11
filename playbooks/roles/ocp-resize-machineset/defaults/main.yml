@@ -1,0 +1,44 @@
+---
+namespace: openshift-machine-api
+
+machineset_name: ""
+
+desired_replicas: 1
+
+run_testcase: all
+
+resize_testcases:
+  - testcase: recommended_32gb
+    memory: 32
+    processors: "0.5"
+    expected_result: success
+
+  - testcase: memory_0
+    memory: 0
+    processors: "0.5"
+    expected_result: success
+
+  - testcase: memory_24gb
+    memory: 24
+    processors: "0.5"
+    expected_result: success
+
+  - testcase: memory_84gb
+    memory: 84
+    processors: "0.5"
+    expected_result: success
+
+  - testcase: negative_memory
+    memory: -32
+    processors: "0.5"
+    expected_result: failure
+
+  - testcase: negative_processor
+    memory: 32
+    processors: "-2"
+    expected_result: failure
+
+  - testcase: max_invalid_values
+    memory: 150000
+    processors: "200"
+    expected_result: failure
