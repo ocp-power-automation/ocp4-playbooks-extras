@@ -1,0 +1,7 @@
+---
+- name: Automate KMM operator installation in OpenShift
+  hosts: bastion 
+  gather_facts: no  
+  roles:
+  - ocp-kmm
+  

@@ -1,0 +1,5 @@
+- name: Installing crane-registry
+  hosts: bastion
+  roles:
+  - crane-registry
+  
