@@ -1,0 +1,32 @@
+---
+- name: Get MachineSet name dynamically
+  shell: >
+    oc get machinesets -n {{ namespace }}
+    -o=jsonpath='{.items[0].metadata.name}'
+  register: ms_name
+  when: machineset_name == ""
+
+- name: Set MachineSet name
+  set_fact:
+    machineset_name: "{{ ms_name.stdout | trim }}"
+  when: machineset_name == ""
+
+- name: Display selected MachineSet
+  debug:
+    msg: "Using MachineSet {{ machineset_name }}"
+
+- name: Check cluster health before resize tests
+  include_role:
+    name: check-cluster-health
+
+- name: Create worker2 MachineSet if required
+  include_tasks: create_machineset.yml
+
+- name: Run resize testcases
+  include_tasks: resize.yml
+  loop: "{{ resize_testcases }}"
+  loop_control:
+    loop_var: testcase
+  when:
+    - run_testcase == "all" or run_testcase == testcase.testcase
+
