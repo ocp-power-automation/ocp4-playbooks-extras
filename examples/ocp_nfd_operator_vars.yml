@@ -3,4 +3,4 @@ ocp_nfd: false
 update_channel: ""
 nfd_instance_image_version: ""
 nfd_catalogsource: "" # quay.io/openshift-release-dev/ocp-release-nightly:iib-int-index-art-operators-4.9
-
+check_nxgzip_label: false # set to true when the cluster deployed on p10 or p11 server
