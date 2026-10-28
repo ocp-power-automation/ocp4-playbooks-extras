@@ -1,0 +1,66 @@
+---
+
+## Descheduler operator cleanup
+
+- name: Check the given namespace is correct
+  shell: "oc get namespaces | grep {{ operator_namespace }}"
+  register: namespace_output
+  ignore_errors: true
+
+- name: Operator resource cleanup block
+  block:
+    - name: Get the Subscriptions in the {{ operator_namespace }}
+      shell: oc get subscription {{ operator_subscription }} -n {{ operator_namespace }}
+      register: subscription_output
+
+    - name: Get the ClusterServiceVersion for operator
+      shell: oc get subscription {{ operator_subscription }} -n {{ operator_namespace }} -o json | jq '.status.currentCSV'
+      register: operator_csv
+      when: subscription_output.stdout != ""
+
+    - name: Get the OperatorGroups in {{ operator_namespace }}
+      shell: oc get operatorgroup {{ operator_group }} -n {{ operator_namespace }}
+      register: operatorgroup_output
+
+    - name: Delete operator Subscription
+      kubernetes.core.k8s:
+        api_version: operators.coreos.com/v1alpha1
+        kind: Subscription
+        name: "{{ operator_subscription }}"
+        namespace: "{{ operator_namespace }}"
+        state: absent
+      when: subscription_output.stdout != ""
+
+    - name: Delete Cluster Service Version
+      shell: oc delete csv {{ operator_csv.stdout }} -n {{ operator_namespace }}
+      when: operator_csv.stdout != "" or operator_csv.stdout != None
+
+    - name: Delete OperatorGroup
+      kubernetes.core.k8s:
+        api_version: operators.coreos.com/v1
+        kind: OperatorGroup
+        name: "{{ operator_group }}"
+        namespace: "{{ operator_namespace }}"
+        state: absent
+      when: operatorgroup_output.stdout != ""
+
+    - name: Verify the operator cleanup
+      shell: oc get csv -n {{ operator_namespace }}
+      register: cleanup_verification_output
+
+    - name: Delete the namespace
+      kubernetes.core.k8s:
+        api_version: v1
+        kind: Namespace
+        name: "{{ operator_namespace }}"
+        state: absent
+
+    - debug:
+        msg: "Resources cleaned up suceessfully !"
+      when: cleanup_verification_output.stdout == ""
+  when: 
+  - operator_namespace != ""
+  - operator_subscription != ""
+  - operator_group != ""
+  - namespace_output.stdout != ""
+  ignore_errors: true
