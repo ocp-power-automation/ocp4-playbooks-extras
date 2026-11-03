@@ -1,6 +1,12 @@
 ---
 - name: Clean up COO resources
   block:
+    # Delete log files and directories
+    - name: Delete log files and directories if they exist
+      file:
+        state: absent
+        path: "{{ coo_work_dir_path | default('/tmp/coo_logs/') }}"
+
     # Clean up UI Plugins
     - name: Get all UIPlugin resources
       k8s_info:
@@ -298,4 +304,3 @@
         api_version: config.openshift.io/v1
       ignore_errors: true
   when: coo_cleanup
-  

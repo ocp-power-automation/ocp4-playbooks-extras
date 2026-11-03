@@ -1,5 +1,11 @@
 ---
 
+- name: Create COO manifest directory on bastion
+  file:
+    path: "{{ coo_work_dir | default('/tmp/coo_logs', true) }}"
+    state: directory
+    mode: '0755'
+
 # tasks file for playbooks/roles/ocp-coo
 - name: Clean up COO operator and stack
   include_tasks: cleanup.yaml
