@@ -1,0 +1,5 @@
+---
+- name: Run pod affinity and pause pod test
+  hosts: bastion
+  roles:
+    - pod-affinity-test

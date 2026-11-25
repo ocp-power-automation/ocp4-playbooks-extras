@@ -1,0 +1,5 @@
+---
+#defaults file for playbooks/rokes/must-gather
+must_gather_dest: /home/must_gather_logs
+must_gather_archive: /home/must-gather-logs.tar.gz
+#must_gather_local_path: ./must-gather-logs.tar.gz

@@ -1,0 +1,79 @@
+---
+- name: Create and debug pods with node affinity
+  # hosts: bastion
+  tasks:
+
+    - name: Create PPC pod with affinity (ppc64le)
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Pod
+          metadata:
+            name: ppc-pod
+            namespace: default
+          spec:
+            affinity:
+              nodeAffinity:
+                requiredDuringSchedulingIgnoredDuringExecution:
+                  nodeSelectorTerms:
+                  - matchExpressions:
+                    - key: kubernetes.io/arch
+                      operator: In
+                      values: [ppc64le]
+            containers:
+            - name: web
+              image: registry.redhat.io/ubi8/pause
+
+    - name: Create x86 pod with affinity (amd64)
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Pod
+          metadata:
+            name: x86-pod
+            namespace: default
+          spec:
+            affinity:
+              nodeAffinity:
+                requiredDuringSchedulingIgnoredDuringExecution:
+                  nodeSelectorTerms:
+                  - matchExpressions:
+                    - key: kubernetes.io/arch
+                      operator: In
+                      values: [amd64]
+            containers:
+            - name: web
+              image: registry.redhat.io/ubi8/pause
+
+    - name: Wait for both pods to be Running
+      shell: oc get pods ppc-pod x86-pod -n default --no-headers
+      register: pod_status
+      until: "'Running' in pod_status.stdout"
+      retries: 10
+      delay: 10
+
+    - name: Show pod status
+      command: oc get pods -o wide -n default
+      register: pod_list
+      changed_when: false
+
+    - debug:
+        msg: "{{ pod_list.stdout_lines }}"
+
+    - name: Debug x86 pod (ls inside container)
+      shell: |
+        oc debug pod/x86-pod -n default -- ls
+      register: debug_x86
+
+    - debug:
+        msg: "{{ debug_x86.stdout_lines }}"
+
+    - name: Debug ppc pod (ls inside container)
+      shell: |
+        oc debug pod/ppc-pod -n default -- ls
+      register: debug_ppc
+
+    - debug:
+        msg: "{{ debug_ppc.stdout_lines }}"
