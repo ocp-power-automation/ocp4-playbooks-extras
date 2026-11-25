@@ -175,6 +175,13 @@
       dest: "{{ compliance_directory }}/openshift-tests-private"
       version: "{{ compliance_e2e_github_branch }}"
 
+  # make build patches bindata.go inside the openshift/origin module in the Go module cache,
+  # so the module has to be downloaded first (it is not on a fresh bastion)
+  - name: Download Go modules
+    shell: go mod download
+    args:
+      chdir: "{{ compliance_directory }}/openshift-tests-private"
+
   - name: Run make target
     make:
       chdir: "{{ compliance_directory }}/openshift-tests-private"
