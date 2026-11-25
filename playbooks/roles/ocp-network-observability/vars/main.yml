@@ -11,3 +11,5 @@ noo_deployment_env:
 noo_e2e_env:
   PATH: "/usr/local/go/bin:{{ ansible_env.PATH }}"
   KUBECONFIG: "{{ ansible_env.HOME }}/.kube/config"
+  QE_KUBEADMIN_PASSWORD: "{{ kubeadmin_password }}"
+  MULTISTAGE_PARAM_OVERRIDE_NETOBSERV_CS_IMAGE: "{{ noo_catalogsource_image }}"
