@@ -34,15 +34,20 @@
 
 - name: Accessing metrics outside the cluster
   block:
-    - name: Extract the secret used to retrieve the token
-      shell: "oc get secret -n openshift-user-workload-monitoring | grep  prometheus-user-workload-token | head -n 1 | awk '{ print $1 }'"
-      register: token_secret
+    - name: Get the kubeadmin password
+      shell: cat /root/openstack-upi/auth/kubeadmin-password
+      register: kubeadmin_password
 
-    - name: Extract token to connect to prometheus
-      shell: "echo $(oc get secret {{ SECRET }} -n openshift-user-workload-monitoring -o json | jq -r '.data.token') | base64 -d"
-      vars:
-        SECRET: "{{ token_secret.stdout.strip('\"') }}"
-      register: access_token
+    - name: Get the cluster API --data-urlencode
+      shell: oc get infrastructure cluster -o jsonpath='{.status.apiServerURL}'
+      register: api_url
+
+    - name: Login with the kubeadmin user
+      shell: oc login -u kubeadmin -p {{ kubeadmin_password.stdout }} {{ api_url.stdout }} --insecure-skip-tls-verify=true 
+
+    - name: Extract the token for logged-in user
+      shell: oc whoami -t
+      register: kubeadmin_token
     
     - name: Extract the thanos-querier route host
       k8s_info:
@@ -52,12 +57,18 @@
         namespace: openshift-monitoring
       register: thanos_querier_route_host
 
+    - debug:
+        msg: "Thanos Querier Route Host: {{ thanos_querier_route_host.resources[0].spec.host }}"
+
+    - debug:
+        msg: "Kubeadmin token: {{ kubeadmin_token.stdout.strip('\"') }}"
+
     - name: Query the metrics of user defined services in the command line
       shell: | 
         curl -X GET -kG "https://{{ THANOS_QUERIER_HOST }}/api/v1/query?" --data-urlencode "query=up{namespace='{{ NAMESPACE }}'}" -H "Authorization: Bearer {{ TOKEN }}"
       vars: 
         THANOS_QUERIER_HOST: "{{ thanos_querier_route_host.resources[0].spec.host }}"
-        TOKEN: "{{ access_token.stdout.strip('\"') }}"
+        TOKEN: "{{ kubeadmin_token.stdout.strip('\"') }}"
         NAMESPACE: "{{ user_defined_namespace }}"
       register: query_output
 
@@ -85,5 +96,5 @@
       shell: | 
         oc patch configmap cluster-monitoring-config \
         -n openshift-monitoring --type='json' \ 
-        -p '[{"op": "replace", "path": "/data/config.yaml", "value": "enabledUserWorkload: false\n"}]' 
+        -p '[{"op": "replace", "path": "/data/config.yaml", "value": "enableUserWorkload: false\n"}]' 
   ignore_errors: true
