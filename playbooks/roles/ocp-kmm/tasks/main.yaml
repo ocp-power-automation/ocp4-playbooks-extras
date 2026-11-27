@@ -1,0 +1,159 @@
+ # check if Cluster Health is good
+- name: Check if cluster operators and nodes are healthy
+  include_role:
+    name: check-cluster-health
+
+- name: Get worker names
+  command: oc get nodes -l node-role.kubernetes.io/worker --no-headers -o custom-columns=NAME:.metadata.name
+  register: worker_list
+
+- name: Save to worker list
+  set_fact:
+    worker: "{{ worker_list.stdout_lines }}"
+
+- name: Check if KMM (Kernel module managerment ) operator is already installed
+  shell: |
+    oc get csv -n openshift-kmm -o json | jq -r '.items[] | select(.metadata.name | test("kernel-module-management")) | .status.phase'
+  register: kmm_csv_status
+  changed_when: false
+  failed_when: false
+
+- name: Set flag if KMM is installed
+  set_fact:
+    kmm_install_req: "{{ kmm_csv_status.stdout != 'Succeeded' }}"
+
+# Creating Project for KMM
+- name: Create openshift-kmm project
+  k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: "{{ kmm_namespace }}"
+        annotations:
+          openshift.io/node-selector: 'node-role.kubernetes.io/infra='
+          openshift.io/description: "Kernel module management operator"
+          openshift.io/display-name: "Kernel module management"
+          scheduler.alpha.kubernetes.io/defaultTolerations: >-
+            [{"operator": "Exists", "effect": "NoSchedule", "key": "node-role.kubernetes.io/infra"}]
+
+- name: Switch to openshift-kmm project
+  command: oc project {{ kmm_namespace }}
+
+# Custom ImageContentSourcePolicy and CatalogSource
+- name: Create ImageContentSourcePolicy and CatalogSource
+  block:
+  - name: Include the global-secret-update role
+    include_role:
+      name: global-secret-update
+
+  - name: Create ImageContentSourcePolicy
+    k8s:
+      state: present
+      definition:
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: ImageContentSourcePolicy
+        metadata:
+          name: kmm-icsp-konflux
+        spec:
+          repositoryDigestMirrors:
+          - mirrors:
+            - registry.stage.redhat.io/kmm
+            source: registry.redhat.io/kmm
+  - name: Check if the ImageContentSourcePolicy has created
+    k8s:
+      api_version: operator.openshift.io/v1alpha1
+      kind: ImageContentSourcePolicy
+      name: kmm-icsp-konflux
+    register: imagecontentsourcepolicy_creation
+    ignore_errors: yes
+
+  - name: Fail if the ImageContentSourcePolicy has not created
+    fail:
+      msg: "ImageContentSourcePolicy not created!"
+    when: imagecontentsourcepolicy_creation.failed
+
+  - name: Create CatalogSource
+    include_role:
+      name: set-custom-catalogsource
+    vars:
+      custom_catalogsource_name: "{{ kmm_catalogsource_name }}"
+      custom_catalogsource_display_name: "Custom KMM CatalogSource"
+      custom_catalogsource_image: "{{ kmm_catalogsource_image }}"
+  when: kmm_catalogsource_image is defined or kmm_catalogsource_image != '' and kmm_catalogsource_image != None
+
+- name: Use default CatalogSource if no custom image is provided
+  set_fact:
+    kmm_catalogsource_name: "redhat-operators"
+  when: kmm_catalogsource_image is undefined or kmm_catalogsource_image == '' or kmm_catalogsource_image == None
+
+- name: Check if kmm CatalogSource exists and is READY
+  shell: >
+    oc get catalogsource {{ kmm_catalogsource_name }} -n openshift-marketplace -o jsonpath='{.status.connectionState.lastObservedState}'
+  register: kmm_catsrc_check
+  retries: 10
+  delay: 15
+  until: kmm_catsrc_check.rc == 0
+  changed_when: false
+  failed_when: kmm_catsrc_check.rc != 0
+
+- name: Debug output for KMM CatalogSource check
+  debug:
+    msg: "KMM CatalogSource '{{ kmm_catalogsource_name }}' is present and in Ready state."
+
+- name: Create OperatorGroup for KMM
+  k8s:
+    state: present
+    definition:
+      apiVersion: operators.coreos.com/v1
+      kind: OperatorGroup
+      metadata:
+        name: openshift-kmm-og
+        namespace: "{{ kmm_namespace }}"
+      spec: {}
+
+- name: Label worker nodes as infra
+  shell: oc label nodes -l node-role.kubernetes.io/worker node-role.kubernetes.io/infra= --overwrite
+  environment:
+    KUBECONFIG: "/root/.kube/config"
+  
+- name: Taint worker nodes as infra
+  shell: oc adm taint nodes -l node-role.kubernetes.io/worker node-role.kubernetes.io/infra:NoSchedule --overwrite
+  environment:
+    KUBECONFIG: "/root/.kube/config"
+
+- name: Create KMM Operator Subscription
+  k8s:
+    state: present
+    definition:
+      apiVersion: operators.coreos.com/v1alpha1
+      kind: Subscription
+      metadata:
+        name: kernel-module-management
+        namespace: "{{ kmm_namespace }}"
+      spec:
+        channel: "{{ kmm_channel }}"
+        name: kernel-module-management
+        source: "{{ kmm_catalogsource_name }}"
+        sourceNamespace: openshift-marketplace
+        installPlanApproval: Automatic
+
+- name: Check if KMM Operator CSV is in 'Succeeded' phase
+  shell: |
+    oc get csv -n {{ kmm_namespace }} --no-headers | grep kernel-module-management | grep Succeeded
+  register: csv_status
+  retries: 10
+  delay: 30
+  until: csv_status.stdout != "" and csv_status.stderr == ""
+  failed_when: csv_status.rc != 0
+
+- name: Remove all taints from all nodes
+  shell: |
+    for node in $(oc get nodes -l node-role.kubernetes.io/worker -o name); do
+      oc adm taint $node node-role.kubernetes.io/infra:NoSchedule- || true
+    done  
+
+- name: Debug KMM operator CSV status
+  debug:
+    msg: "KMM operator CSV has successfully reached 'Succeeded' state."

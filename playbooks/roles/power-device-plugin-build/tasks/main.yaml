@@ -1,0 +1,70 @@
+
+---
+- name: Ensure required tools are installed
+  dnf:
+    name:
+      - git
+      - podman
+    state: present
+
+- name: Clone oc-dummy-device-plugin repo
+  git:
+    repo: "{{ pdp_repo_url }}"
+    dest: "{{ pdp_repo_dir }}"
+    version: main
+    force: yes
+
+- name: Download Containerfile for go-toolset
+  get_url:
+    url: "https://raw.githubusercontent.com/openshift/oc-mirror/refs/heads/main/Dockerfile"
+    dest: "{{ pdp_repo_dir }}/{{ go_toolset_containerfile }}"
+    mode: '0644'
+
+- name: Build go-toolset image
+  command: >
+    podman build
+    -f {{ go_toolset_containerfile }}
+    -t {{ go_toolset_image }}
+  args:
+    chdir: "{{ pdp_repo_dir }}"
+  register: go_toolset_build
+  changed_when: "'Successfully tagged' in go_toolset_build.stdout"
+
+- name: Replace builer image with locally built go-toolset
+  replace:
+    path: "{{ pdp_repo_dir }}/Dockerfile"
+    regexp: '^FROM .* AS builder'
+    replaces: 'FROM {{ go_toolset_image }} AS builder'
+
+- name: Build power-device-plugin image (ppc64le)
+  command: >
+    podman build
+    --net={{ pdp_build_net }}
+    -f Dockerfile
+    -t localhost/{{ pdp_image_name }}:latest
+  args:
+    chdir: "{{ pdp_repo_dir }}"
+  register: pdp_build
+  changed_when: "'Successfully tagged' in pdp_build.stdout"
+
+- name: Tag image for local crane registry
+  command: >
+    podman tag
+    localhost/{{ pdp_image_name }}:latest
+    {{ crane_registry_addr }}/{{ pdp_registry_namespace }}/{{ pdp_image_name }}:{{ pdp_image_tag }}
+
+- name: Push image to local crane registry
+  command: >
+    podman push
+    {{ crane_registry_addr }}/{{ pdp_registry_namespace }}/{{ pdp_image_name }}:{{ pdp_image_tag }}
+    --tls-verify=false
+    --remove-signatures
+
+- name: Export image reference for eco tests
+  set_fact:
+    eco_hwaccel_kmm_device_plugin_image: >
+      {{ crane_registry_addr }}/{{ pdp_registry_namespace }}/{{ pdp_image_name }}:{{ pdp_image_tag }}
+
+- name: Show final device plugin image
+  debug:
+    msg: "Power device plugin image pushed: {{ eco_hwaccel_kmm_device_plugin_image }}"
